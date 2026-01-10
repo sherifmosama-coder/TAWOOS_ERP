@@ -1,0 +1,2334 @@
+<script>
+// =============================================================================
+// DISTRIBUTION PLANNING MODULE - PART 1
+// INITIALIZATION & DATA LOADING
+// =============================================================================
+
+// Global variables
+let distributionData = {
+    allOrders: [],
+    loadingOrders: [],
+    trucksData: [],
+    driversData: {},
+    driversList: [],
+    deliveryReps: [],
+    distanceMatrix: {},
+    planningDate: null,
+    orderTypeRules: {}
+};
+
+let isRegionGroupingEnabled = false;
+
+// =============================================================================
+// INITIALIZATION
+// =============================================================================
+
+function initializeDistributionPlanning() {
+    console.log('Initializing Distribution Planning');
+    setupPanelResize();
+    
+    // Set today's date as default
+    const dateInput = document.getElementById('planLoadingDate');
+    if (dateInput && !dateInput.value) {
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        dateInput.value = `${yyyy}-${mm}-${dd}`;
+        distributionData.planningDate = dateInput.value;
+    }
+    updatePlanDateDisplay();
+    
+    // Load initial data
+    loadDistributionData();
+}
+
+// =============================================================================
+// DATA LOADING
+// =============================================================================
+
+function loadDistributionData() {
+    console.log('Loading distribution data...');
+    
+    showLoadingState('ordersPanelBody', 'Loading orders...');
+    showLoadingState('loadingOrdersContainer', 'Loading plans...');
+    
+    
+    // Load all data in parallel
+    Promise.all([
+        loadAllOrders(),
+        loadTrucksData(),
+        loadDeliveryReps(),
+        loadDistanceMatrix(),
+        loadOrderTypeRules()
+    ]).then(() => {
+        console.log('All data loaded successfully');
+        renderAvailableOrders();
+        renderPlanningPanel();
+    }).catch(error => {
+        console.error('Error loading distribution data:', error);
+        showToast('Error loading data: ' + error.message, 'error');
+    });
+}
+
+
+function loadAllOrders() {
+    return new Promise((resolve, reject) => {
+        google.script.run
+            .withSuccessHandler(result => {
+                console.log('Load orders result:', result);
+                if (result && result.success) {
+                    distributionData.allOrders = result.orders || [];
+                    console.log('Loaded orders:', distributionData.allOrders.length);
+                    resolve();
+                } else {
+                    console.error('Failed to load orders:', result ? result.message : 'Unknown error');
+                    // Don't reject, just resolve with empty data
+                    distributionData.allOrders = [];
+                    resolve();
+                }
+            })
+            .withFailureHandler(error => {
+                console.error('Load orders error:', error);
+                distributionData.allOrders = [];
+                resolve(); // Resolve instead of reject to continue loading
+            })
+            .getAllUndeliveredOrders();
+    });
+}
+
+function loadTrucksData() {
+    console.log('Step 2: Loading trucks...');
+    
+    google.script.run
+        .withSuccessHandler(function(result) {
+            console.log('Trucks result:', result);
+            if (result && result.success) {
+                distributionData.trucksData = result.trucks || [];
+                
+                distributionData.driversData = {};
+                distributionData.trucksData.forEach(truck => {
+                    if (truck.name && truck.driver) {
+                        distributionData.driversData[truck.name] = truck.driver;
+                    }
+                });
+                
+                console.log('Loaded ' + distributionData.trucksData.length + ' trucks');
+            }
+            loadDriversList();
+        })
+        .withFailureHandler(function(error) {
+            console.error('Trucks error:', error);
+            loadDriversList();
+        })
+        .getTrucksData();
+}
+
+function loadDriversList() {
+    console.log('Step 2.5: Loading drivers list...');
+    
+    google.script.run
+        .withSuccessHandler(function(result) {
+            console.log('Drivers list result:', result);
+            if (result && result.success) {
+                distributionData.driversList = result.drivers || [];
+                console.log('Loaded ' + distributionData.driversList.length + ' drivers');
+            }
+            loadDeliveryReps();
+        })
+        .withFailureHandler(function(error) {
+            console.error('Drivers list error:', error);
+            loadDeliveryReps();
+        })
+        .getDriversList();
+}
+
+// Replace loadDeliveryReps:
+
+function loadDeliveryReps() {
+    return new Promise((resolve, reject) => {
+        google.script.run
+            .withSuccessHandler(result => {
+                console.log('Load delivery reps result:', result);
+                if (result && result.success) {
+                    distributionData.deliveryReps = result.reps || [];
+                    console.log('Loaded delivery reps:', distributionData.deliveryReps.length);
+                    resolve();
+                } else {
+                    console.error('Failed to load delivery reps:', result ? result.message : 'Unknown error');
+                    distributionData.deliveryReps = [];
+                    resolve();
+                }
+            })
+            .withFailureHandler(error => {
+                console.error('Load delivery reps error:', error);
+                distributionData.deliveryReps = [];
+                resolve();
+            })
+            .getDeliveryReps();
+    });
+}
+
+// Replace loadDistanceMatrix:
+
+function loadDistanceMatrix() {
+    return new Promise((resolve, reject) => {
+        google.script.run
+            .withSuccessHandler(result => {
+                console.log('Load distance matrix result:', result);
+                if (result && result.success) {
+                    distributionData.distanceMatrix = result.matrix || {};
+                    console.log('Loaded distance matrix entries:', Object.keys(distributionData.distanceMatrix).length);
+                    resolve();
+                } else {
+                    console.error('Failed to load distance matrix:', result ? result.message : 'Unknown error');
+                    distributionData.distanceMatrix = {};
+                    resolve();
+                }
+            })
+            .withFailureHandler(error => {
+                console.error('Load distance matrix error:', error);
+                distributionData.distanceMatrix = {};
+                resolve();
+            })
+            .getDistanceMatrix();
+    });
+}
+
+function loadOrderTypeRules() {
+    return new Promise((resolve, reject) => {
+        google.script.run
+            .withSuccessHandler(result => {
+                console.log('Load order type rules result:', result);
+                if (result && result.success) {
+                    distributionData.orderTypeRules = result.rules || {};
+                    console.log('Loaded order type rules:', Object.keys(distributionData.orderTypeRules).length);
+                    resolve();
+                } else {
+                    console.error('Failed to load order type rules:', result ? result.message : 'Unknown error');
+                    distributionData.orderTypeRules = {};
+                    resolve();
+                }
+            })
+            .withFailureHandler(error => {
+                console.error('Load order type rules error:', error);
+                distributionData.orderTypeRules = {};
+                resolve();
+            })
+            .getOrderTypeRules();
+    });
+}
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+function showLoadingState(containerId, message) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    
+    container.innerHTML = `
+        <div class="content-loading">
+            <div class="spinner-large"></div>
+            <p>${message}</p>
+        </div>
+    `;
+}
+
+function formatOrderId(orderId) {
+    if (!orderId) return '';
+    const str = orderId.toString();
+    return str.length >= 3 ? str.slice(0, -2) + '-' + str.slice(-2) : str;
+}
+
+// =============================================================================
+// END OF PART 1 - INITIALIZATION & DATA LOADING
+// =============================================================================
+// =============================================================================
+// DISTRIBUTION PLANNING MODULE - PART 2
+// AVAILABLE ORDERS PANEL (LEFT)
+// =============================================================================
+
+function renderAvailableOrders() {
+    const container = document.getElementById('ordersPanelBody');
+    if (!container) return;
+    
+    // Filter orders without loading order number
+    const availableOrders = distributionData.allOrders.filter(order => 
+        !order.loadingOrderNumber
+    );
+    
+    if (availableOrders.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-box-open"></i>
+                <h4>No Available Orders</h4>
+                <p>All orders have been assigned to loading orders</p>
+            </div>
+        `;
+        return;
+    }
+    
+    if (isRegionGroupingEnabled) {
+        renderAvailableOrdersGrouped(availableOrders);
+    } else {
+        renderAvailableOrdersFlat(availableOrders);
+    }
+}
+
+function renderAvailableOrdersFlat(orders) {
+    const container = document.getElementById('ordersPanelBody');
+    let html = '<div class="distribution-orders-list">';
+    
+    orders.forEach(order => {
+        html += createAvailableOrderCard(order);
+    });
+    
+    html += '</div>';
+    container.innerHTML = html;
+    
+    setupOrderCardDragHandlers();
+}
+
+function renderAvailableOrdersGrouped(orders) {
+    const container = document.getElementById('ordersPanelBody');
+    
+    // Group by region
+    const grouped = {};
+    orders.forEach(order => {
+        const region = order.clientRegion || 'No Region';
+        if (!grouped[region]) {
+            grouped[region] = [];
+        }
+        grouped[region].push(order);
+    });
+    
+    let html = '';
+    const regions = Object.keys(grouped).sort();
+    
+    regions.forEach(region => {
+        html += `
+            <div class="region-group">
+                <div class="region-group-header">
+                    <i class="fas fa-map-marker-alt"></i>
+                    <span>${region}</span>
+                    <span class="region-count">(${grouped[region].length})</span>
+                </div>
+                <div class="region-group-orders">
+        `;
+        
+        grouped[region].forEach(order => {
+            html += createAvailableOrderCard(order);
+        });
+        
+        html += `</div></div>`;
+    });
+    
+    container.innerHTML = html;
+    setupOrderCardDragHandlers();
+}
+
+function createAvailableOrderCard(order) {
+    const formattedOrderId = formatOrderId(order.orderId);
+    const statusClass = order.status ? order.status.toLowerCase().replace(/\s+/g, '') : 'notyet';
+    const isDisabled = statusClass === 'delivered' || statusClass === 'paid';
+    
+    // Check if order is dimmed (loading date doesn't match plan date, but not delivered/paid)
+    const hasDateMismatch = order.loadingDate && order.loadingDate !== distributionData.planningDate;
+    const isDimmed = !isDisabled && hasDateMismatch;
+    
+    // Status icon
+    const statusIcons = {
+        'notyet': '<i class="fas fa-circle"></i>',
+        'prepare': '<i class="fas fa-hourglass-half"></i>',
+        'shipped': '<i class="fas fa-truck"></i>',
+        'delivered': '<i class="fas fa-check"></i>',
+        'paid': '<i class="fas fa-hand-holding-usd"></i>'
+    };
+    
+    // Invoice date
+    // Invoice date - editable with visible input
+        let invoiceDateBadge = '';
+        if (order.invoiceDate) {
+            const dateParts = order.invoiceDate.split('-');
+            const dateObj = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const shortDate = `${dateObj.getDate()} ${months[dateObj.getMonth()]}`;
+            invoiceDateBadge = `
+            <span class="invoice-date-badge-editable" title="Invoice Date (click to edit)">
+                <i class="fas fa-file-invoice"></i>
+                <input type="date" 
+                       class="invoice-date-input-visible" 
+                       value="${order.invoiceDate}" 
+                       data-order-id="${order.orderId}"
+                       onclick="event.stopPropagation()"
+                       onchange="handleOrderInvoiceDateChange(this)">
+            </span>`;
+    } else {
+        invoiceDateBadge = `
+            <span class="invoice-date-badge-editable" title="Set Invoice Date">
+                <i class="fas fa-file-invoice"></i>
+                <input type="date" 
+                       class="invoice-date-input-visible" 
+                       value="" 
+                       data-order-id="${order.orderId}"
+                       onclick="event.stopPropagation()"
+                       onchange="handleOrderInvoiceDateChange(this)">
+            </span>`;
+        }
+    
+    // Loading date - editable input with date value
+    let loadingDateBadge = '';
+    if (order.loadingDate) {
+        const dateParts = order.loadingDate.split('-');
+        const dateObj = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        // const shortDate = `${dateObj.getDate()} ${months[dateObj.getMonth()]}`;
+        const warningIcon = hasDateMismatch ? '<i class="fas fa-exclamation-triangle"></i> ' : '';
+        loadingDateBadge = `
+            <span class="loading-date-badge ${hasDateMismatch ? 'warning' : ''}" title="Loading Date: ${order.loadingDate}">
+                ${warningIcon}<i class="fas fa-truck"></i>
+                <input type="date" 
+                      class="loading-date-input" 
+                      value="${order.loadingDate}" 
+                      data-order-id="${order.orderId}"
+                      onclick="event.stopPropagation()"
+                      onchange="handleOrderLoadingDateChange(this)">
+            </span>`;
+    } else {
+        loadingDateBadge = `
+            <span class="loading-date-badge" title="Set Loading Date">
+                <i class="fas fa-truck"></i> No Date
+                <input type="date" 
+                      class="loading-date-input" 
+                      value="" 
+                      data-order-id="${order.orderId}"
+                      onclick="event.stopPropagation()"
+                      onchange="handleOrderLoadingDateChange(this)">
+            </span>`;
+    }
+    
+    // Distance badge
+    const distance = order.distanceFromBase || 0;
+    const distanceColor = distance < 20 ? 'green' : distance < 50 ? 'yellow' : 'red';
+    
+    return `
+        <div class="dist-order-card ${isDisabled ? 'disabled' : ''} ${isDimmed ? 'dimmed-order' : ''}" 
+             data-order-id="${order.orderId}"
+             data-client-name="${order.clientName}"
+             data-client-region="${order.clientRegion || ''}"
+             data-distance="${distance}"
+             data-weight="${order.totalWeight || 0}"
+             draggable="${!isDisabled}">
+            <div class="dist-status-icon ${statusClass}">
+                ${statusIcons[statusClass] || statusIcons['notyet']}
+            </div>
+            <div class="dist-order-info">
+                <div class="dist-order-header">
+                    <span class="dist-order-id">${formattedOrderId}</span>
+                <div class="dist-client-name" title="${order.clientName}">${order.clientName}</div>
+                </div>
+                    <div class="dist-order-badges">
+                        ${loadingDateBadge}
+                        ${invoiceDateBadge}
+                    </div>
+                ${order.clientRegion ? `<div class="dist-client-region"><i class="fas fa-map-marker-alt"></i> ${order.clientRegion}</div>` : ''}
+                <div class="dist-order-meta">
+                    <span class="weight-badge" title="Total Weight: ${order.totalWeight || 0} kg">
+                        <i class="fas fa-weight-hanging"></i> ${order.totalWeight || 0} kg
+                    </span>
+                    <span class="distance-badge ${distanceColor}" title="Distance from Base: ${distance} km">
+                        <i class="fas fa-map-marker-alt"></i> ${distance} km
+                    </span>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function handleLoadingDateChange() {
+    const dateInput = document.getElementById('planLoadingDate');
+    if (!dateInput) return;
+    
+    const oldDate = distributionData.planningDate;
+    const newDate = dateInput.value;
+    
+    distributionData.planningDate = newDate;
+    updatePlanDateDisplay();
+    console.log('Planning date changed from', oldDate, 'to', newDate);
+    
+    // Remove empty NEW boxes (keep only those with content)
+    distributionData.loadingOrders = distributionData.loadingOrders.filter(lo => {
+        const hasContent = lo.truck || lo.driver || lo.deliveryRep || 
+                          (lo.orders && lo.orders.length > 0);
+        
+        // Keep if: (1) has content, OR (2) is from database
+        return hasContent || lo.isFromDatabase;
+    });
+    
+    // Update NEW boxes with content to use new plan date
+    distributionData.loadingOrders.forEach(lo => {
+        if (!lo.isFromDatabase && lo.orders && lo.orders.length > 0) {
+            // This is a NEW LO with orders - assign to new plan date
+            lo.loadingDate = newDate;
+            
+            // Update orders' loading dates too
+            lo.orders.forEach(order => {
+                order.loadingDate = newDate;
+            });
+        }
+    });
+    
+    // Re-render everything
+    renderAvailableOrders();
+    renderPlanningPanel();
+}
+
+function handleOrderLoadingDateChange(inputElement) {
+    const orderId = inputElement.dataset.orderId;
+    const newDate = inputElement.value;
+    
+    // Find order in allOrders
+    const order = distributionData.allOrders.find(o => o.orderId === orderId);
+    if (order) {
+        order.loadingDate = newDate;
+        console.log(`Updated loading date for order ${orderId} to ${newDate}`);
+        
+        // Re-render to update styling and grouping
+        renderAvailableOrders();
+        
+        // If order is in a loading order, refresh planning panel
+        if (order.loadingOrderNumber) {
+            renderPlanningPanel();
+        }
+    }
+}
+
+function setupOrderCardDragHandlers() {
+    const cards = document.querySelectorAll('.dist-order-card:not(.disabled)');
+    
+    cards.forEach(card => {
+        card.addEventListener('dragstart', function(e) {
+            const orderData = {
+                orderId: this.dataset.orderId,
+                clientName: this.dataset.clientName,
+                clientRegion: this.dataset.clientRegion,
+                distance: parseFloat(this.dataset.distance),
+                weight: parseFloat(this.dataset.weight),
+                fromAvailablePanel: true
+            };
+            
+            e.dataTransfer.effectAllowed = 'copy';
+            e.dataTransfer.setData('application/json', JSON.stringify(orderData));
+            e.dataTransfer.setData('text/plain', JSON.stringify(orderData)); // For distance checker
+            this.classList.add('dragging');
+        });
+        
+        card.addEventListener('dragend', function(e) {
+            this.classList.remove('dragging');
+        });
+    });
+}
+
+function toggleRegionGrouping() {
+    isRegionGroupingEnabled = !isRegionGroupingEnabled;
+    renderAvailableOrders();
+}
+
+// =============================================================================
+// END OF PART 2 - AVAILABLE ORDERS PANEL
+// =============================================================================
+// =============================================================================
+// DISTRIBUTION PLANNING MODULE - PART 3
+// PLANNING PANEL (RIGHT) - RENDERING
+// =============================================================================
+
+function renderPlanningPanel() {
+    // Filter: orders with LO AND (not delivered/paid OR date matches plan)
+    const planDate = distributionData.planningDate;
+    const ordersWithLO = distributionData.allOrders.filter(o => {
+        if (!o.loadingOrderNumber) return false;
+        
+        const status = o.status ? o.status.toLowerCase() : '';
+        const notDeliveredOrPaid = status !== 'delivered' && status !== 'paid';
+        const dateMatchesExactly = o.loadingDate === planDate || o.invoiceDate === planDate;
+        
+        return notDeliveredOrPaid || dateMatchesExactly;
+    });
+    
+// Group by (Loading Date + LO Number) combination
+const grouped = {};
+ordersWithLO.forEach(order => {
+    const groupKey = `${order.loadingDate || 'no-date'}_${order.loadingOrderNumber}`;
+    
+    if (!grouped[groupKey]) {
+        // Find existing LO data to preserve state (if modified in current session)
+        const existingLO = distributionData.loadingOrders.find(lo => 
+            lo.loadingOrderNumber === order.loadingOrderNumber && 
+            lo.loadingDate === order.loadingDate
+        );
+        
+        // If existing LO with modifications, use its state
+        // Otherwise, initialize as SAVED (from database)
+        grouped[groupKey] = {
+            loadingOrderNumber: order.loadingOrderNumber,
+            loadingDate: order.loadingDate,
+            truck: existingLO ? existingLO.truck : (order.truck || ''),
+            driver: existingLO ? existingLO.driver : (order.driver || ''),
+            deliveryRep: existingLO ? existingLO.deliveryRep : (order.deliveryRep || ''),
+            status: order.status || '',
+            orders: [],
+            // Store sheet dismiss number for validation
+            sheetDismissNumber: order.dismissNumber || '',
+            // State tracking for SAVED/EDITED/NEW detection
+            isFromDatabase: true,  // Loaded from backend
+            savedOrderIds: [],
+            // Store original values for comparison
+            originalTruck: order.truck || '',
+            originalDriver: order.driver || '',
+            originalDeliveryRep: order.deliveryRep || '',
+            originalStatus: order.status || '',
+            originalLoadingOrderNumber: order.loadingOrderNumber
+        };
+    }
+    
+    grouped[groupKey].orders.push(order);
+});
+    
+    // Convert to array and sort by loading date, then LO number
+    distributionData.loadingOrders = Object.values(grouped).sort((a, b) => {
+        // First sort by loading date
+        if (a.loadingDate && b.loadingDate) {
+            const dateCompare = a.loadingDate.localeCompare(b.loadingDate);
+            if (dateCompare !== 0) return dateCompare;
+        } else if (a.loadingDate) {
+            return -1;
+        } else if (b.loadingDate) {
+            return 1;
+        }
+        
+        // Then sort by LO number
+        return a.loadingOrderNumber - b.loadingOrderNumber;
+    });
+    
+    // Store saved order IDs for each LO
+    distributionData.loadingOrders.forEach((lo) => {
+        lo.savedOrderIds = lo.orders.map(o => o.orderId);
+    });
+    
+    renderLoadingOrderBoxes();
+}
+
+function getLoadingOrderState(loadingOrder, index) {
+    // Check if this LO is from database
+    if (!loadingOrder.isFromDatabase) {
+        return 'NEW';
+    }
+    
+    // It's from database, check if edited
+    const currentLO = distributionData.loadingOrders[index];
+    
+    // Compare truck, driver, deliveryRep, status
+    const truckChanged = currentLO.truck !== loadingOrder.originalTruck;
+    const driverChanged = currentLO.driver !== loadingOrder.originalDriver;
+    const repChanged = currentLO.deliveryRep !== loadingOrder.originalDeliveryRep;
+    const statusChanged = currentLO.status !== loadingOrder.originalStatus;
+    
+    // Compare order IDs
+    const currentOrderIds = (currentLO.orders || []).map(o => o.orderId).sort().join(',');
+    const originalOrderIds = (loadingOrder.savedOrderIds || []).sort().join(',');
+    const ordersChanged = currentOrderIds !== originalOrderIds;
+    
+    // If anything changed, it's EDITED
+    if (truckChanged || driverChanged || repChanged || ordersChanged || statusChanged) {
+        return 'EDITED';
+    }
+    
+    return 'SAVED';
+}
+
+function markLoadingOrderAsEdited(boxIndex) {
+    if (boxIndex < distributionData.loadingOrders.length) {
+        distributionData.loadingOrders[boxIndex].isEdited = true;
+        renderLoadingOrderBoxes();
+    }
+}
+
+
+// NEW: Move loading order up
+function moveLoadingOrderUp(index) {
+    if (index <= 0) return;
+    
+    const currentLO = distributionData.loadingOrders[index];
+    const aboveLO = distributionData.loadingOrders[index - 1];
+    
+    const currentState = getLoadingOrderState(currentLO, index);
+    const aboveState = getLoadingOrderState(aboveLO, index - 1);
+    
+    // Check if either is SAVED
+    if (currentState === 'SAVED' || aboveState === 'SAVED') {
+        showCustomConfirm(
+            'Reorder Loading Orders',
+            'This will mark the loading order(s) as Edited. Continue?',
+            true,
+            () => {
+                // Mark both as edited
+                if (currentState === 'SAVED') markLoadingOrderAsEdited(index);
+                if (aboveState === 'SAVED') markLoadingOrderAsEdited(index - 1);
+                
+                // Swap
+                [distributionData.loadingOrders[index], distributionData.loadingOrders[index - 1]] = 
+                [distributionData.loadingOrders[index - 1], distributionData.loadingOrders[index]];
+                
+                renderLoadingOrderBoxes();
+            }
+        );
+    } else {
+        // Just swap
+        [distributionData.loadingOrders[index], distributionData.loadingOrders[index - 1]] = 
+        [distributionData.loadingOrders[index - 1], distributionData.loadingOrders[index]];
+        
+        renderLoadingOrderBoxes();
+    }
+}
+
+// NEW: Move loading order down
+function moveLoadingOrderDown(index) {
+    if (index >= distributionData.loadingOrders.length - 1) return;
+    
+    const currentLO = distributionData.loadingOrders[index];
+    const belowLO = distributionData.loadingOrders[index + 1];
+    
+    const currentState = getLoadingOrderState(currentLO, index);
+    const belowState = getLoadingOrderState(belowLO, index + 1);
+    
+    // Check if either is SAVED
+    if (currentState === 'SAVED' || belowState === 'SAVED') {
+        showCustomConfirm(
+            'Reorder Loading Orders',
+            'This will mark the loading order(s) as Edited. Continue?',
+            true,
+            () => {
+                // Mark both as edited
+                if (currentState === 'SAVED') markLoadingOrderAsEdited(index);
+                if (belowState === 'SAVED') markLoadingOrderAsEdited(index + 1);
+                
+                // Swap
+                [distributionData.loadingOrders[index], distributionData.loadingOrders[index + 1]] = 
+                [distributionData.loadingOrders[index + 1], distributionData.loadingOrders[index]];
+                
+                renderLoadingOrderBoxes();
+            }
+        );
+    } else {
+        // Just swap
+        [distributionData.loadingOrders[index], distributionData.loadingOrders[index + 1]] = 
+        [distributionData.loadingOrders[index + 1], distributionData.loadingOrders[index]];
+        
+        renderLoadingOrderBoxes();
+    }
+}
+
+function renderLoadingOrderBoxes() {
+    const container = document.getElementById('loadingOrdersContainer');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    const planDate = distributionData.planningDate;
+    
+    // Separate matching and non-matching LOs (with content only)
+    const matchingLOs = [];
+    const nonMatchingLOs = [];
+    
+    distributionData.loadingOrders.forEach((loadingOrder, originalIndex) => {
+        // Skip empty LOs (will be replaced by auto-generated empty box)
+        const hasContent = loadingOrder.truck || loadingOrder.driver || loadingOrder.deliveryRep || 
+                          (loadingOrder.orders && loadingOrder.orders.length > 0);
+        if (!hasContent) return;
+        
+        const loDate = loadingOrder.loadingDate || planDate;
+        const hasDateMismatch = loDate !== planDate;
+        
+        loadingOrder.originalIndex = originalIndex;
+        
+        // Calculate dismiss number for ALL non-empty LOs
+        if (loadingOrder.orders && loadingOrder.orders.length > 0) {
+            loadingOrder.calculatedDismissNumber = calculateDismissNumber(loDate, loadingOrder.loadingOrderNumber);
+            
+            // Validate against sheet value
+            const validation = validateDismissNumber(
+                loadingOrder.calculatedDismissNumber,
+                loadingOrder.sheetDismissNumber
+            );
+            loadingOrder.dismissValidation = validation;
+        } else {
+            loadingOrder.calculatedDismissNumber = '';
+            loadingOrder.dismissValidation = { valid: true, mismatch: false };
+        }
+        
+        if (hasDateMismatch) {
+            nonMatchingLOs.push(loadingOrder);
+        } else {
+            matchingLOs.push(loadingOrder);
+        }
+    });
+    
+    // Render matching LOs (plan date group)
+    matchingLOs.forEach((loadingOrder, index) => {
+        loadingOrder.loadingOrderNumber = index + 1;
+        const box = createLoadingOrderBox(loadingOrder, loadingOrder.originalIndex);
+        container.appendChild(box);
+    });
+    
+    // ALWAYS add one empty box at bottom for next LO
+    const nextNumber = matchingLOs.length + 1;
+    const emptyBox = createLoadingOrderBox(null, distributionData.loadingOrders.length);
+    container.appendChild(emptyBox);
+    
+    // Add separator and non-matching LOs
+    if (nonMatchingLOs.length > 0) {
+        const separator = document.createElement('div');
+        separator.className = 'lo-section-separator';
+        separator.innerHTML = `
+            <div class="separator-line"></div>
+            <div class="separator-label">
+                <i class="fas fa-calendar-times"></i>
+                Other Loading Dates
+            </div>
+            <div class="separator-line"></div>
+        `;
+        container.appendChild(separator);
+        
+        nonMatchingLOs.forEach((loadingOrder) => {
+            const box = createLoadingOrderBox(loadingOrder, loadingOrder.originalIndex);
+            container.appendChild(box);
+        });
+    }
+}
+
+// =============================================================================
+// PART 2: UPDATED LOADING ORDER BOX WITH STATE BADGES & UP/DOWN BUTTONS
+// =============================================================================
+
+function createLoadingOrderBox(loadingOrder, index) {
+const isExisting = loadingOrder !== null;
+    const loNumber = isExisting ? loadingOrder.loadingOrderNumber : getNextLoadingOrderNumber();
+    const truck = isExisting ? loadingOrder.truck : '';
+    const driver = isExisting ? loadingOrder.driver : '';
+    const deliveryRep = isExisting ? loadingOrder.deliveryRep : '';
+    const status = isExisting ? (loadingOrder.status || '') : '';
+    const dismissNumber = isExisting ? (loadingOrder.calculatedDismissNumber || '') : '';
+    const dismissMismatch = isExisting && loadingOrder.dismissValidation && loadingOrder.dismissValidation.mismatch;
+    
+    // Determine loading date display
+    let loadingDate = '';
+    let displayPlanDate = false;
+    
+    if (isExisting) {
+        const actualLoadingDate = loadingOrder.orders && loadingOrder.orders.length > 0 
+            ? loadingOrder.orders[0].loadingDate 
+            : '';
+        
+        // Check if this LO matches plan date
+        if (actualLoadingDate === distributionData.planningDate || !actualLoadingDate) {
+            // Matches plan date or no date (new) → show plan date
+            loadingDate = distributionData.planningDate;
+            displayPlanDate = true;
+        } else {
+            // Different date → show actual date
+            loadingDate = actualLoadingDate;
+            displayPlanDate = false;
+        }
+    }
+    const orders = isExisting ? loadingOrder.orders : [];
+    const hasContent = truck || driver || deliveryRep || orders.length > 0;
+    const isDisabled = isExisting && loadingOrder.hasDeliveredOrPaid;
+    
+    // Check if this LO has date mismatch (not matching plan date)
+    const hasDateMismatch = loadingDate && loadingDate !== distributionData.planningDate;
+    
+    // Get state
+    const state = isExisting ? getLoadingOrderState(loadingOrder, index) : 'NEW';
+    
+    const box = document.createElement('div');
+    box.className = `loading-order-box state-${state.toLowerCase()} ${isDisabled ? 'disabled' : ''} ${hasDateMismatch ? 'dimmed-lo' : ''}`;
+    box.dataset.index = index;
+    box.dataset.hasDateMismatch = hasDateMismatch;
+    
+    const totalWeight = orders.reduce((sum, o) => sum + (parseFloat(o.totalWeight) || 0), 0);
+    const avgDistance = calculateAverageDistance(orders);
+    const truckCapacity = getTruckCapacity(truck);
+    const weightPercent = truckCapacity > 0 ? (totalWeight / truckCapacity) * 100 : 0;
+    const weightColor = weightPercent > 100 ? 'red' : weightPercent > 80 ? 'yellow' : 'green';
+    
+    box.innerHTML = `
+        <div class="loading-order-header-row">
+            <div class="lo-header-date-display">
+                ${loadingDate ? `
+                    <span class="lo-header-date ${displayPlanDate ? 'plan-date' : ''} ${hasDateMismatch ? 'mismatch' : ''}" 
+                          title="${displayPlanDate ? 'Plan Date' : 'Loading Date'}">
+                        ${hasDateMismatch ? '<i class="fas fa-exclamation-triangle"></i> ' : ''}<i class="fas fa-truck"></i> ${formatDateToReadable(loadingDate)}
+                    </span>
+                ` : `
+                    <span class="lo-header-date plan-date" title="Plan Date">
+                        <i class="fas fa-truck"></i> ${formatDateToReadable(distributionData.planningDate)}
+                    </span>
+                `}
+                ${dismissNumber ? `
+                    <span class="lo-dismiss-badge-header ${dismissMismatch ? 'mismatch' : ''}" 
+                          title="Dismiss Number${dismissMismatch ? ' (Mismatch with sheet!)' : ''}">
+                        <i class="fas fa-arrow-up"></i> ${dismissNumber}
+                        ${dismissMismatch ? '<i class="fas fa-exclamation-triangle"></i>' : ''}
+                    </span>
+                ` : ''}
+            </div>
+            
+            ${hasContent && !hasDateMismatch ? `
+                <button class="btn-reorder-top" onclick="moveLoadingOrderUp(${index})" 
+                        ${index === 0 ? 'disabled' : ''} title="Move Up">
+                    <i class="fas fa-chevron-up"></i>
+                </button>
+            ` : '<div class="btn-reorder-spacer"></div>'}
+            
+            <div class="lo-number-badge state-${state.toLowerCase()}">
+                <span class="lo-number">#${loNumber}</span>
+                <span class="lo-state-label">${state}</span>
+            </div>
+            
+            ${hasContent && !hasDateMismatch ? `
+                <button class="btn-reorder-bottom" onclick="moveLoadingOrderDown(${index})" 
+                        ${index >= distributionData.loadingOrders.length - 1 ? 'disabled' : ''} title="Move Down">
+                    <i class="fas fa-chevron-down"></i>
+                </button>
+            ` : '<div class="btn-reorder-spacer"></div>'}
+        </div>
+        
+        <div class="loading-order-content">
+            ${hasContent ? `
+                <div class="loading-order-status-buttons" id="statusButtons-${index}">
+                    ${createStatusButtons(status, isDisabled, index)}
+                </div>
+            ` : ''}
+            
+            <div class="loading-order-orders">
+                ${!isDisabled ? `
+                    <div class="order-selector">
+                        <i class="fas fa-plus-circle"></i>
+                        <select class="form-control-compact" id="orderSelect-${index}">
+                            <option value="">Add Order</option>
+                        </select>
+                    </div>
+                ` : ''}
+                
+                <div class="orders-chips-container" id="ordersChips-${index}">
+                    ${orders.map((order, orderIdx) => createOrderChip(order, index, orderIdx, isDisabled, loadingOrder)).join('')}
+                </div>
+            </div>
+            <div class="loading-order-main">
+                <div class="loading-order-fields">
+                    <div class="field-row">
+                        <div class="field-compact required">
+                            <i class="fas fa-truck field-icon"></i>
+                            <select class="form-control-compact" id="truck-${index}" ${isDisabled ? 'disabled' : ''}>
+                                <option value=""></option>
+                                ${(distributionData.trucksData || []).map(t => 
+                                    `<option value="${t.name}" ${truck === t.name ? 'selected' : ''}>${t.name}</option>`
+                                ).join('')}
+                            </select>
+                        </div>
+                        
+                        <div class="field-compact required" style="position: relative;">
+                            <i class="fas fa-user field-icon"></i>
+                            <select class="form-control-compact" id="driver-${index}" ${isDisabled ? 'disabled' : ''}>
+                                <option value=""></option>
+                                ${(distributionData.driversList || []).map(d => 
+                                    `<option value="${d}" ${driver === d ? 'selected' : ''}>${d}</option>`
+                                ).join('')}
+                            </select>
+                            <span class="driver-validation-indicator" id="driverIndicator-${index}" style="position: absolute; right: -30px; top: 50%; transform: translateY(-50%);">
+                                ${getDriverIndicator(truck, driver)}
+                            </span>
+                        </div>
+                        
+                        <div class="field-compact">
+                            <i class="fas fa-user-tie field-icon"></i>
+                            <select class="form-control-compact" id="deliveryRep-${index}" ${isDisabled ? 'disabled' : ''}>
+                                <option value=""></option>
+                                ${(distributionData.deliveryReps || []).map(rep => 
+                                    `<option value="${rep}" ${deliveryRep === rep ? 'selected' : ''}>${rep}</option>`
+                                ).join('')}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                ${hasContent ? `
+                    <div class="loading-order-stats">
+                        <div class="stat-item">
+                            <i class="fas fa-weight-hanging"></i>
+                            <span class="weight-indicator ${weightColor}">${totalWeight.toFixed(1)} / ${truckCapacity} kg</span>
+                        </div>
+                        ${orders.length > 1 ? `
+                            <div class="stat-item">
+                                <i class="fas fa-route"></i>
+                                <span>Avg: ${avgDistance.toFixed(1)} km</span>
+                            </div>
+                        ` : ''}
+                    </div>
+                ` : ''}
+            </div>
+            
+        </div>
+    `;
+    
+    setTimeout(() => {
+        setupLoadingOrderBoxHandlers(index, isDisabled);
+    }, 0);
+    
+    return box;
+}
+
+// UPDATE: createStatusButtons with color highlighting
+function createStatusButtons(currentStatus, isDisabled, index) {
+  console.log('Creating status buttons - currentStatus:', currentStatus, 'type:', typeof currentStatus);
+    const statuses = [
+        { value: '', icon: 'fa-circle', label: 'Not Yet', color: '#6c757d' },
+        { value: 'Prepare', icon: 'fa-hourglass-half', label: 'Prepare', color: '#ffc107' },
+        { value: 'Shipped', icon: 'fa-truck', label: 'Shipped', color: '#17a2b8' },
+        { value: 'Delivered', icon: 'fa-check', label: 'Delivered', color: '#28a745' },
+        { value: 'Paid', icon: 'fa-hand-holding-usd', label: 'Paid', color: '#007bff' }
+    ];
+    
+    // Default to "Not Yet" (index 0) if no status
+    const normalizedStatus = currentStatus || '';
+    let currentIndex = statuses.findIndex(s => s.value === normalizedStatus);
+    if (currentIndex === -1) {
+    currentIndex = 0;
+    }
+    
+    return statuses.map((s, i) => {
+        // Treat empty/null status as "Not Yet" (first button)
+        const normalizedCurrent = currentStatus || '';
+        const isActive = s.value === normalizedCurrent;
+        const canSelect = !isDisabled && (i === currentIndex - 1 || i === currentIndex || i === currentIndex + 1);
+        const btnClass = isActive ? 'active' : (canSelect ? 'selectable' : 'disabled');
+        
+        return `
+            <button class="status-btn ${btnClass}" 
+                    data-status="${s.value}" 
+                    data-index="${index}"
+                    style="${isActive ? `border-color: ${s.color}; background: ${s.color}15;` : ''}"
+                    ${!canSelect ? 'disabled' : ''}
+                    onclick="changeLoadingOrderStatus(${index}, '${s.value}')">
+                <i class="fas ${s.icon}" style="${isActive ? `color: ${s.color};` : ''}"></i>
+                <span style="${isActive ? `color: ${s.color};` : ''}">${s.label}</span>
+            </button>
+        `;
+    }).join('');
+}
+
+function getDriverIndicator(truck, driver) {
+    if (!driver) {
+        return '<i class="fas fa-exclamation"></i>';
+    }
+    
+    if (!truck) {
+        return '<i class="fas fa-exclamation"></i>';
+    }
+    
+    // Check if driver matches truck
+    const expectedDriver = distributionData.driversData[truck];
+    
+    if (expectedDriver && driver === expectedDriver) {
+        // Match
+        return '<i class="fas fa-check" style="color: white;"></i>';
+    } else {
+        // Mismatch (manual override)
+        return '<i class="fas fa-check" style="color: white;"></i>';
+    }
+}
+
+function updateDriverIndicator(index) {
+    const truckSelect = document.getElementById(`truck-${index}`);
+    const driverSelect = document.getElementById(`driver-${index}`);
+    const indicator = document.getElementById(`driverIndicator-${index}`);
+    
+    if (!indicator || !truckSelect || !driverSelect) return;
+    
+    const truck = truckSelect.value;
+    const driver = driverSelect.value;
+    
+    // Remove all classes
+    indicator.className = 'driver-validation-indicator';
+    
+    if (!driver) {
+        indicator.classList.add('missing');
+        indicator.innerHTML = '<i class="fas fa-exclamation"></i>';
+    } else if (!truck) {
+        indicator.classList.add('missing');
+        indicator.innerHTML = '<i class="fas fa-exclamation"></i>';
+    } else {
+        const expectedDriver = distributionData.driversData[truck];
+        
+        if (expectedDriver && driver === expectedDriver) {
+            indicator.classList.add('match');
+            indicator.innerHTML = '<i class="fas fa-check"></i>';
+        } else {
+            indicator.classList.add('mismatch');
+            indicator.innerHTML = '<i class="fas fa-check"></i>';
+        }
+    }
+}
+
+function changeLoadingOrderStatus(index, newStatus) {
+    if (index < distributionData.loadingOrders.length) {
+        const lo = distributionData.loadingOrders[index];
+        const currentState = getLoadingOrderState(lo, index);
+        
+        // Mark as edited only if currently SAVED
+        if (currentState === 'SAVED') {
+            markLoadingOrderAsEdited(index);
+        }
+        
+        lo.status = newStatus;
+        renderLoadingOrderBoxes();
+    }
+}
+
+function createOrderChip(order, loIndex, orderIdx, isDisabled, loadingOrder) {
+    const formattedOrderId = formatOrderId(order.orderId);
+    
+    // Normalize dates for comparison (remove time component)
+    const normalizeDateString = (dateStr) => {
+        if (!dateStr) return null;
+        // If already in YYYY-MM-DD format, return as is
+        if (typeof dateStr === 'string' && dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            return dateStr;
+        }
+        // If Date object, convert to YYYY-MM-DD
+        if (dateStr instanceof Date) {
+            return dateStr.toISOString().split('T')[0];
+        }
+        return dateStr;
+    };
+    
+    const orderLoadingDate = normalizeDateString(order.loadingDate);
+    const orderInvoiceDate = normalizeDateString(order.invoiceDate);
+    // Use LO loading date, fallback to plan date if undefined
+    const loLoadingDate = normalizeDateString(loadingOrder.loadingDate) || normalizeDateString(distributionData.planningDate);
+    
+    // Check date mismatches
+    const loadingDateMismatch = orderLoadingDate && loLoadingDate && orderLoadingDate !== loLoadingDate;
+    const invoiceDateMismatch = orderInvoiceDate && loLoadingDate && orderInvoiceDate !== loLoadingDate;
+    const hasAnyWarning = loadingDateMismatch || invoiceDateMismatch;
+    
+    // Format dates helper
+    const formatShortDate = (dateStr) => {
+        if (!dateStr) return '';
+        const dateParts = dateStr.split('-');
+        const dateObj = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return `${dateObj.getDate()} ${months[dateObj.getMonth()]}`;
+    };
+    
+    const invoiceDateDisplay = formatShortDate(order.invoiceDate);
+    const loadingDateDisplay = formatShortDate(order.loadingDate);
+    
+    return `
+        <div class="order-chip ${isDisabled ? 'disabled' : ''}" 
+             draggable="${!isDisabled}"
+             data-order-id="${order.orderId}"
+             data-lo-index="${loIndex}"
+             ondragstart="handleChipDragStart(event, ${loIndex}, '${order.orderId}')">
+            <div class="chip-main">
+                <span class="chip-text">${formattedOrderId}</span>
+                ${!isDisabled ? `<span class="chip-remove" onclick="removeOrderFromLoadingOrder(${loIndex}, '${order.orderId}')"><i class="fas fa-times-circle"></i></span>` : ''}
+            </div>
+            <div class="chip-details">
+                <span class="chip-client-name" title="${order.clientName || ''}">${order.clientName || 'No Client'}</span>
+                <div class="chip-dates">
+                    ${loadingDateDisplay ? `<span class="chip-date-item ${loadingDateMismatch ? 'mismatch' : ''}" title="${loadingDateMismatch ? 'Loading date does not match LO date' : 'Loading date'}">
+                        ${loadingDateMismatch ? '<i class="fas fa-exclamation-circle"></i> ' : ''}<i class="fas fa-truck"></i> ${loadingDateDisplay}
+                    </span>` : ''}
+                    ${invoiceDateDisplay ? `<span class="chip-date-item ${invoiceDateMismatch ? 'mismatch' : ''}" title="${invoiceDateMismatch ? 'Invoice date does not match LO date' : 'Invoice date'}">
+                        ${invoiceDateMismatch ? '<i class="fas fa-exclamation-circle"></i> ' : ''}<i class="fas fa-file-invoice"></i> ${invoiceDateDisplay}
+                    </span>` : ''}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function getNextLoadingOrderNumber() {
+    const planDate = distributionData.planningDate;
+    
+    // Get LOs matching plan date only
+    const matchingLOs = distributionData.loadingOrders.filter(lo => {
+        const loDate = lo.loadingDate || planDate;
+        return loDate === planDate;
+    });
+    
+    if (matchingLOs.length === 0) return 1;
+    
+    const maxNum = Math.max(...matchingLOs.map(lo => lo.loadingOrderNumber));
+    return maxNum + 1;
+}
+
+function getTruckCapacity(truckName) {
+    const truck = distributionData.trucksData.find(t => t.name === truckName);
+    return truck ? (truck.capacity || 0) : 0;
+}
+
+function calculateAverageDistance(orders) {
+    if (orders.length <= 1) return 0;
+    
+    const regions = orders.map(o => o.clientRegion).filter(r => r);
+    if (regions.length <= 1) return 0;
+    
+    let totalDistance = 0;
+    let count = 0;
+    
+    for (let i = 0; i < regions.length; i++) {
+        for (let j = i + 1; j < regions.length; j++) {
+            const distance = getDistanceBetweenRegions(regions[i], regions[j]);
+            if (distance > 0) {
+                totalDistance += distance;
+                count++;
+            }
+        }
+    }
+    
+    return count > 0 ? totalDistance / count : 0;
+}
+
+function getDistanceBetweenRegions(region1, region2) {
+    if (!region1 || !region2) return 0;
+    const key = `${region1}-${region2}`;
+    const reverseKey = `${region2}-${region1}`;
+    return distributionData.distanceMatrix[key] || distributionData.distanceMatrix[reverseKey] || 0;
+}
+
+// =============================================================================
+// END OF PART 3 - PLANNING PANEL RENDERING
+// =============================================================================
+// =============================================================================
+// DISTRIBUTION PLANNING MODULE - PART 4
+// EVENT HANDLERS & BOX MANAGEMENT
+// =============================================================================
+
+function setupLoadingOrderBoxHandlers(index, isDisabled) {
+    if (isDisabled) return;
+    
+    // Truck change
+    const truckSelect = document.getElementById(`truck-${index}`);
+    if (truckSelect) {
+        truckSelect.onchange = function() {
+            handleTruckChange(index, this.value);
+            updateDriverIndicator(index);
+        };
+    }
+    
+    const driverSelect = document.getElementById(`driver-${index}`);
+    if (driverSelect) {
+        driverSelect.onchange = function() {
+            updateLoadingOrderField(index, 'driver', this.value);
+            updateDriverIndicator(index);
+        };
+    }
+    
+    // Delivery rep change
+    const repSelect = document.getElementById(`deliveryRep-${index}`);
+    if (repSelect) {
+        repSelect.onchange = function() {
+            updateLoadingOrderField(index, 'deliveryRep', this.value);
+        };
+    }
+    
+    // Order select
+    const orderSelect = document.getElementById(`orderSelect-${index}`);
+    if (orderSelect) {
+        populateOrderSelect(index);
+        orderSelect.onchange = function() {
+            if (this.value) {
+                addOrderToLoadingOrder(index, this.value);
+                this.value = '';
+            }
+        };
+    }
+    
+    // Chips container drop
+    const chipsContainer = document.getElementById(`ordersChips-${index}`);
+    if (chipsContainer) {
+        chipsContainer.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            this.classList.add('drag-over');
+        });
+        
+        chipsContainer.addEventListener('dragleave', function(e) {
+            if (e.target === this) {
+                this.classList.remove('drag-over');
+            }
+        });
+        
+        chipsContainer.addEventListener('drop', function(e) {
+            handleChipDrop(e, index);
+        });
+    }
+    
+    // Chip remove buttons
+    const removeButtons = document.querySelectorAll(`#ordersChips-${index} .chip-remove`);
+    removeButtons.forEach(btn => {
+        btn.onclick = function(e) {
+            e.stopPropagation();
+            const chip = this.closest('.order-chip');
+            const orderId = chip.dataset.orderId;
+            removeOrderFromLoadingOrder(index, orderId);
+        };
+    });
+    
+    // Chip drag
+    const chips = document.querySelectorAll(`#ordersChips-${index} .order-chip:not(.disabled)`);
+    chips.forEach(chip => {
+        chip.addEventListener('dragstart', function(e) {
+            const orderData = findOrderInLoadingOrders(this.dataset.orderId);
+            if (orderData) {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('application/json', JSON.stringify({
+                    orderId: orderData.orderId,
+                    clientName: orderData.clientName,
+                    sourceBoxIndex: index,
+                    fromPlanningPanel: true
+                }));
+                this.classList.add('dragging');
+            }
+        });
+        
+        chip.addEventListener('dragend', function(e) {
+            this.classList.remove('dragging');
+        });
+    });
+}
+
+function updatePlanDateDisplay() {
+    const dateInput = document.getElementById('planLoadingDate');
+    const displaySpan = document.getElementById('planDateValue');
+    const weekdaySpan = document.getElementById('planDateWeekday');
+    
+    if (!dateInput || !displaySpan || !weekdaySpan) return;
+    
+    const dateValue = dateInput.value;
+    if (!dateValue) {
+        displaySpan.textContent = 'Select Date';
+        weekdaySpan.textContent = '';
+        weekdaySpan.className = 'plan-date-weekday weekday';
+        return;
+    }
+    
+    const parts = dateValue.split('-');
+    const dateObj = new Date(parts[0], parts[1] - 1, parts[2]);
+    
+    const day = dateObj.getDate();
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = monthNames[dateObj.getMonth()];
+    const year = dateObj.getFullYear().toString().slice(-2);
+    
+    displaySpan.textContent = `${day} ${month} ${year}`;
+    
+    // Weekday
+    const weekdayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const weekday = weekdayNames[dateObj.getDay()];
+    weekdaySpan.textContent = weekday.toUpperCase();
+    
+    // Badge color
+    weekdaySpan.className = 'plan-date-weekday';
+    if (weekday === 'Fri') {
+        weekdaySpan.classList.add('friday');
+    } else if (weekday === 'Sat') {
+        weekdaySpan.classList.add('saturday');
+    } else {
+        weekdaySpan.classList.add('weekday');
+    }
+}
+
+function handleOrderInvoiceDateChange(inputElement) {
+    const orderId = inputElement.dataset.orderId;
+    const newDate = inputElement.value;
+    
+    console.log(`Invoice date change detected for order ${orderId}: ${newDate}`);
+    
+    // Find order in allOrders
+    const order = distributionData.allOrders.find(o => o.orderId === orderId);
+    if (order) {
+        order.invoiceDate = newDate;
+        order.invoiceDateChanged = true; // Mark as changed
+        console.log(`Marked order ${orderId} as invoiceDateChanged = true`);
+        
+        // Re-render available orders panel
+        renderAvailableOrders();
+        
+        // If order is in a loading order, update it there too
+        distributionData.loadingOrders.forEach(lo => {
+            if (lo.orders) {
+                const orderInLO = lo.orders.find(o => o.orderId === orderId);
+                if (orderInLO) {
+                    orderInLO.invoiceDate = newDate;
+                    orderInLO.invoiceDateChanged = true;
+                    console.log(`Updated invoice date in LO #${lo.loadingOrderNumber}`);
+                }
+            }
+        });
+        
+        renderLoadingOrderBoxes();
+    } else {
+        console.error(`Order ${orderId} not found in allOrders`);
+    }
+}
+
+function handleTruckChange(boxIndex, truckName) {
+    markLoadingOrderAsEdited(boxIndex);
+    updateLoadingOrderField(boxIndex, 'truck', truckName);
+    
+    const driver = distributionData.driversData[truckName] || '';
+    const driverSelect = document.getElementById(`driver-${boxIndex}`);
+    if (driverSelect) {
+        driverSelect.value = driver;
+        updateLoadingOrderField(boxIndex, 'driver', driver);
+    }
+    
+    renderLoadingOrderBoxes();
+}
+
+function updateLoadingOrderField(boxIndex, field, value) {
+    if (boxIndex < distributionData.loadingOrders.length) {
+        distributionData.loadingOrders[boxIndex][field] = value;
+    }
+}
+
+function populateOrderSelect(boxIndex) {
+    const select = document.getElementById(`orderSelect-${boxIndex}`);
+    if (!select) return;
+    
+    // Get available orders (left panel only)
+    const availableOrders = distributionData.allOrders.filter(order => 
+        !order.loadingOrderNumber && 
+        order.status.toLowerCase() !== 'delivered' && 
+        order.status.toLowerCase() !== 'paid'
+    );
+    
+    select.innerHTML = '<option value="">Add Order</option>';
+    availableOrders.forEach(order => {
+        const option = document.createElement('option');
+        option.value = order.orderId;
+        option.textContent = `${order.orderId} - ${order.clientName}`;
+        select.appendChild(option);
+    });
+}
+
+function findOrderInLoadingOrders(orderId) {
+    for (let lo of distributionData.loadingOrders) {
+        const order = lo.orders.find(o => o.orderId === orderId);
+        if (order) return order;
+    }
+    return null;
+}
+
+function findOrderInAllOrders(orderId) {
+    return distributionData.allOrders.find(o => o.orderId === orderId);
+}
+
+function addOrderToLoadingOrder(boxIndex, orderId) {
+    const order = findOrderInAllOrders(orderId);
+    if (!order) return;
+    
+    // Check if already in another loading order
+    const existingLO = distributionData.loadingOrders.find(lo => 
+        lo.orders && lo.orders.some(o => o.orderId === orderId)
+    );
+    
+    if (existingLO) {
+        showToast('Order already assigned to another loading order', 'warning');
+        return;
+    }
+    
+    // Update order with plan date and next LO number
+    order.loadingDate = distributionData.planningDate;
+    
+    // Add to loading order
+    if (boxIndex < distributionData.loadingOrders.length) {
+        // Adding to existing LO
+        const lo = distributionData.loadingOrders[boxIndex];
+        lo.orders.push(order);
+        order.loadingOrderNumber = lo.loadingOrderNumber;
+        
+        // Set LO date to plan date if not set
+        if (!lo.loadingDate) {
+            lo.loadingDate = distributionData.planningDate;
+        }
+        
+        markLoadingOrderAsEdited(boxIndex);
+    } else {
+        // Create new LO (this is the empty box)
+        const newLO = {
+            loadingOrderNumber: getNextLoadingOrderNumber(),
+            loadingDate: distributionData.planningDate,
+            truck: '',
+            driver: '',
+            deliveryRep: '',
+            orders: [order],
+            hasDeliveredOrPaid: false,
+            isFromDatabase: false,
+            savedOrderIds: null
+        };
+        distributionData.loadingOrders.push(newLO);
+        order.loadingOrderNumber = newLO.loadingOrderNumber;
+    }
+    
+    // Re-render both panels
+    renderAvailableOrders();
+    renderLoadingOrderBoxes(); // This will auto-create new empty box
+}
+
+function removeOrderFromLoadingOrder(boxIndex, orderId) {
+    if (boxIndex >= distributionData.loadingOrders.length) return;
+    
+    const loadingOrder = distributionData.loadingOrders[boxIndex];
+    const orderIndex = loadingOrder.orders.findIndex(o => o.orderId === orderId);
+    
+    if (orderIndex === -1) return;
+    
+    // Remove from loading order
+    loadingOrder.orders.splice(orderIndex, 1);
+    
+    // Update in allOrders
+    const order = findOrderInAllOrders(orderId);
+    if (order) {
+        order.loadingOrderNumber = null;
+        
+        // Mark this order for status reset when saving
+        if (!distributionData.ordersToReset) {
+            distributionData.ordersToReset = [];
+        }
+        distributionData.ordersToReset.push(orderId);
+    }
+    
+    // If loading order is now empty, remove it
+    if (loadingOrder.orders.length === 0 && 
+        !loadingOrder.truck && 
+        !loadingOrder.driver && 
+        !loadingOrder.deliveryRep) {
+        distributionData.loadingOrders.splice(boxIndex, 1);
+    }
+    markLoadingOrderAsEdited();
+    renderAvailableOrders();
+    renderLoadingOrderBoxes();
+}
+
+function handleChipDrop(e, targetBoxIndex) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.classList.remove('drag-over');
+    
+    try {
+        const data = JSON.parse(e.dataTransfer.getData('application/json'));
+        
+        if (data.fromAvailablePanel) {
+            // From left panel
+            addOrderToLoadingOrder(targetBoxIndex, data.orderId);
+        } else if (data.fromPlanningPanel) {
+            // From another loading order box
+            const sourceBoxIndex = data.sourceBoxIndex;
+            if (sourceBoxIndex === targetBoxIndex) return;
+            
+            // Remove from source
+            removeOrderFromLoadingOrder(sourceBoxIndex, data.orderId);
+            
+            // Add to target
+            addOrderToLoadingOrder(targetBoxIndex, data.orderId);
+        }
+    } catch (err) {
+        console.error('Drop error:', err);
+    }
+}
+
+// Box reordering
+let draggedBoxIndex = null;
+
+function handleBoxDragStart(e) {
+    draggedBoxIndex = parseInt(this.dataset.index);
+    e.dataTransfer.effectAllowed = 'move';
+    this.classList.add('dragging-box');
+}
+
+function handleBoxDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (!this.classList.contains('dragging-box')) {
+        this.classList.add('drag-over-box');
+    }
+}
+
+function handleBoxDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    this.classList.remove('drag-over-box');
+    
+    const targetIndex = parseInt(this.dataset.index);
+    if (draggedBoxIndex === null || draggedBoxIndex === targetIndex) return;
+    
+    // Reorder
+    const [draggedItem] = distributionData.loadingOrders.splice(draggedBoxIndex, 1);
+    distributionData.loadingOrders.splice(targetIndex, 0, draggedItem);
+    
+    renderLoadingOrderBoxes();
+}
+
+function handleBoxDragEnd(e) {
+    this.classList.remove('dragging-box');
+    document.querySelectorAll('.loading-order-box').forEach(box => {
+        box.classList.remove('drag-over-box');
+    });
+    draggedBoxIndex = null;
+}
+
+// =============================================================================
+// END OF PART 4 - EVENT HANDLERS & BOX MANAGEMENT
+// =============================================================================
+// =============================================================================
+// DISTRIBUTION PLANNING MODULE - PART 5
+// ACTIONS & UTILITIES
+// =============================================================================
+
+// =============================================================================
+// SAVE & RESET ACTIONS
+// =============================================================================
+
+function resetSaveButtonState(success = true) {
+    const saveBtn = document.getElementById('btnSavePlan');
+    if (saveBtn) {
+        saveBtn.classList.remove('loading');
+        saveBtn.disabled = false;
+        const btnText = saveBtn.querySelector('span');
+        const btnIcon = saveBtn.querySelector('i');
+        
+        if (btnIcon) {
+            btnIcon.classList.remove('fa-spinner', 'fa-spin');
+            btnIcon.classList.add('fa-save');
+        }
+        
+        if (btnText) {
+            btnText.textContent = currentLang === 'en' ? 'Save' : 'حفظ';
+        }
+    }
+}
+
+function saveLoadingOrders() {
+    console.log('Saving distribution plan...');
+    
+    // Set loading state on Save button
+    const saveBtn = document.getElementById('btnSavePlan');
+    if (saveBtn) {
+        saveBtn.classList.add('loading');
+        saveBtn.disabled = true;
+        const btnText = saveBtn.querySelector('span');
+        const btnIcon = saveBtn.querySelector('i');
+        if (btnText) btnText.textContent = currentLang === 'en' ? 'Saving...' : 'جاري الحفظ...';
+        if (btnIcon) {
+            btnIcon.classList.remove('fa-save');
+            btnIcon.classList.add('fa-spinner', 'fa-spin');
+        }
+    }
+    
+    showSaveProgress();
+    updateSaveProgress('validate', 'active');
+    // Get all loading orders with content
+    const loadingOrdersToSave = distributionData.loadingOrders.filter((lo, index) => {
+        if (!lo.orders || lo.orders.length === 0) {
+            return false; // Skip empty LOs
+        }
+        
+        // Check state
+        const state = getLoadingOrderState(lo, index);
+        
+        // Save if: NEW, EDITED, or SAVED with changes (status/position)
+        if (state === 'NEW' || state === 'EDITED') {
+            return true;
+        }
+        
+        // For SAVED LOs, check if status changed or position changed
+        if (state === 'SAVED') {
+            const statusChanged = lo.status !== lo.originalStatus;
+            const positionChanged = lo.loadingOrderNumber !== lo.originalLoadingOrderNumber;
+            return statusChanged || positionChanged;
+        }
+        
+        return false;
+    });
+
+    // Get orders that were removed (need status reset)
+    const ordersToReset = distributionData.ordersToReset || [];
+    
+    // Collect loading date changes from available orders (left panel)
+    const loadingDateChanges = distributionData.allOrders
+        .filter(o => o.loadingDateChanged && !o.loadingOrderNumber)
+        .map(o => ({
+            orderId: o.orderId,
+            rowIndex: o.rowIndex,
+            loadingDate: o.loadingDate
+        }));
+    
+    if (loadingOrdersToSave.length === 0 && ordersToReset.length === 0 && loadingDateChanges.length === 0) {
+        updateSaveProgress('validate', 'error');
+        resetSaveButtonState(false);
+        setTimeout(() => {
+            hideSaveProgress();
+            showCustomConfirm(
+                'No changes to save',
+                'Please create at least one loading order, remove orders, or update loading dates',
+                false
+            );
+        }, 500);
+        return;
+    }
+    
+    // Validate required fields
+    for (let lo of loadingOrdersToSave) {
+        if (!lo.truck) {
+            updateSaveProgress('validate', 'error');
+            resetSaveButtonState(false);
+            setTimeout(() => {
+                hideSaveProgress();
+                showCustomConfirm('Validation Error', `Loading Order #${lo.loadingOrderNumber}: Truck is required`, false);
+            }, 500);
+            return;
+        }
+        
+        if (!lo.driver) {
+            updateSaveProgress('validate', 'error');
+            resetSaveButtonState(false);
+            setTimeout(() => {
+                hideSaveProgress();
+                showCustomConfirm('Validation Error', `Loading Order #${lo.loadingOrderNumber}: Driver is required`, false);
+            }, 500);
+            return;
+        }
+        
+        if (lo.orders.length === 0) {
+            updateSaveProgress('validate', 'error');
+            resetSaveButtonState(false);
+            setTimeout(() => {
+                hideSaveProgress();
+                showCustomConfirm('Validation Error', `Loading Order #${lo.loadingOrderNumber}: At least one order is required`, false);
+            }, 500);
+            return;
+        }
+    }
+    
+    // Validation complete
+    updateSaveProgress('validate', 'complete');
+    updateSaveProgress('checking', 'active');
+    
+    // Check for LOs with content but "Not Yet" status
+    const notYetLOs = [];
+    for (let lo of loadingOrdersToSave) {
+        const status = lo.status || '';
+        if (status === '' || status.toLowerCase() === 'not yet') {
+            notYetLOs.push(lo.loadingOrderNumber);
+        }
+    }
+    
+    if (notYetLOs.length > 0) {
+        updateSaveProgress('checking', 'complete');
+        hideSaveProgress();
+        
+        const loList = notYetLOs.map(num => `#${num}`).join(', ');
+        showCustomConfirm(
+            'Status Not Set to "Prepare"',
+            `The following Loading Orders have orders and delivery info but status is still "Not Yet":\n\nLoading Orders: ${loList}\n\nOrders will remain in "Not Yet" status and will NOT be processed for delivery.\n\nDo you want to continue anyway?`,
+            true,
+            () => {
+                showSaveProgress();
+                updateSaveProgress('validate', 'complete');
+                updateSaveProgress('checking', 'complete');
+                continueDistributionSave(loadingOrdersToSave, ordersToReset, loadingDateChanges, null);
+            },
+            () => {
+                // Cancelled - reset button state
+                resetSaveButtonState(false);
+            }
+        );
+        return;
+    }
+    
+    // No "Not Yet" warnings, continue with save
+    continueDistributionSave(loadingOrdersToSave, ordersToReset, loadingDateChanges, null);
+}
+
+function continueDistributionSave(loadingOrdersToSave, ordersToReset, loadingDateChanges, invoiceDateChanges) {
+    updateSaveProgress('checking', 'active');
+    
+    console.log('=== SAVE DEBUG ===');
+    console.log('Orders in allOrders with invoiceDateChanged flag:');
+    distributionData.allOrders.forEach(order => {
+        if (order.invoiceDateChanged) {
+            console.log(`  - Order ${order.orderId}: invoiceDate=${order.invoiceDate}, flag=${order.invoiceDateChanged}`);
+        }
+    });
+    
+    // If invoiceDateChanges not provided, collect them
+    if (!invoiceDateChanges) {
+        invoiceDateChanges = [];
+        
+        distributionData.allOrders.forEach(order => {
+            if (order.invoiceDateChanged) {
+                console.log(`Collecting invoice date change for order ${order.orderId}: ${order.invoiceDate}`);
+                invoiceDateChanges.push({
+                    orderId: order.orderId,
+                    invoiceDate: order.invoiceDate || ''
+                });
+            }
+        });
+        
+        console.log(`Total invoice date changes to save: ${invoiceDateChanges.length}`);
+    }
+    
+    // Prepare data
+    const dataToSave = [];
+    let hasMismatch = false;
+    let mismatchMessage = '';
+    let hasDateChanges = false;
+    let dateChangeMessage = '';
+
+    for (let lo of loadingOrdersToSave) {
+        // Get LO state - skip date change confirmation for SAVED LOs
+        const loState = getLoadingOrderState(lo, loadingOrdersToSave.indexOf(lo));
+        const isSavedLO = loState === 'SAVED';
+        
+        // Check loading date matches (only for NEW or EDITED LOs)
+        // Compare orders against LO's loading date, not plan date
+        if (!isSavedLO) {
+            const loLoadingDate = lo.loadingDate || distributionData.planningDate;
+            const mismatchedOrders = lo.orders.filter(o => 
+                o.loadingDate && o.loadingDate !== loLoadingDate
+            );
+
+            if (mismatchedOrders.length > 0) {
+                hasMismatch = true;
+                const orderIds = mismatchedOrders.map(o => formatOrderId(o.orderId)).join(', ');
+                mismatchMessage += `Loading Order #${lo.loadingOrderNumber}: Orders ${orderIds}\n`;
+                
+                // Build date change message
+                hasDateChanges = true;
+                dateChangeMessage += `\nLoading Order #${lo.loadingOrderNumber}:\n`;
+                mismatchedOrders.forEach(order => {
+                    const oldDate = formatDateToReadable(order.loadingDate);
+                    const newDate = formatDateToReadable(loLoadingDate);
+                    dateChangeMessage += `  • ${order.clientName}: ${oldDate} → ${newDate}\n`;
+                });
+            }
+        }
+
+        dataToSave.push({
+            loadingOrderNumber: lo.loadingOrderNumber,
+            truck: lo.truck,
+            driver: lo.driver,
+            deliveryRep: lo.deliveryRep || '',
+            status: lo.status || '',
+            orderIds: lo.orders.map(o => o.orderId),
+            loadingDate: lo.loadingDate || distributionData.planningDate
+        });
+    }
+    
+    // Show date change confirmation if there are mismatches
+    if (hasDateChanges) {
+        updateSaveProgress('checking', 'complete');
+        hideSaveProgress();
+        showCustomConfirm(
+            'Confirm Loading Date Changes',
+            `The following orders will have their loading dates updated:${dateChangeMessage}\nDo you want to proceed?`,
+            true,
+            () => {
+                showSaveProgress();
+                updateSaveProgress('validate', 'complete');
+                updateSaveProgress('checking', 'complete');
+                proceedWithDistributionSave(dataToSave, ordersToReset, loadingDateChanges, invoiceDateChanges);
+            },
+            () => {
+                // Cancelled - do nothing
+            }
+        );
+        return;
+    }
+
+    updateSaveProgress('checking', 'complete');
+    proceedWithDistributionSave(dataToSave, ordersToReset, loadingDateChanges, invoiceDateChanges);
+}
+
+function formatDateToReadable(dateString) {
+    if (!dateString) return 'No Date';
+    
+    const parts = dateString.split('-');
+    const dateObj = new Date(parts[0], parts[1] - 1, parts[2]);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    return `${months[dateObj.getMonth()]} ${dateObj.getDate()}, ${dateObj.getFullYear()}`;
+}
+
+
+function proceedWithDistributionSave(dataToSave, ordersToReset, loadingDateChanges, invoiceDateChanges) {
+    const loadingDate = distributionData.planningDate;
+    
+    if (!loadingDate) {
+        resetSaveButtonState(false);
+        showCustomConfirm('Error', 'Planning date is required', false);
+        hideSaveProgress();
+        return;
+    }
+    
+    console.log('Sending to backend:');
+    console.log('  - loadingDate:', loadingDate);
+    console.log('  - loadingOrders:', dataToSave);
+    console.log('  - ordersToReset:', ordersToReset);
+    console.log('  - loadingDateChanges:', loadingDateChanges);
+    console.log('  - invoiceDateChanges:', invoiceDateChanges);
+    console.log('Invoice date changes detail:');
+    if (invoiceDateChanges) {
+        invoiceDateChanges.forEach((change, idx) => {
+            console.log(`    [${idx}] orderId: "${change.orderId}" (type: ${typeof change.orderId}), invoiceDate: "${change.invoiceDate}"`);
+        });
+    }
+    
+    updateSaveProgress('saving', 'active');
+    
+    google.script.run
+        .withSuccessHandler(result => {
+            console.log('Save result:', result);
+            if (result.success) {
+                updateSaveProgress('saving', 'complete');
+                updateSaveProgress('updating', 'active');
+                
+                setTimeout(() => {
+                    updateSaveProgress('updating', 'complete');
+                    updateSaveProgress('refreshing', 'active');
+                }, 300);
+                
+                // Clear reset tracking
+                distributionData.ordersToReset = [];
+                
+                // Clear loading date and invoice date change flags
+                distributionData.allOrders.forEach(o => {
+                    if (o.loadingDateChanged) {
+                        o.loadingDateChanged = false;
+                    }
+                    if (o.invoiceDateChanged) {
+                        o.invoiceDateChanged = false;
+                    }
+                });
+                
+                // Clear flags in loading orders too
+                distributionData.loadingOrders.forEach(lo => {
+                    if (lo.orders) {
+                        lo.orders.forEach(order => {
+                            if (order.invoiceDateChanged) {
+                                order.invoiceDateChanged = false;
+                            }
+                        });
+                    }
+                });
+                
+                // Update saved state for all LOs
+                distributionData.loadingOrders.forEach(lo => {
+                    lo.savedOrderIds = lo.orders.map(o => o.orderId);
+                    lo.savedTruck = lo.truck;
+                    lo.savedDriver = lo.driver;
+                    lo.savedDeliveryRep = lo.deliveryRep;
+                    lo.savedStatus = lo.status;
+                    lo.isEdited = false;
+                });
+
+                setTimeout(() => {
+                    updateSaveProgress('refreshing', 'complete');
+                    showToast('Distribution plan saved successfully', 'success');
+                    
+                    setTimeout(() => {
+                        hideSaveProgress();
+                        resetSaveButtonState(true);
+                        loadDistributionData(); // Reload
+                    }, 800);
+                }, 500);
+
+            } else {
+              resetSaveButtonState(false);
+                showCustomConfirm('Save Error', result.message || 'Failed to save', false);
+            }
+        })
+        .withFailureHandler(error => {
+            console.error('Save error:', error);
+            resetSaveButtonState(false);
+            updateSaveProgress('saving', 'error');
+            setTimeout(() => {
+                hideSaveProgress();
+                showCustomConfirm('Save Error', 'Error: ' + error.message, false);
+            }, 500);
+        })
+        .saveDistributionPlan(dataToSave, ordersToReset, loadingDateChanges || [], invoiceDateChanges || []);
+}
+
+function resetDistributionPlan() {
+    showCustomConfirm(
+        'Reset Plan',
+        'Are you sure you want to reset the entire distribution plan? This will reload all data and clear unsaved changes.',
+        true,
+        () => {
+            loadDistributionData();
+            showToast('Distribution plan reset', 'info');
+        }
+    );
+}
+
+
+function showSaveProgress() {
+    // Disable save button
+    const saveBtn = document.querySelector('.btn-save-distribution-plan');
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.style.opacity = '0.6';
+        saveBtn.style.cursor = 'not-allowed';
+    }
+    
+    // Create or show progress box
+    let progressBox = document.getElementById('saveProgressBox');
+    if (!progressBox) {
+        progressBox = document.createElement('div');
+        progressBox.id = 'saveProgressBox';
+        progressBox.className = 'save-progress-box';
+        progressBox.innerHTML = `
+            <div class="progress-step" data-step="validate">
+                <i class="fas fa-circle-notch fa-spin step-icon"></i>
+                <span class="step-text">Validating loading orders...</span>
+            </div>
+            <div class="progress-step" data-step="checking">
+                <i class="fas fa-circle step-icon"></i>
+                <span class="step-text">Checking date mismatches...</span>
+            </div>
+            <div class="progress-step" data-step="saving">
+                <i class="fas fa-circle step-icon"></i>
+                <span class="step-text">Saving to database...</span>
+            </div>
+            <div class="progress-step" data-step="updating">
+                <i class="fas fa-circle step-icon"></i>
+                <span class="step-text">Updating order records...</span>
+            </div>
+            <div class="progress-step" data-step="refreshing">
+                <i class="fas fa-circle step-icon"></i>
+                <span class="step-text">Refreshing data...</span>
+            </div>
+        `;
+        document.body.appendChild(progressBox);
+    }
+    
+    progressBox.style.display = 'block';
+}
+
+function hideSaveProgress() {
+    const progressBox = document.getElementById('saveProgressBox');
+    if (progressBox) {
+        progressBox.style.display = 'none';
+    }
+    
+    // Re-enable save button
+    const saveBtn = document.querySelector('.btn-save-distribution-plan');
+    if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.style.opacity = '1';
+        saveBtn.style.cursor = 'pointer';
+    }
+}
+
+function updateSaveProgress(step, status) {
+    const progressBox = document.getElementById('saveProgressBox');
+    if (!progressBox) return;
+    
+    const stepEl = progressBox.querySelector(`[data-step="${step}"]`);
+    if (!stepEl) return;
+    
+    const icon = stepEl.querySelector('.step-icon');
+    
+    // Remove all status classes
+    stepEl.classList.remove('active', 'complete', 'error');
+    
+    if (status === 'active') {
+        stepEl.classList.add('active');
+        icon.className = 'fas fa-circle-notch fa-spin step-icon';
+    } else if (status === 'complete') {
+        stepEl.classList.add('complete');
+        icon.className = 'fas fa-check-circle step-icon';
+    } else if (status === 'error') {
+        stepEl.classList.add('error');
+        icon.className = 'fas fa-times-circle step-icon';
+    } else {
+        icon.className = 'fas fa-circle step-icon';
+    }
+}
+// =============================================================================
+// DISTANCE CHECKER TOOL
+// =============================================================================
+
+function toggleDistanceChecker() {
+    const tool = document.getElementById('distanceCheckerTool');
+    if (!tool) return;
+    
+    const isVisible = tool.style.display !== 'none';
+    tool.style.display = isVisible ? 'none' : 'block';
+    
+    if (!isVisible) {
+        clearDistanceChecker();
+    }
+}
+
+function clearDistanceChecker() {
+    const slot1 = document.getElementById('distanceSlot1');
+    const slot2 = document.getElementById('distanceSlot2');
+    const result = document.getElementById('distanceResult');
+    
+    if (slot1) slot1.innerHTML = '<p>Drag order here</p>';
+    if (slot2) slot2.innerHTML = '<p>Drag order here</p>';
+    if (result) {
+        result.innerHTML = '';
+        result.style.display = 'none';
+    }
+    
+    window.distanceCheckerData = { slot1: null, slot2: null };
+}
+
+function handleDistanceSlotDrop(e, slotNumber) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const slot = document.getElementById(`distanceSlot${slotNumber}`);
+    if (!slot) return;
+    
+    slot.classList.remove('drag-over');
+    
+    try {
+        const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+        
+        // Store data
+        if (!window.distanceCheckerData) {
+            window.distanceCheckerData = { slot1: null, slot2: null };
+        }
+        window.distanceCheckerData[`slot${slotNumber}`] = data;
+        
+        // Display in slot
+        slot.innerHTML = `
+            <div class="distance-slot-order">
+                <strong>${data.orderId}</strong>
+                <span>${data.clientName}</span>
+                <small>${data.clientRegion || 'No Region'}</small>
+            </div>
+        `;
+        
+        // Calculate if both slots filled
+        if (window.distanceCheckerData.slot1 && window.distanceCheckerData.slot2) {
+            calculateDistance();
+        }
+    } catch (err) {
+        console.error('Distance checker drop error:', err);
+    }
+}
+
+function calculateDistance() {
+    const region1 = window.distanceCheckerData.slot1.clientRegion;
+    const region2 = window.distanceCheckerData.slot2.clientRegion;
+    
+    if (!region1 || !region2) {
+        showDistanceResult('Cannot calculate - missing region data', 'gray');
+        return;
+    }
+    
+    const distance = getDistanceBetweenRegions(region1, region2);
+    
+    if (distance === 0) {
+        showDistanceResult('Distance data not available', 'gray');
+        return;
+    }
+    
+    const color = distance < 20 ? 'green' : distance < 50 ? 'yellow' : 'red';
+    showDistanceResult(`${distance} km`, color);
+}
+
+function showDistanceResult(text, color) {
+    const result = document.getElementById('distanceResult');
+    if (!result) return;
+    
+    result.innerHTML = `
+        <div class="distance-value ${color}">
+            <i class="fas fa-ruler"></i>
+            <span>${text}</span>
+        </div>
+    `;
+    result.style.display = 'block';
+}
+
+// =============================================================================
+// PANEL RESIZE
+// =============================================================================
+
+function setupPanelResize() {
+    const divider = document.getElementById('panelDivider');
+    const ordersPanel = document.getElementById('ordersPanel');
+    const planPanel = document.getElementById('planPanel');
+    const container = document.querySelector('.distribution-panels');
+    
+    if (!divider || !ordersPanel || !planPanel || !container) return;
+    
+    let isResizing = false;
+    let startX = 0;
+    let startWidthOrders = 0;
+    
+    divider.addEventListener('mousedown', function(e) {
+        isResizing = true;
+        startX = e.clientX;
+        startWidthOrders = ordersPanel.offsetWidth;
+        divider.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    });
+    
+    document.addEventListener('mousemove', function(e) {
+        if (!isResizing) return;
+        
+        const containerWidth = container.offsetWidth;
+        const deltaX = e.clientX - startX;
+        let newWidthOrders = startWidthOrders + deltaX;
+        let percentage = (newWidthOrders / containerWidth) * 100;
+        
+        if (percentage < 30) percentage = 30;
+        if (percentage > 70) percentage = 70;
+        
+        ordersPanel.style.flex = `0 0 ${percentage}%`;
+    });
+    
+    document.addEventListener('mouseup', function() {
+        if (isResizing) {
+            isResizing = false;
+            divider.classList.remove('dragging');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        }
+    });
+}
+
+// =============================================================================
+// CUSTOM CONFIRM DIALOG
+// =============================================================================
+
+function showCustomConfirm(title, message, showButtons, onConfirm, onCancel) {
+    // Create modal backdrop
+    const backdrop = document.createElement('div');
+    backdrop.className = 'custom-confirm-backdrop';
+    
+    const modal = document.createElement('div');
+    modal.className = 'custom-confirm-modal';
+    modal.innerHTML = `
+        <div class="custom-confirm-header">
+            <h4>${title}</h4>
+        </div>
+        <div class="custom-confirm-body">
+            <p style="white-space: pre-line;">${message}</p>
+        </div>
+        <div class="custom-confirm-footer">
+            ${showButtons ? `
+                <button class="btn-cancel" onclick="closeCustomConfirm(false)">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <button class="btn-confirm" onclick="closeCustomConfirm(true)">
+                    <i class="fas fa-check"></i> Confirm
+                </button>
+            ` : `
+                <button class="btn-confirm" onclick="closeCustomConfirm(false)">
+                    <i class="fas fa-check"></i> OK
+                </button>
+            `}
+        </div>
+    `;
+    
+    backdrop.appendChild(modal);
+    document.body.appendChild(backdrop);
+    
+    window.customConfirmCallback = onConfirm;
+    window.customCancelCallback = onCancel;
+}
+
+function closeCustomConfirm(confirmed) {
+    const backdrop = document.querySelector('.custom-confirm-backdrop');
+    if (backdrop) {
+        backdrop.remove();
+    }
+    
+    if (confirmed && window.customConfirmCallback) {
+        window.customConfirmCallback();
+    } else if (!confirmed && window.customCancelCallback) {
+        window.customCancelCallback();
+    }
+    
+    window.customConfirmCallback = null;
+    window.customCancelCallback = null;
+}
+
+function resetLoadingOrders() {
+    showCustomConfirm(
+        'Reset Plan',
+        'Are you sure you want to reset? This will reload all data and clear unsaved changes.',
+        true,
+        () => {
+            loadDistributionData();
+            showToast('Distribution plan reset', 'info');
+        }
+    );
+}
+
+function clearDistributionPlan() {
+    showCustomConfirm(
+        'Clear Plan',
+        'Clear all loading orders?',
+        true,
+        () => {
+            distributionData.loadingOrders = [];
+            renderPlanningPanel();
+            showToast('Plan cleared', 'info');
+        }
+    );
+}
+
+// =============================================================================
+// DISMISS NUMBER CALCULATION
+// =============================================================================
+
+function calculateDismissNumber(loadingDate, loadingOrderNumber) {
+    if (!loadingDate || !loadingOrderNumber) return '';
+    
+    const date = new Date(loadingDate);
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const loNum = String(loadingOrderNumber).padStart(2, '0');
+    
+    return `${month}${day}${loNum}`;
+}
+
+function validateDismissNumber(calculated, fromSheet) {
+    // If sheet value is empty, it's fine (not yet saved)
+    if (!fromSheet || fromSheet === '') return { valid: true, mismatch: false };
+    
+    // If calculated is empty but sheet has value, that's a mismatch
+    if (!calculated && fromSheet) return { valid: false, mismatch: true };
+    
+    // Compare values
+    const match = calculated === fromSheet;
+    return { valid: match, mismatch: !match };
+}
+// =============================================================================
+// END OF PART 5 - ACTIONS & UTILITIES
+// END OF DISTRIBUTION PLANNING MODULE
+// =============================================================================
+</script>
