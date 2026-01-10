@@ -1,0 +1,716 @@
+<script>
+/**
+ * PRODUCTION MODULE FRONTEND (v3.0 - Folder Tabs Design)
+ */
+
+// Global State
+let productionState = {
+    products: [],
+    constraints: [],
+    priorities: [],
+    currentRecipes: []
+};
+
+// --- 1. INITIALIZATION ---
+
+function initProductionModule() {
+    const container = document.getElementById('productionTabContent');
+    if (!container) return;
+
+    injectProductionStyles();
+    container.innerHTML = getProductionHTMLStructure();
+    
+    // Initialize Event Listeners
+    setupProductionEventListeners();
+    
+    // Load Data for the default active tab (Planning)
+    loadProductionData();
+}
+
+// --- 2. MODERN STYLES ---
+
+function injectProductionStyles() {
+    if (document.getElementById('production-styles')) return;
+    
+    const style = document.createElement('style');
+    style.id = 'production-styles';
+    style.innerHTML = `
+        :root {
+            --prod-primary: #2563eb;       /* Modern Blue */
+            --prod-secondary: #475569;     /* Slate Grey */
+            --prod-bg: #f1f5f9;            /* Lighter Background */
+            --prod-neutral: #ADD1FF;       
+            --prod-surface: #ffffff;
+            --prod-border: #cbd5e1;        /* Slightly darker for visibility */
+            --prod-success: #10b981;
+            --prod-warning: #f59e0b;
+            --prod-danger: #ef4444;
+            --prod-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --prod-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        }
+
+        .plan-production-container { 
+            padding: 30px; 
+            font-family: 'Tajawal', sans-serif; 
+            direction: rtl; 
+            background-color: var(--prod-bg);
+            min-height: 85vh;
+        }
+
+        /* --- FOLDER TABS NAVIGATION --- */
+        .production-sub-nav {
+            display: flex;
+            gap: 6px;
+            padding: 0 10px;
+            border-bottom: 2px solid var(--prod-border); /* The Base Line */
+            position: relative;
+            z-index: 10;
+        }
+        
+        .prod-sub-tab {
+            background: #e2e8f0; /* Inactive Bg */
+            border: 2px solid transparent;
+            border-bottom: none;
+            padding: 12px 24px;
+            font-family: 'Tajawal', sans-serif;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #64748b;
+            border-radius: 12px 12px 0 0;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            bottom: -2px; /* Sit exactly on the line */
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 0;
+            opacity: 0.8;
+        }
+        
+        .prod-sub-tab:hover {
+            background: #cbd5e1;
+            color: #334155;
+            opacity: 1;
+        }
+        
+        /* THE ACTIVE TAB MAGIC */
+        .prod-sub-tab.active {
+            background: var(--prod-surface);
+            color: var(--prod-primary);
+            border-color: var(--prod-border);
+            border-bottom-color: var(--prod-surface); /* Hide the line under it */
+            z-index: 15; /* Above the container border */
+            opacity: 1;
+            box-shadow: 0 -4px 10px -2px rgba(0,0,0,0.05);
+        }
+        
+        .prod-sub-tab i { font-size: 1.1em; }
+
+        /* --- CONTENT CONTAINER WRAPPER --- */
+        .prod-content-wrapper {
+            background: var(--prod-surface);
+            border: 2px solid var(--prod-border);
+            border-top: none; /* The nav bar handles the top border */
+            border-radius: 0 0 16px 16px; /* Rounded bottom only */
+            padding: 30px;
+            box-shadow: var(--prod-shadow-md);
+            min-height: 500px;
+            position: relative;
+            z-index: 5;
+        }
+
+        /* --- SUB-TAB CONTENT --- */
+        .prod-sub-content {
+            display: none;
+            animation: fadeIn 0.4s ease;
+        }
+        .prod-sub-content.active {
+            display: block;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+
+        /* --- 1. The "Add New" Card (Refined) --- */
+        .plan-add-card {
+            background: #f8fafc;
+            border-radius: 12px;
+            border: 1px dashed #94a3b8;
+            overflow: hidden;
+            margin-bottom: 25px;
+            transition: all 0.3s ease;
+        }
+        
+        .plan-add-header {
+            padding: 15px 20px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .plan-add-header h5 { 
+            margin: 0; font-weight: 700; color: #334155; 
+            display: flex; align-items: center; gap: 10px; font-size: 1rem;
+        }
+        .plan-add-header .icon-box {
+            width: 28px; height: 28px;
+            background: #dbeafe; color: var(--prod-primary);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        .plan-add-body {
+            max-height: 0; opacity: 0; overflow: hidden;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            background: #fff; border-top: 1px solid transparent;
+        }
+        .plan-add-body.open {
+            max-height: 1200px; opacity: 1; padding: 25px;
+            border-top-color: #e2e8f0;
+        }
+
+        /* --- Modern Inputs --- */
+        .modern-form-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px;
+        }
+        .input-group-modern label { display: block; margin-bottom: 8px; font-size: 0.85rem; font-weight: 600; color: #64748b; }
+        .input-wrapper { position: relative; }
+        .input-wrapper i { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: #94a3b8; pointer-events: none; }
+        .modern-input {
+            width: 100%; padding: 10px 40px 10px 12px; border: 2px solid #e2e8f0; border-radius: 10px;
+            font-size: 0.95rem; color: #334155; transition: all 0.2s; background: #f8fafc;
+        }
+        .modern-input:focus { outline: none; border-color: var(--prod-primary); background: #fff; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+        
+        /* --- Buttons --- */
+        .btn-modern { padding: 10px 24px; border-radius: 10px; font-weight: 600; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: transform 0.1s; }
+        .btn-primary-modern { background: var(--prod-primary); color: white; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3); }
+        .btn-primary-modern:hover { background: #1d4ed8; transform: translateY(-1px); }
+
+        /* --- 2. Filter Bar --- */
+        .filter-glass {
+            background: #fff; border: 1px solid #e2e8f0;
+            border-radius: 10px; padding: 10px 15px;
+            display: flex; gap: 15px; align-items: center; margin-bottom: 25px;
+        }
+
+        /* --- 3. The List (Row Cards) --- */
+        .plan-list-container { display: flex; flex-direction: column; gap: 12px; }
+
+        .plan-card {
+            background: #fff; border-radius: 10px; border: 1px solid #e2e8f0;
+            display: grid; grid-template-columns: 70px 1fr auto; 
+            overflow: hidden; transition: all 0.2s; position: relative;
+        }
+        .plan-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); border-color: #cbd5e1; }
+
+        /* Left Strip (Priority Color) */
+        .plan-card::before { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 4px; background: #cbd5e1; }
+        .priority-high::before { background: var(--prod-danger); }
+        .priority-med::before { background: var(--prod-warning); }
+        .priority-low::before { background: var(--prod-neutral); }
+
+        /* ID Section */
+        .card-id-section { background: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px; border-left: 1px solid #e2e8f0; }
+        .card-id-val { font-weight: 800; font-size: 0.8rem; color: #475569; }
+        .card-id-label { font-size: 0.6rem; color: #94a3b8; text-transform: uppercase; }
+
+        /* Main Info */
+        .card-info-section { padding: 12px 18px; display: flex; flex-direction: column; justify-content: center; }
+        .card-product-title { font-size: 1.05rem; font-weight: 700; color: #1e293b; margin-bottom: 4px; cursor: pointer; display: inline-block; }
+        .card-product-title:hover { color: var(--prod-primary); }
+        .card-meta-row { display: flex; gap: 15px; font-size: 0.8rem; color: #64748b; }
+        
+        /* Tags */
+        .card-tags-section { padding: 12px 18px; display: flex; align-items: center; gap: 8px; }
+        .modern-chip { padding: 4px 10px; border-radius: 15px; font-size: 0.75rem; font-weight: 600; display: flex; align-items: center; gap: 5px; }
+        .chip-blue { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+        .chip-amber { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+
+        /* Popover */
+        .glass-popover {
+            position: absolute; background: rgba(30, 41, 59, 0.95); backdrop-filter: blur(5px);
+            color: white; padding: 15px; border-radius: 8px; z-index: 100; width: 260px;
+            display: none; opacity: 0; transform: translateY(10px); transition: all 0.2s; pointer-events: none;
+        }
+        .glass-popover.visible { display: block; opacity: 1; transform: translateY(0); }
+        .pop-header { font-size: 0.8rem; text-transform: uppercase; color: #94a3b8; border-bottom: 1px solid #475569; padding-bottom: 5px; margin-bottom: 5px; }
+        .pop-list { margin: 0; padding-right: 15px; font-size: 0.85rem; }
+
+        /* Empty State */
+        .empty-state { text-align: center; padding: 40px; color: #94a3b8; }
+        .empty-state i { font-size: 2.5rem; margin-bottom: 15px; opacity: 0.4; }
+    `;
+    document.head.appendChild(style);
+}
+
+// --- 3. HTML STRUCTURE ---
+
+function getProductionHTMLStructure() {
+    return `
+        <div class="plan-production-container">
+            
+            <div class="production-sub-nav">
+                <button class="prod-sub-tab active" id="prod-subtab-btn-planning" onclick="switchProductionSubTab('planning')">
+                    <i class="fas fa-calendar-alt"></i> خطة الانتاج
+                </button>
+                
+                <button class="prod-sub-tab" id="prod-subtab-btn-today" onclick="switchProductionSubTab('today')">
+                    <i class="fas fa-industry"></i> انتاج اليوم
+                </button>
+                
+                <button class="prod-sub-tab" id="prod-subtab-btn-recipes" onclick="switchProductionSubTab('recipes')">
+                    <i class="fas fa-scroll"></i> الوصفات
+                </button>
+            </div>
+
+            <div class="prod-content-wrapper">
+                
+                <div id="prod-subtab-content-planning" class="prod-sub-content active">
+
+                    <div class="plan-add-card" id="plan-add-card">
+                        <div class="plan-add-header" onclick="togglePlanAddCard()">
+                            <h5><div class="icon-box"><i class="fas fa-plus"></i></div> تسجيل خطة جديدة</h5>
+                            <i class="fas fa-chevron-down text-muted" id="plan-add-chevron" style="transition: transform 0.3s"></i>
+                        </div>
+                        <div class="plan-add-body" id="plan-add-body">
+                            <form id="plan-production-form" onsubmit="event.preventDefault(); submitProductionPlan();">
+                                <h6 style="color: var(--prod-primary); margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 5px;">بيانات التشغيل الأساسية</h6>
+                                <div class="modern-form-grid">
+                                    <div class="input-group-modern">
+                                        <label>تاريخ التشغيل</label>
+                                        <div class="input-wrapper">
+                                            <i class="far fa-calendar-alt"></i>
+                                            <input type="date" class="modern-input" id="plan-input-date" required onchange="resetRecipeSelection()">
+                                        </div>
+                                    </div>
+                                    <div class="input-group-modern">
+                                        <label>المنتج المطلوب</label>
+                                        <div class="input-wrapper">
+                                            <i class="fas fa-box-open"></i>
+                                            <select class="modern-input" id="plan-input-product" required onchange="handleProductChange()">
+                                                <option value="">جاري التحميل...</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="input-group-modern">
+                                        <label>الوصفة المعتمدة</label>
+                                        <div class="input-wrapper">
+                                            <i class="fas fa-scroll"></i>
+                                            <select class="modern-input" id="plan-input-recipe" disabled>
+                                                <option value="">بانتظار المنتج...</option>
+                                            </select>
+                                        </div>
+                                        <input type="hidden" id="plan-selected-recipe-materials">
+                                    </div>
+                                </div>
+                                
+                                <h6 style="color: var(--prod-primary); margin-top: 25px; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 5px;">تفاصيل الكميات والأولوية</h6>
+                                <div class="modern-form-grid">
+                                    <div class="input-group-modern">
+                                        <label>الكمية</label>
+                                        <div class="input-wrapper">
+                                            <i class="fas fa-hashtag"></i>
+                                            <input type="number" class="modern-input" id="plan-input-qty" required placeholder="0">
+                                        </div>
+                                    </div>
+                                    <div class="input-group-modern">
+                                        <label>محددات الكمية</label>
+                                        <div class="input-wrapper">
+                                            <i class="fas fa-balance-scale"></i>
+                                            <select class="modern-input" id="plan-input-constraint"></select>
+                                        </div>
+                                    </div>
+                                    <div class="input-group-modern">
+                                        <label>حالة الأولوية</label>
+                                        <div class="input-wrapper">
+                                            <i class="fas fa-exclamation-circle"></i>
+                                            <select class="modern-input" id="plan-input-priority"></select>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="input-group-modern" style="margin-top: 20px;">
+                                    <label>ملاحظات إضافية</label>
+                                    <div class="input-wrapper">
+                                        <i class="far fa-sticky-note"></i>
+                                        <input type="text" class="modern-input" id="plan-input-notes" placeholder="تعليمات خاصة لفريق الإنتاج...">
+                                    </div>
+                                </div>
+                                
+                                <div style="display: flex; justify-content: flex-end; margin-top: 25px; padding-top: 15px; border-top: 1px solid #f1f5f9;">
+                                    <button type="submit" class="btn-modern btn-primary-modern" id="plan-submit-btn">
+                                        <i class="fas fa-save"></i> حفظ وإدراج للخطة
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="filter-glass">
+                        <i class="fas fa-filter" style="color: var(--prod-primary);"></i>
+                        <div class="input-wrapper">
+                            <input type="date" class="modern-input" style="padding-top:6px; padding-bottom:6px;" id="plan-filter-date" onchange="filterProductionPlans()">
+                        </div>
+                        <div class="input-wrapper" style="flex-grow: 1;">
+                            <i class="fas fa-search" style="right: 15px; font-size: 0.8rem;"></i>
+                            <input type="text" class="modern-input" placeholder="بحث سريع..." style="padding-top:6px; padding-bottom:6px;" id="plan-filter-search" onkeyup="filterProductionPlans()">
+                        </div>
+                        <button class="btn-modern" style="background: white; border: 1px solid #e2e8f0; color: #64748b;" onclick="loadProductionData()">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+
+                    <div id="plan-production-list-container" class="plan-list-container">
+                        <div class="empty-state">
+                            <i class="fas fa-spinner fa-spin text-primary"></i>
+                            <p>جاري استدعاء البيانات...</p>
+                        </div>
+                    </div>
+                </div> <div id="prod-subtab-content-today" class="prod-sub-content">
+                    <div class="empty-state">
+                        <i class="fas fa-hard-hat text-warning" style="opacity: 0.8;"></i>
+                        <h5 style="color: #475569; margin-top: 15px;">انتاج اليوم</h5>
+                        <p>هذه الوحدة قيد التطوير حالياً</p>
+                    </div>
+                </div>
+
+                <div id="prod-subtab-content-recipes" class="prod-sub-content">
+                    <div class="empty-state">
+                        <i class="fas fa-scroll text-success" style="opacity: 0.8;"></i>
+                        <h5 style="color: #475569; margin-top: 15px;">دليل الوصفات</h5>
+                        <p>هذه الوحدة قيد التطوير حالياً</p>
+                    </div>
+                </div>
+
+            </div> </div>
+    `;
+}
+
+// --- 4. LOGIC & INTERACTION ---
+
+function switchProductionSubTab(tabName) {
+    // 1. Update Tabs UI
+    document.querySelectorAll('.prod-sub-tab').forEach(btn => btn.classList.remove('active'));
+    const activeBtn = document.getElementById('prod-subtab-btn-' + tabName);
+    if(activeBtn) activeBtn.classList.add('active');
+
+    // 2. Update Content UI
+    document.querySelectorAll('.prod-sub-content').forEach(div => div.classList.remove('active'));
+    const activeContent = document.getElementById('prod-subtab-content-' + tabName);
+    if(activeContent) activeContent.classList.add('active');
+
+    // 3. Logic Refresh
+    if (tabName === 'planning') {
+        loadProductionData(); // Refresh list only when needed
+    }
+}
+
+function togglePlanAddCard() {
+    const body = document.getElementById('plan-add-body');
+    const chev = document.getElementById('plan-add-chevron');
+    body.classList.toggle('open');
+    chev.style.transform = body.classList.contains('open') ? 'rotate(180deg)' : 'rotate(0deg)';
+}
+
+function loadProductionData() {
+    const container = document.getElementById('plan-production-list-container');
+    if (!container) return;
+    
+    // Skeleton Loader (re-using empty state style for now)
+    container.innerHTML = `
+        <div class="empty-state">
+            <i class="fas fa-circle-notch fa-spin" style="color: var(--prod-primary)"></i>
+            <p>جاري تحديث البيانات...</p>
+        </div>
+    `;
+    
+    google.script.run
+        .withSuccessHandler(response => {
+            if (response.success) {
+                productionState.products = response.products;
+                productionState.constraints = response.lists.constraints;
+                productionState.priorities = response.lists.priorities;
+                
+                populateDropdown('plan-input-product', productionState.products);
+                populateDropdown('plan-input-constraint', productionState.constraints);
+                populateDropdown('plan-input-priority', productionState.priorities);
+
+                renderProductionPlans(response.plans);
+            } else {
+                showError('plan-production-list-container', response.message);
+            }
+        })
+        .withFailureHandler(err => showError('plan-production-list-container', err))
+        .getProductionInitialData();
+}
+
+function renderProductionPlans(plans) {
+    const container = document.getElementById('plan-production-list-container');
+    container.innerHTML = '';
+
+    if (!plans || plans.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-clipboard-list"></i>
+                <p>لا توجد خطط إنتاج مسجلة لهذا التاريخ</p>
+            </div>
+        `;
+        return;
+    }
+
+    plans.forEach(plan => {
+        // Priority Class
+        let prioClass = '';
+        if (plan.priority.includes('مستعجل')) prioClass = 'priority-high';
+        else if (plan.priority.includes('مهم')) prioClass = 'priority-med';
+        else prioClass = 'priority-low';
+
+        // Material List
+        let matList = '';
+        if (plan.materials && plan.materials.length > 0) {
+            plan.materials.forEach(m => matList += `<li>${m.name}</li>`);
+        } else {
+            matList = '<li>لا توجد خامات محددة</li>';
+        }
+
+        const card = document.createElement('div');
+        card.className = `plan-card ${prioClass}`;
+        card.innerHTML = `
+            <div class="card-id-section">
+                <span class="card-id-val">${plan.id}</span>
+                <span class="card-id-label">ID</span>
+            </div>
+            
+            <div class="card-info-section">
+                <div style="position: relative;">
+                    <div class="card-product-title" onmouseenter="showprodPopover('${plan.id}-pop')" onmouseleave="hideprodPopover('${plan.id}-pop')">
+                        ${plan.product}
+                    </div>
+                    <div id="${plan.id}-pop" class="glass-popover">
+                        <div class="pop-header">
+                            <i class="fas fa-flask"></i> ${plan.recipeId || 'N/A'}
+                        </div>
+                        <ul class="pop-list">${matList}</ul>
+                        ${plan.notes ? `<div style="margin-top:8px;font-style:italic;color:#cbd5e1;border-top:1px solid #475569;padding-top:4px;">${plan.notes}</div>` : ''}
+                    </div>
+                </div>
+                
+                <div class="card-meta-row">
+                    <span class="meta-item"><i class="far fa-calendar"></i> ${plan.date}</span>
+                    <span class="meta-item"><i class="fas fa-tag"></i> ${plan.constraint}</span>
+                </div>
+            </div>
+
+            <div class="card-tags-section">
+                <span class="modern-chip chip-blue" title="الكمية">
+                    <i class="fas fa-cubes"></i> ${plan.quantity}
+                </span>
+                <span class="modern-chip chip-amber" title="الأولوية">
+                    ${plan.priority}
+                </span>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+}
+
+// --- Popover Logic ---
+function showprodPopover(id) {
+    const pop = document.getElementById(id);
+    if(pop) pop.classList.add('visible');
+}
+function hideprodPopover(id) {
+    const pop = document.getElementById(id);
+    if(pop) pop.classList.remove('visible');
+}
+
+// --- 5. HELPERS ---
+
+function populateDropdown(id, items) {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    
+    const placeholder = sel.options.length > 0 ? sel.options[0] : null;
+    sel.innerHTML = '';
+    
+    if (placeholder) {
+        sel.appendChild(placeholder);
+    } else {
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = "";
+        defaultOpt.text = "اختر...";
+        sel.appendChild(defaultOpt);
+    }
+    
+    if (items && Array.isArray(items)) {
+        items.forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item;
+            opt.text = item;
+            sel.appendChild(opt);
+        });
+    }
+}
+
+function resetRecipeSelection() {
+    const sel = document.getElementById('plan-input-recipe');
+    sel.innerHTML = '<option value="">بانتظار المنتج...</option>';
+    sel.disabled = true;
+    document.getElementById('plan-selected-recipe-materials').value = '';
+}
+
+function handleProductChange() {
+    const product = document.getElementById('plan-input-product').value;
+    const date = document.getElementById('plan-input-date').value;
+    const recipeSelect = document.getElementById('plan-input-recipe');
+
+    if (!product || !date) {
+        resetRecipeSelection();
+        return;
+    }
+
+    recipeSelect.innerHTML = '<option>جاري البحث...</option>';
+    recipeSelect.disabled = true;
+
+    google.script.run
+        .withSuccessHandler(res => {
+            recipeSelect.innerHTML = '';
+            
+            if (res.success && res.recipes.length > 0) {
+                productionState.currentRecipes = res.recipes;
+
+                if (res.recipes.length === 1) {
+                    const r = res.recipes[0];
+                    const opt = document.createElement('option');
+                    opt.value = r.id;
+                    opt.text = `تلقائي (${r.id})`;
+                    opt.selected = true;
+                    recipeSelect.appendChild(opt);
+                    recipeSelect.disabled = false;
+                    document.getElementById('plan-selected-recipe-materials').value = JSON.stringify(r.materials);
+                } else {
+                    const def = document.createElement('option');
+                    def.text = 'اختر وصفة...';
+                    recipeSelect.appendChild(def);
+
+                    res.recipes.forEach(r => {
+                        const opt = document.createElement('option');
+                        opt.value = r.id;
+                        opt.text = `وصفة (${r.id})`;
+                        recipeSelect.appendChild(opt);
+                    });
+                    recipeSelect.disabled = false;
+                    
+                    recipeSelect.onchange = function() {
+                        const selectedId = this.value;
+                        const target = productionState.currentRecipes.find(x => x.id == selectedId);
+                        if(target) {
+                            document.getElementById('plan-selected-recipe-materials').value = JSON.stringify(target.materials);
+                        }
+                    };
+                }
+            } else {
+                recipeSelect.innerHTML = '<option value="">لا توجد وصفة متاحة</option>';
+            }
+        })
+        .searchRecipes(product, date);
+}
+
+function submitProductionPlan() {
+    const btn = document.getElementById('plan-submit-btn');
+    const originalContent = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري الحفظ...';
+    btn.disabled = true;
+
+    const matJson = document.getElementById('plan-selected-recipe-materials').value;
+    const materials = matJson ? JSON.parse(matJson) : [];
+
+    const formData = {
+        date: document.getElementById('plan-input-date').value,
+        product: document.getElementById('plan-input-product').value,
+        quantity: document.getElementById('plan-input-qty').value,
+        constraint: document.getElementById('plan-input-constraint').value,
+        priority: document.getElementById('plan-input-priority').value,
+        notes: document.getElementById('plan-input-notes').value,
+        recipeId: document.getElementById('plan-input-recipe').value,
+        materials: materials
+    };
+
+    google.script.run
+        .withSuccessHandler(res => {
+            btn.innerHTML = originalContent;
+            btn.disabled = false;
+            if (res.success) {
+                showToast('تم حفظ الخطة بنجاح ID: ' + res.newId, 'success');
+                document.getElementById('plan-production-form').reset();
+                togglePlanAddCard(); 
+                loadProductionData(); 
+            } else {
+                alert('خطأ: ' + res.message);
+            }
+        })
+        .saveProductionPlan(formData);
+}
+
+function setupProductionEventListeners() {
+    // 1. Set Default Date
+    const dateInput = document.getElementById('plan-input-date');
+    if (dateInput) {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        dateInput.value = `${year}-${month}-${day}`;
+    }
+}
+
+function filterProductionPlans() {
+    const searchText = document.getElementById('plan-filter-search').value.toLowerCase();
+    const filterDate = document.getElementById('plan-filter-date').value;
+    
+    const cards = document.querySelectorAll('.plan-card');
+    
+    cards.forEach(card => {
+        const productName = card.querySelector('.card-product-title').textContent.toLowerCase();
+        const dateText = card.querySelector('.card-meta-row').textContent; 
+        
+        let matchesSearch = true;
+        let matchesDate = true;
+        
+        if (searchText && !productName.includes(searchText)) {
+            matchesSearch = false;
+        }
+        if (filterDate && !dateText.includes(filterDate)) {
+            matchesDate = false;
+        }
+        
+        card.style.display = (matchesSearch && matchesDate) ? 'grid' : 'none';
+    });
+}
+
+function showError(id, msg) {
+    const container = document.getElementById(id);
+    if(container) {
+        container.innerHTML = `
+            <div style="background:#fee2e2; color:#b91c1c; padding:20px; border-radius:12px; text-align:center;">
+                <i class="fas fa-exclamation-circle fa-2x"></i><br>
+                ${msg}
+            </div>`;
+    }
+}
+
+// Function to handle global toast needed if not defined elsewhere for this module scope
+if (typeof showToast !== 'function') {
+    function showToast(message, type = 'info') {
+        // Fallback if main toast function isn't loaded
+        const toast = document.createElement('div');
+        toast.className = 'custom-toast';
+        toast.style.background = type === 'success' ? '#dcfce7' : '#fff';
+        toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check' : 'fa-info-circle'}"></i> ${message}`;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+}
+
+</script>
