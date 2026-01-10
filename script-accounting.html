@@ -1,0 +1,2105 @@
+<script>
+// =============================================================================
+// ACCOUNTING MODULE - INVOICE DOCUMENTS
+// =============================================================================
+
+let accountingData = {
+    orders: [],
+    serials: {
+        taxLast: 0,
+        noteLast: 0,
+        taxMin: 0,
+        noteMin: 0,
+        taxStart: null,
+        noteStart: null
+    },
+    stats: {
+        ordersCountStr: "0/0",
+        ordersComplete: false,
+        invoicesCountStr: "0/0",
+        invoicesComplete: false
+    }
+};
+
+function initializeAccountingModule() {
+    loadAccountingData();
+}
+
+function loadAccountingData() {
+    const container = document.getElementById('subtab-accounting');
+    if (!container) {
+        console.error('Container not found');
+        return;
+    }
+
+    container.innerHTML = `<div class="content-loading"><div class="spinner-large"></div><p>${translations[currentLang].loadingText}</p></div>`;
+
+    console.log('Calling getAccountingDashboardData...');
+
+    google.script.run
+        .withSuccessHandler(results => {
+            console.log('SUCCESS: Received results:', results);
+            
+            try {
+                // Safe checks
+                if (!results) {
+                    console.error('Results is null or undefined');
+                    container.innerHTML = '<div class="error-message">No data received</div>';
+                    return;
+                }
+                
+                console.log('Results.orders:', results.orders);
+                console.log('Results.serials:', results.serials);
+                console.log('Results.invoices:', results.invoices);
+                
+                const orders = results.orders || []; 
+                const serials = results.serials || { taxSerial: 0, noteSerial: 0, taxMin: 0, noteMin: 0 };
+                const invoices = results.invoices || [];
+                
+                console.log('Filtering orders...');
+                accountingData.orders = orders.filter(o => {
+                    if (!o) {
+                        console.warn('Null order found');
+                        return false;
+                    }
+                    if (!o.status) {
+                        console.warn('Order without status:', o);
+                        return false;
+                    }
+                    return o.status.toLowerCase() === 'prepare';
+                });
+                
+                console.log('Filtered orders count:', accountingData.orders.length);
+                
+                console.log('Setting serials...');
+                accountingData.serials.taxLast = serials.taxSerial || 0;
+                accountingData.serials.noteLast = serials.noteSerial || 0;
+                accountingData.serials.taxMin = serials.taxMin || 0;
+                accountingData.serials.noteMin = serials.noteMin || 0;
+                
+                console.log('Setting invoices...');
+                accountingData.invoices = invoices;
+                
+                console.log('Calculating stats...');
+                calculateAccountingStats();
+                
+                console.log('Rendering UI...');
+                renderAccountingUI();
+                
+                console.log('Validating sequences...');
+                validateSequences();
+                
+                console.log('Load complete!');
+                
+            } catch (error) {
+                console.error('ERROR in loadAccountingData success handler:', error);
+                console.error('Stack:', error.stack);
+                container.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+            }
+        })
+        .withFailureHandler(error => {
+            console.error('FAILURE: Backend error:', error);
+            container.innerHTML = `<div class="error-message">Backend error: ${error}</div>`;
+        })
+        .getAccountingDashboardData(); 
+}
+
+function calculateAccountingStats() {
+    let totalInvoicesNeeded = 0;
+    let totalInvoicesFilled = 0;
+    let totalOrders = accountingData.orders.length;
+    let fullyCompletedOrders = 0;
+    
+    accountingData.orders.forEach(order => {
+        const needs = determineInvoiceNeeds(order);
+        let orderNeeded = 0;
+        let orderFilled = 0;
+
+        if (needs.deliveryNote) { orderNeeded++; if (order.deliveryNote) orderFilled++; }
+        if (needs.tawoos) { orderNeeded++; if (order.tawoosInvoice) orderFilled++; }
+        if (needs.pl) { orderNeeded++; if (order.plInvoice) orderFilled++; }
+
+        totalInvoicesNeeded += orderNeeded;
+        totalInvoicesFilled += orderFilled;
+
+        if (orderNeeded > 0 && orderNeeded === orderFilled) fullyCompletedOrders++;
+    });
+
+    accountingData.stats = {
+        ordersCountStr: `${fullyCompletedOrders}/${totalOrders}`,
+        ordersComplete: fullyCompletedOrders === totalOrders && totalOrders > 0,
+        invoicesCountStr: `${totalInvoicesFilled}/${totalInvoicesNeeded}`,
+        invoicesComplete: totalInvoicesFilled === totalInvoicesNeeded && totalInvoicesNeeded > 0
+    };
+}
+
+function renderAccountingUI() {
+    const container = document.getElementById('subtab-accounting');
+    const trans = translations[currentLang];
+    const stats = accountingData.stats;
+    
+    let html = `
+        <div class="accounting-compact-bar">
+            <div class="compact-stat-group">
+                <div class="compact-stat ${stats.ordersComplete ? 'complete' : ''}" title="${trans.ordersToPrepare}">
+                    <i class="fas fa-hourglass-half"></i> <span>${stats.ordersCountStr}</span>
+                </div>
+                <div class="compact-stat ${stats.invoicesComplete ? 'complete' : ''}" title="${trans.invoicesNeeded}">
+                    <i class="fas fa-file-invoice"></i> <span>${stats.invoicesCountStr}</span>
+                </div>
+            </div>
+            <div class="compact-divider"></div>
+            <div class="compact-tracker-group">
+                ${createTrackerHtml('tax', accountingData.serials.taxLast)}
+                <div class="compact-divider-small"></div>
+                ${createTrackerHtml('note', accountingData.serials.noteLast)}
+            </div>
+        </div>
+        
+        <div id="missing-alert-container" style="display:none;">
+             <div class="missing-alert-bar">
+                <i class="fas fa-exclamation-triangle"></i>
+                <span>${trans.missingSerialsLabel}:</span>
+                <div id="missing-badges" class="missing-badges-inline"></div>
+             </div>
+        </div>
+
+        <div class="accounting-orders-list">
+    `;
+
+    if (accountingData.orders.length === 0) {
+        html += `<div class="empty-state"><i class="fas fa-check-circle"></i><h4>All caught up!</h4></div>`;
+    } else {
+            // Sort orders: Primary by invoiceDate, Secondary by loadingOrder
+    const sortedOrders = [...accountingData.orders].sort((a, b) => {
+        const dateA = a.invoiceDate || '';
+        const dateB = b.invoiceDate || '';
+        if (dateA !== dateB) return dateA.localeCompare(dateB);
+        
+        const loadA = parseInt(a.loadingOrder) || 0;
+        const loadB = parseInt(b.loadingOrder) || 0;
+        return loadA - loadB;
+    });
+    
+    sortedOrders.forEach(order => {
+        html += createAccountingOrderCard(order);
+    });
+    }
+
+    html += `</div>`;
+    container.innerHTML = html;
+    attachInputListeners();
+}
+
+function createTrackerHtml(type, lastVal) {
+    const trans = translations[currentLang];
+    const label = type === 'tax' ? trans.taxSequenceLabel : trans.noteSequenceLabel;
+    const isZero = lastVal === 0;
+    const nextVal = lastVal + 1;
+    const arrowIcon = currentLang === 'ar' ? 'fa-arrow-left' : 'fa-arrow-right';
+    
+    if (isZero) {
+        return `
+            <div class="compact-tracker">
+                <span class="tracker-title">${label}</span>
+                <input type="number" class="compact-input" id="start-${type}" placeholder="${trans.firstSerialPh}" onchange="handleStartSerial('${type}', this.value)">
+            </div>
+        `;
+    } else {
+        return `
+            <div class="compact-tracker">
+                <span class="tracker-title">${label}</span>
+                <div class="tracker-values">
+                    <span class="val-last" id="tracker-last-${type}">${lastVal}</span>
+                    <i class="fas ${arrowIcon} val-arrow"></i>
+                    <span class="val-next" id="tracker-next-${type}">${nextVal}</span>
+                </div>
+            </div>
+        `;
+    }
+}
+
+function createAccountingOrderCard(order) {
+    const trans = translations[currentLang];
+    const needs = determineInvoiceNeeds(order);
+    const getLabel = (key) => translations[currentLang][key] || key;
+
+    // REMOVED: Card-level saved check
+    // Each invoice now tracks its own saved state
+
+    const formattedDate = order.invoiceDate ? formatLoadingDate(order.invoiceDate).replace(/<[^>]*>/g, '') : '-';
+    const loadingDate = order.loadingDate ? formatLoadingDate(order.loadingDate).replace(/<[^>]*>/g, '') : '-';
+    const formattedOrderId = formatOrderId(order.orderId);
+    const amountVal = parseFloat(order.amountIncludingTax) || 0;
+    const amountFormatted = amountVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const amountColorClass = amountVal >= 0 ? 'positive' : 'negative';
+
+    const hasInternalComment = order.internalComments && order.internalComments.trim() !== '';
+    const commentIndicator = hasInternalComment ? `<div class="dist-comment-indicator has-tooltip" data-tooltip="${order.internalComments.replace(/"/g, '&quot;')}"><i class="fas fa-comment"></i></div>` : '';
+
+    let attachmentsHtml = '';
+    const attachments = [order.attachment1, order.attachment2, order.attachment3].filter(Boolean);
+    if (attachments.length > 0) {
+        attachmentsHtml = '<div class="acc-attachments-row">';
+        attachments.forEach(urlWithFilename => {
+            const url = urlWithFilename.includes('|||') ? urlWithFilename.split('|||')[0] : urlWithFilename;
+            const icon = typeof getFileIcon === 'function' ? getFileIcon(urlWithFilename) : 'fa-file';
+            attachmentsHtml += `<a href="${url}" target="_blank" class="attachment-chip"><i class="fas ${icon}"></i> <span>${trans.viewBtn}</span></a>`;
+        });
+        attachmentsHtml += '</div>';
+    }
+
+    let poHtml = '';
+    if (order.poTawoos) poHtml += `<span class="po-chip"><i class="fas fa-file-contract"></i> T: ${order.poTawoos}</span>`;
+    if (order.poPrivateLabel) poHtml += `<span class="po-chip"><i class="fas fa-file-contract"></i> PL: ${order.poPrivateLabel}</span>`;
+
+    const orderType = order.orderType || 'توريد';
+    const typeColor = ({'توريد':'#90ee90','تحصيل':'#2e7d32','اداري':'#546e7a','ارتجاع و خصم القيمة':'#d32f2f'})[orderType] || '#e0e0e0';
+    const vatBadge = getVatBadge(order.vat);
+
+    let inputsHtml = '';
+    if (needs.deliveryNote) inputsHtml += createInvoiceInput('deliveryNote', getLabel('dnLabel'), order.deliveryNote, order.orderId, 'orange', 'note');
+    if (needs.tawoos) inputsHtml += createInvoiceInput('tawoosInvoice', getLabel('tawoosLabel'), order.tawoosInvoice, order.orderId, 'blue', 'tax');
+    if (needs.pl) inputsHtml += createInvoiceInput('plInvoice', getLabel('plLabel'), order.plInvoice, order.orderId, 'purple', 'tax');
+
+    // REMOVED: savedIndicator - each invoice shows its own saved state
+
+    return `
+        <div class="accounting-card" id="acc-card-${order.orderId}" data-client="${order.clientName}" data-date="${order.invoiceDate}" data-internal-comment="${(order.internalComments || '').replace(/"/g, '&quot;')}">
+            ${commentIndicator}
+            <div class="acc-card-main">
+                <div class="acc-header-row">
+                    <div class="acc-client-section"><i class="fas fa-building client-icon"></i><span class="acc-client-name">${order.clientName}</span><span class="acc-id-badge">#${formattedOrderId}</span></div>
+                    <div class="acc-header-meta">${vatBadge}</div>
+                </div>
+                <div class="acc-info-row">
+                    <div class="acc-dates-group"><span class="date-badge"><i class="fas fa-file-invoice"></i> ${formattedDate}</span><span class="date-badge"><i class="fas fa-truck"></i> ${loadingDate}</span></div>
+                    <div class="amount-badge ${amountColorClass}"><i class="fas fa-money-bill-wave"></i> ${amountFormatted} EGP</div>
+                </div>
+                ${(poHtml || attachmentsHtml) ? `<div class="acc-meta-container">${poHtml ? `<div class="acc-po-row">${poHtml}</div>` : ''}${attachmentsHtml}</div>` : ''}
+                <div class="acc-summary-box">
+                    <div class="acc-type-vertical" style="background-color: ${typeColor}">${orderType}</div>
+                    <div class="acc-summary-content"><div class="acc-summary-label"><i class="fas fa-list"></i> ${trans.summary}</div><div class="acc-summary-text">${(order.orderSummary || '-').replace(/\n/g, '<br>')}</div></div>
+                </div>
+            </div>
+            <div class="acc-card-edge">
+                ${inputsHtml}
+            </div>
+        </div>
+    `;
+}
+
+function createInvoiceInput(field, label, value, orderId, colorClass, seqType) {
+    const trans = translations[currentLang];
+    const safeVal = value || '';
+    
+    let invoiceType = '';
+    if (field === 'tawoosInvoice') invoiceType = 'Tawoos';
+    if (field === 'plInvoice') invoiceType = 'PL';
+    if (field === 'deliveryNote') invoiceType = 'DeliveryNote';
+    
+    let isSaved = false;
+    
+    if (safeVal && accountingData.invoices) {
+        const savedInvoice = accountingData.invoices.find(inv => 
+            inv.orderId.toString() === orderId.toString() && 
+            inv.invoiceType === invoiceType &&
+            inv.fileUrl
+        );
+        isSaved = !!savedInvoice;
+    }
+    
+    const isLocked = isSaved;
+    
+    // Determine icon based on saved file name
+    let fileIcon = 'fa-file-alt';
+    if (isSaved && accountingData.invoices) {
+        const invoice = accountingData.invoices.find(inv => 
+            inv.orderId.toString() === orderId.toString() && 
+            inv.invoiceType === invoiceType
+        );
+        if (invoice && invoice.fileName) {
+            if (invoice.fileName.toLowerCase().endsWith('.pdf')) {
+                fileIcon = 'fa-file-pdf';
+            } else if (invoice.fileName.toLowerCase().endsWith('.png')) {
+                fileIcon = 'fa-file-image';
+            }
+        }
+    }
+    
+    return `
+        <div class="invoice-input-group ${colorClass} ${isSaved ? 'invoice-saved' : ''}">
+            <label>${label}</label>
+            <div class="input-controls-wrapper">
+                <div class="input-icon-wrapper">
+                    <input type="number" 
+                           class="invoice-input ${isLocked ? 'locked-input' : ''}" 
+                           id="input-${field}-${orderId}" 
+                           value="${safeVal}" 
+                           data-order-id="${orderId}" 
+                           data-field="${field}" 
+                           data-seq-type="${seqType}" 
+                           data-invoice-type="${invoiceType}"
+                           data-original="${safeVal}" 
+                           ${isLocked ? 'readonly' : ''} 
+                           onfocus="handleEditAttempt(this)" 
+                           placeholder="#">
+                    <i class="input-warning-icon has-tooltip" data-tooltip="${trans.gapTooltip}"></i>
+                    <i class="input-error-icon has-tooltip" data-tooltip="${trans.dupTooltip}"></i>
+                    <i class="input-info-icon has-tooltip" data-tooltip="${trans.splitTooltip}"></i>
+                    <i class="input-low-icon has-tooltip" data-tooltip="${trans.serialLowTooltip}"></i>
+                </div>
+                <button class="btn-generate-inline" 
+                        id="btn-gen-${field}-${orderId}"
+                        onclick="handleGenerateSingle('${orderId}', '${invoiceType}', '${field}')"
+                        disabled
+                        title="Generate ${label}">
+                    <i class="fas fa-cog"></i>
+                </button>
+            </div>
+            ${isSaved ? `
+                <div class="saved-file-link" onclick="handleOpenSavedInvoice('${orderId}', '${invoiceType}')">
+                    <i class="fas ${fileIcon}"></i>
+                    <span>${trans.viewSaved || 'View Saved Invoice'}</span>
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
+function handleGenerateSingle(orderId, invoiceType, field) {
+    const input = document.querySelector(`[data-order-id="${orderId}"][data-field="${field}"]`);
+    const serial = input?.value;
+    
+    if (!serial) {
+        showToast('Please assign a serial number first', 'error');
+        return;
+    }
+    
+    // Validate no gaps/duplicates
+    const validation = updateSerialValidationUI();
+    if (validation.hasGaps || validation.hasDuplicates) {
+        showToast('Cannot generate: Fix serial gaps or duplicates first', 'error');
+        return;
+    }
+    
+    const btn = event.target.closest('.btn-generate-inline');
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    btn.disabled = true;
+    
+    console.log('Calling previewInvoiceData:', orderId, invoiceType, serial);
+    
+    google.script.run
+        .withSuccessHandler(result => {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+            
+            console.log('Preview result:', result);
+            
+            if (result.success) {
+                // CHECK if data exists
+                if (!result.data) {
+                    showToast('Preview Error: No invoice data returned', 'error');
+                    console.error('Backend returned success but no data:', result);
+                    return;
+                }
+                
+                const userEmail = localStorage.getItem('userEmail') || 'N/A';
+                result.data.ORDER_ID_DISPLAY = orderId;
+                result.data.USER_EMAIL = userEmail;
+                result.data.CURRENT_TIMESTAMP = new Date().toLocaleString();
+                
+                showSingleInvoiceModal(orderId, invoiceType, serial, result.data, field);
+            } else {
+                showToast('Error: ' + (result.message || 'Unknown error'), 'error');
+            }
+        })
+        .withFailureHandler(err => {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+            showToast('Failed: ' + err, 'error');
+            console.error('Backend error:', err);
+        })
+        .previewInvoiceData(orderId, invoiceType, serial);
+}
+
+function showSingleInvoiceModal(orderId, type, serial, data, field) {
+    // ADD NULL CHECK AT THE VERY START
+    if (!data) {
+        showToast('Preview Error: No invoice data received', 'error');
+        console.error('showSingleInvoiceModal called with null data');
+        return;
+    }
+    
+    if (!document.getElementById('previewModal')) {
+        createSingleInvoiceModalStructure();
+    }
+    
+    // Get internal comment and attachments from order card
+    const card = document.getElementById(`acc-card-${orderId}`);
+    const internalComment = card?.dataset.internalComment || '';
+    
+    // Get attachments from order data
+    const order = accountingData.orders.find(o => o.orderId.toString() === orderId.toString());
+    const attachments = [];
+    if (order) {
+        if (order.attachment1) attachments.push(order.attachment1);
+        if (order.attachment2) attachments.push(order.attachment2);
+        if (order.attachment3) attachments.push(order.attachment3);
+    }
+    
+    // Set current preview data
+    currentPreviewData = {
+        orderId: orderId,
+        type: type,
+        serial: serial,
+        data: data,  // This must not be null
+        field: field,
+        lang: 'en',
+        format: 'PNG',
+        quickFormat: 'PNG',
+        internalComment: internalComment,
+        attachments: attachments
+    };
+    
+    // Rest of function...
+    document.getElementById('current-invoice-serial').value = serial;
+    
+    // Update modal title - Remove invoice type, just show serial
+    const titleEl = document.getElementById('modal-invoice-title');
+    titleEl.textContent = `#${serial}`;
+    
+    // Check if VAT is blank AND this is a taxable invoice (not DN)
+    const isTaxableInvoice = type !== 'DeliveryNote';
+    const hasVAT = data.TAX_CARD && data.TAX_CARD.trim() !== '';
+    const needsCashSales = isTaxableInvoice && !hasVAT;
+    
+    // Show/hide cash sales checkbox
+    const cashSalesContainer = document.getElementById('cash-sales-container');
+    const cashSalesCheckbox = document.getElementById('cash-sales-checkbox');
+    
+    if (needsCashSales) {
+        cashSalesContainer.style.display = 'flex';
+        cashSalesCheckbox.checked = false; // Reset to unchecked
+        currentPreviewData.isCashSales = false;
+        
+        // Disable save button initially
+        document.getElementById('btn-save-invoice').disabled = true;
+        
+        // Disable quick actions initially
+        const printBtn = document.getElementById('quick-print-btn');
+        const downloadBtn = document.getElementById('quick-download-btn');
+        if (printBtn) printBtn.disabled = true;
+        if (downloadBtn) downloadBtn.disabled = true;
+    } else {
+        cashSalesContainer.style.display = 'none';
+        currentPreviewData.isCashSales = false;
+        
+        // Enable save button for normal cases
+        document.getElementById('btn-save-invoice').disabled = false;
+    }
+    // Show/hide internal comment bar
+    const commentBar = document.getElementById('preview-internal-comment-bar');
+    const commentText = document.getElementById('preview-comment-text');
+    if (internalComment && internalComment.trim() !== '') {
+        commentText.textContent = internalComment;
+        commentBar.style.display = 'flex';
+    } else {
+        commentBar.style.display = 'none';
+    }
+    
+    // Show/hide attachments bar
+    const attachmentsBar = document.getElementById('preview-attachments-bar');
+    const attachmentsContainer = document.getElementById('preview-attachments-container');
+    if (attachments.length > 0) {
+        attachmentsContainer.innerHTML = '';
+        attachments.forEach(urlWithFilename => {
+            const url = urlWithFilename.includes('|||') ? urlWithFilename.split('|||')[0] : urlWithFilename;
+            const icon = typeof getFileIcon === 'function' ? getFileIcon(urlWithFilename) : 'fa-file';
+            const chip = document.createElement('a');
+            chip.href = url;
+            chip.target = '_blank';
+            chip.className = 'attachment-chip-preview';
+            chip.innerHTML = `<i class="fas ${icon}"></i>`;
+            attachmentsContainer.appendChild(chip);
+        });
+        attachmentsBar.style.display = 'flex';
+    } else {
+        attachmentsBar.style.display = 'none';
+    }
+    
+    if(document.getElementById('p-hide-bonus')) {
+        document.getElementById('p-hide-bonus').checked = false;
+    }
+    
+    renderIframeContent();
+    
+    document.getElementById('previewModal').classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+// =============================================================================
+// NEW: createSingleInvoiceModalStructure - Simplified, modern
+// =============================================================================
+
+function createSingleInvoiceModalStructure() {
+    const modalHtml = `
+    <div id="previewModal" class="preview-overlay">
+        <div class="preview-container-modern">
+            <!-- Modern Header Bar -->
+            <div class="preview-header-bar">
+                <div class="header-left">
+                    <h3 id="modal-invoice-title">Invoice Preview</h3>
+                    <!-- Attachments Bar (Inline in header) -->
+                    <div id="preview-attachments-bar" class="preview-attachments-inline" style="display: none;">
+                        <span class="attachments-label">Attachments:</span>
+                        <div id="preview-attachments-container" class="attachments-chips-inline"></div>
+                    </div>
+                    <!-- Cash Sales Checkbox (when VAT is blank) -->
+                    <div id="cash-sales-container" class="cash-sales-inline" style="display: none;">
+                        <label class="cash-sales-checkbox">
+                            <input type="checkbox" id="cash-sales-checkbox" onchange="handleCashSalesToggle()">
+                            <span id="cash-sales-label">بيع نقدي</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <div class="header-control-group">
+                        <label class="header-label">Serial</label>
+                        <input type="number" id="current-invoice-serial" class="header-input" readonly>
+                    </div>
+                    <div class="header-control-group">
+                        <label class="header-label">Language</label>
+                        <div class="header-toggle">
+                            <button class="header-toggle-btn active" onclick="setPreviewLang('en', this)">EN</button>
+                            <button class="header-toggle-btn" onclick="setPreviewLang('ar', this)">AR</button>
+                        </div>
+                    </div>
+                    <!-- REMOVED FORMAT TOGGLE - PNG ONLY -->
+                    <div class="header-actions">
+                        <button class="header-btn header-btn-reject" onclick="closePreview()">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button class="header-btn header-btn-save" id="btn-save-invoice" onclick="confirmSingleGeneration()">
+                            <i class="fas fa-save"></i> Save
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Internal Comment Bar (Frozen) -->
+            <div id="preview-internal-comment-bar" class="preview-comment-bar" style="display: none;">
+                <div class="comment-bar-icon">
+                    <i class="fas fa-comment-dots"></i>
+                </div>
+                <div class="comment-bar-content">
+                    <span class="comment-bar-label">Internal Note:</span>
+                    <span id="preview-comment-text"></span>
+                </div>
+            </div>
+            
+            <!-- Main Content -->
+            <div class="preview-main-modern">
+                <!-- Compact Sidebar -->
+                <div class="preview-sidebar-modern">
+                    <div class="sidebar-section-modern">
+                        <label class="modern-checkbox">
+                            <input type="checkbox" id="p-hide-bonus" onchange="debouncedRender(100)">
+                            <span>Hide Bonus Column</span>
+                        </label>
+                    </div>
+                    
+                    <div class="sidebar-section-modern">
+                        <h4 class="sidebar-title-modern">Quick Actions</h4>
+                        <div class="quick-actions-grid">
+                            <button class="btn-quick-modern" id="quick-print-btn" onclick="handleQuickAction('print')" title="Print" disabled>
+                                <i class="fas fa-print"></i>
+                            </button>
+                            <button class="btn-quick-modern" id="quick-download-btn" onclick="handleQuickAction('download')" title="Download" disabled>
+                                <i class="fas fa-download"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="sidebar-section-modern">
+                        <h4 class="sidebar-title-modern">Page Fit</h4>
+                        <div class="fit-buttons-grid">
+                            <button class="fit-btn" onclick="autofitPage('height', this)" title="Fit Height">
+                                <i class="fas fa-arrows-alt-v"></i>
+                            </button>
+                            <button class="fit-btn" onclick="autofitPage('width', this)" title="Fit Width">
+                                <i class="fas fa-arrows-alt-h"></i>
+                            </button>
+                            <button class="fit-btn active" onclick="autofitPage('default', this)" title="Default">
+                                <i class="fas fa-undo"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="sidebar-section-modern">
+                        <h4 class="sidebar-title-modern">Margins</h4>
+                        <div class="margin-controls">
+                            <div class="margin-row">
+                                <span>Top</span>
+                                <input type="range" id="p-margin-top" min="0" max="100" value="48" oninput="updatePreviewStyles()">
+                                <span id="val-mt">48</span>
+                            </div>
+                            <div class="margin-row">
+                                <span>Bot</span>
+                                <input type="range" id="p-margin-bottom" min="0" max="100" value="40" oninput="updatePreviewStyles()">
+                                <span id="val-mb">40</span>
+                            </div>
+                            <div class="margin-row">
+                                <span>Left</span>
+                                <input type="range" id="p-margin-left" min="0" max="50" value="5" oninput="updatePreviewStyles()">
+                                <span id="val-ml">5</span>
+                            </div>
+                            <div class="margin-row">
+                                <span>Right</span>
+                                <input type="range" id="p-margin-right" min="0" max="50" value="5" oninput="updatePreviewStyles()">
+                                <span id="val-mr">5</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>  <!-- CLOSE SIDEBAR HERE -->
+                
+                <!-- Preview Area - SIBLING to sidebar, NOT CHILD -->
+                <div class="preview-content-modern">
+                    <div class="paper-wrapper-modern">
+                        <div id="margin-guide-top" class="margin-guide horizontal"></div>
+                        <div id="margin-guide-bottom" class="margin-guide horizontal"></div>
+                        <div id="margin-guide-left" class="margin-guide vertical"></div>
+                        <div id="margin-guide-right" class="margin-guide vertical"></div>
+                        <iframe id="previewFrame" class="a4-paper"></iframe>
+                    </div>
+                </div>
+            </div>  <!-- CLOSE MAIN -->
+        </div>
+    </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+// =============================================================================
+// NEW: confirmSingleGeneration - Save single invoice
+// =============================================================================
+
+function confirmSingleGeneration() {
+    const btn = document.getElementById('btn-save-invoice');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+    btn.disabled = true;
+
+    const frame = document.getElementById('previewFrame');
+    const settings = {
+        fileType: 'PNG', // FORCE PNG
+        targetType: currentPreviewData.type,
+        serialNumber: currentPreviewData.serial,
+        language: currentPreviewData.lang,
+        isCashSales: currentPreviewData.isCashSales || false
+    };
+
+    const userEmail = localStorage.getItem('userEmail') || 'N/A';
+
+    try {
+        const iframeBody = frame.contentDocument.body;
+        iframeBody.style.backgroundColor = "#ffffff";
+        
+        html2canvas(iframeBody, {
+            scale: 2,
+            logging: false,
+            useCORS: true,
+            windowWidth: iframeBody.scrollWidth,
+            windowHeight: iframeBody.scrollHeight
+        }).then(canvas => {
+            const payload = canvas.toDataURL('image/png').split(',')[1];
+            saveSingleInvoice(payload, settings, userEmail, btn, originalText);
+        }).catch(e => {
+            showToast('Save Failed: ' + e.message, 'error');
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        });
+    } catch (e) {
+        showToast('Failed: ' + e.message, 'error');
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+function saveSingleInvoice(payload, settings, userEmail, btn, originalText) {
+    const orderId = currentPreviewData.orderId;
+    const field = currentPreviewData.field;
+    const invoiceData = {};
+    
+    if (settings.targetType === 'Tawoos') invoiceData.tawoosInvoice = settings.serialNumber;
+    if (settings.targetType === 'PL') invoiceData.plInvoice = settings.serialNumber;
+    if (settings.targetType === 'DeliveryNote') invoiceData.deliveryNote = settings.serialNumber;
+
+    google.script.run
+        .withSuccessHandler(result => {
+            if (result.success) {
+                // Update local order data
+                const order = accountingData.orders.find(o => o.orderId.toString() === orderId.toString());
+                if (order) {
+                    if (invoiceData.tawoosInvoice) order.tawoosInvoice = invoiceData.tawoosInvoice;
+                    if (invoiceData.plInvoice) order.plInvoice = invoiceData.plInvoice;
+                    if (invoiceData.deliveryNote) order.deliveryNote = invoiceData.deliveryNote;
+                }
+                
+                // Add to local invoices array
+                if (!accountingData.invoices) accountingData.invoices = [];
+                
+                accountingData.invoices.push({
+                    orderId: orderId,
+                    invoiceType: settings.targetType,
+                    serialNumber: settings.serialNumber,
+                    fileUrl: result.fileUrl,
+                    fileName: result.fileName || ''
+                });
+                
+                showToast('Invoice saved successfully', 'success');
+                
+                // DON'T close modal - transform UI instead
+                // Change Save button to "Done"
+                btn.innerHTML = '<i class="fas fa-check"></i> Done';
+                btn.onclick = function() {
+                    closePreview();
+                };
+                btn.classList.remove('header-btn-save');
+                btn.classList.add('header-btn-done');
+                btn.disabled = false; // Make sure it's clickable
+                
+                // Hide Cancel button
+                const cancelBtn = document.querySelector('.header-btn-reject');
+                if (cancelBtn) cancelBtn.style.display = 'none';
+                
+                // Enable quick action buttons
+                const printBtn = document.getElementById('quick-print-btn');
+                const downloadBtn = document.getElementById('quick-download-btn');
+                if (printBtn) printBtn.disabled = false;
+                if (downloadBtn) downloadBtn.disabled = false;
+                
+                // Mark modal as saved
+                if (currentPreviewData) currentPreviewData.isSaved = true;
+                
+                // Re-render accounting UI in background
+                renderAccountingUI();
+            } else {
+                showToast('Error: ' + result.message, 'error');
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        })
+        .withFailureHandler(err => {
+            showToast('Save Failed: ' + err, 'error');
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        })
+        .commitInvoiceGeneration(orderId, null, settings, payload, userEmail);
+}
+
+// =============================================================================
+// NEW: handleOpenSavedInvoice - Open saved file
+// =============================================================================
+
+function handleOpenSavedInvoice(orderId, invoiceType) {
+    const card = document.getElementById(`acc-card-${orderId}`);
+    const serialInput = card.querySelector(`[data-field="${getFieldNameForType(invoiceType)}"]`);
+    const serial = serialInput?.value;
+    
+    if (!serial) {
+        showToast('Serial number not found', 'error');
+        return;
+    }
+    
+    // Call backend to get the last saved invoice URL matching order, type, and serial
+    google.script.run
+        .withSuccessHandler(result => {
+            if (result.success && result.url) {
+                window.open(result.url, '_blank');
+            } else {
+                showToast(result.message || 'Invoice file not found', 'error');
+            }
+        })
+        .withFailureHandler(err => {
+            showToast('Error loading invoice: ' + err, 'error');
+        })
+        .getLastSavedInvoiceUrl(orderId, invoiceType, serial);
+}
+
+function getFieldNameForType(invoiceType) {
+    if (invoiceType === 'Tawoos') return 'tawoosInvoice';
+    if (invoiceType === 'PL') return 'plInvoice';
+    if (invoiceType === 'DeliveryNote') return 'deliveryNote';
+    return '';
+}
+
+function handleStartSerial(type, value) {
+    const val = parseInt(value);
+    if (val > 0) {
+        if (type === 'tax') accountingData.serials.taxStart = val;
+        if (type === 'note') accountingData.serials.noteStart = val;
+        validateSequences();
+    }
+}
+
+function attachInputListeners() {
+    const inputs = document.querySelectorAll('.invoice-input');
+    
+    inputs.forEach(input => {
+        // Update validation on input change
+        input.addEventListener('input', function() {
+            validateSequences(); // Your sophisticated validation handles everything
+        });
+        
+        // Handle edit attempts
+        input.addEventListener('focus', function() {
+            handleEditAttempt(this);
+        });
+    });
+}
+
+function validateSequences() {
+    // 1. Map all inputs
+    const inputs = Array.from(document.querySelectorAll('.invoice-input'));
+    const allValues = inputs.map(input => ({
+        val: parseInt(input.value),
+        dom: input,
+        id: input.dataset.orderId,
+        type: input.dataset.seqType,
+        field: input.dataset.field,
+        original: parseInt(input.dataset.original) || null
+    })).filter(item => !isNaN(item.val) && item.val > 0);
+
+    // Reset Visual States
+    document.querySelectorAll('.invoice-input-group').forEach(el => 
+        el.className = el.className.replace(/ has-error| has-warning| has-split| has-low/g, '')
+    );
+    
+    const alertContainer = document.getElementById('missing-alert-container');
+    const badgesContainer = document.getElementById('missing-badges');
+    badgesContainer.innerHTML = '';
+    let globalBlock = false;
+
+    // Iterate Types (Tax / Note)
+    ['tax', 'note'].forEach(type => {
+        const typeInputs = inputs.filter(input => input.dataset.seqType === type);
+        const currentValues = allValues.filter(x => x.type === type);
+        
+        // A. Determine Boundaries
+        const dbLast = (type === 'tax') ? accountingData.serials.taxLast : accountingData.serials.noteLast;
+        const userStart = (type === 'tax') ? accountingData.serials.taxStart : accountingData.serials.noteStart;
+        const sysMin = (type === 'tax') ? accountingData.serials.taxMin : accountingData.serials.noteMin;
+        
+        const absoluteStart = sysMin > 0 ? sysMin : (userStart || 1);
+        const maxInput = currentValues.length > 0 ? Math.max(...currentValues.map(x => x.val)) : 0;
+        
+        // We scan up to the highest number we know about (DB or Input) + 1 to find the next slot
+        const scanEnd = Math.max(dbLast, maxInput) + 1;
+
+        // B. Identify "Fluid" History
+        // Numbers in DB that belong to cards currently on screen (can be moved/edited)
+        const originalSet = new Set(currentValues.map(x => x.original).filter(x => x !== null));
+
+        let trackerNext = null; // This will hold the FIRST gap we find
+
+        // C. Main Validation Loop (Scan every number)
+        for (let i = absoluteStart; i <= scanEnd; i++) {
+            const isHistory = (i <= dbLast);
+            const isOriginalOnScreen = originalSet.has(i);
+            
+            // A number is "Occupied History" if it's in the DB range AND NOT on screen for editing
+            const isHistoryOccupied = isHistory && !isOriginalOnScreen; 
+            
+            const entries = currentValues.filter(x => x.val === i);
+            const isInput = entries.length > 0;
+
+            // --- LOGIC: IS THIS NUMBER ACCOUNTED FOR? ---
+            const isAccountedFor = isHistoryOccupied || isInput;
+
+            if (!isAccountedFor) {
+                // FOUND A GAP (or the end of the sequence)
+                if (trackerNext === null) trackerNext = i; // Lock tracker to the FIRST missing number
+
+                // If this gap is below the highest number user typed, it's a SKIP error
+                if (i < maxInput) {
+                    const b = document.createElement('span');
+                    b.className = `missing-badge ${type === 'tax' ? 'blue' : 'orange'}`;
+                    b.innerText = i;
+                    badgesContainer.appendChild(b);
+                    
+                    // Flag the input that caused the jump (the smallest input > i)
+                    const jumper = currentValues.sort((a,b) => a.val - b.val).find(x => x.val > i);
+                    if (jumper) {
+                        jumper.dom.closest('.invoice-input-group').classList.add('has-warning');
+                    }
+                    globalBlock = true;
+                }
+            }
+
+            // --- VALIDATION CHECKS FOR ENTRIES ---
+            if (isInput) {
+                // 1. History Conflict (Typing a number that belongs to a closed order)
+                if (isHistoryOccupied) {
+                    entries.forEach(entry => entry.dom.closest('.invoice-input-group').classList.add('has-error'));
+                    globalBlock = true;
+                }
+
+                // 2. Duplicates
+                if (entries.length > 1) {
+                    if (isSplitLoad(null, i, entries)) {
+                        entries.forEach(e => e.dom.closest('.invoice-input-group').classList.add('has-split'));
+                    } else {
+                        entries.forEach(e => e.dom.closest('.invoice-input-group').classList.add('has-error'));
+                        globalBlock = true;
+                    }
+                }
+            }
+        }
+
+        // D. Below Minimum Check
+        currentValues.forEach(item => {
+            if (item.val < absoluteStart) {
+                item.dom.closest('.invoice-input-group').classList.add('has-low');
+                globalBlock = true;
+            }
+        });
+
+        // E. Update Tracker
+        // If we found a gap/next, use it. Otherwise fallback to start.
+        const finalNext = trackerNext || absoluteStart;
+        updateTrackerUI(type, finalNext - 1, finalNext);
+
+        // F. Smart Placeholders (Broadcast Next)
+        // If validation failed (globalBlock), we might stop placeholders or keep them live?
+        // Req: "If it doesn't follow sequence... use '#'"
+        // We will broadcast the *trackerNext* (which represents the first hole).
+        typeInputs.forEach(input => {
+            if (!input.readOnly && !input.classList.contains('locked-input') && !input.value) {
+                input.placeholder = globalBlock ? "#" : finalNext;
+            }
+        });
+    });
+
+    // UI Finalization
+    alertContainer.style.display = badgesContainer.children.length > 0 ? 'block' : 'none';
+    
+    // Update inline generate buttons
+document.querySelectorAll('.btn-generate-inline').forEach(btn => {
+    const btnId = btn.id;
+    if (!btnId) return;
+    
+    const parts = btnId.replace('btn-gen-', '').split('-');
+    if (parts.length < 2) return;
+    
+    const field = parts[0];
+    const orderId = parts.slice(1).join('-');
+    
+    const input = document.querySelector(`[data-order-id="${orderId}"][data-field="${field}"]`);
+    if (!input) return;
+    
+    const hasValue = input.value && input.value !== '';
+    const isLocked = input.readOnly || input.classList.contains('locked-input');
+    
+    btn.disabled = !hasValue || isLocked || globalBlock;
+});
+}
+
+function updateTrackerUI(type, lastVal, nextVal) {
+    const lastEl = document.getElementById(`tracker-last-${type}`);
+    const nextEl = document.getElementById(`tracker-next-${type}`);
+    if (lastEl) lastEl.innerText = lastVal;
+    if (nextEl) nextEl.innerText = nextVal;
+}
+
+function handleEditAttempt(input) {
+    if (input.readOnly || input.classList.contains('locked-input')) {
+        input.blur();
+        showCustomConfirm(
+            translations[currentLang].editTitle || 'Edit Saved Invoice',
+            translations[currentLang].editMsg || 'This invoice is already saved.\nDo you want to edit it?',
+            true,
+            () => {
+                input.readOnly = false;
+                input.classList.remove('locked-input');
+                const card = input.closest('.accounting-card');
+                if (card) {
+                    card.classList.add('editing-mode');
+                    card.classList.remove('saved-card');
+                }
+                
+                // Enable the generate button
+                const field = input.dataset.field;
+                const orderId = input.dataset.orderId;
+                const genBtn = document.getElementById(`btn-gen-${field}-${orderId}`);
+                if (genBtn) {
+                    genBtn.disabled = false;
+                }
+                
+                validateSequences(); // Re-validate to update buttons
+                input.focus();
+            }
+        );
+    }
+}
+
+// Global variable for current preview data
+let currentPreviewData = null;
+
+// =============================================================================
+// SERIAL VALIDATION FUNCTIONS
+// =============================================================================
+function validateSerialSequence(type) {
+    // type = 'tax' or 'note'
+    const inputs = document.querySelectorAll(`.invoice-input[data-seq-type="${type}"]`);
+    const serials = [];
+    const serialMap = {};
+    
+    inputs.forEach(input => {
+        const val = parseInt(input.value);
+        if (!isNaN(val) && val > 0) {
+            const orderId = input.dataset.orderId;
+            const field = input.dataset.field;
+            const key = `${orderId}-${field}`;
+            
+            if (!serialMap[val]) {
+                serialMap[val] = [];
+            }
+            serialMap[val].push({input, key});
+            serials.push(val);
+        }
+    });
+    
+    serials.sort((a, b) => a - b);
+    
+    const min = Math.min(...serials);
+    const max = Math.max(...serials);
+    
+    const gaps = [];
+    const duplicates = [];
+    
+    // Check for gaps
+    for (let i = min; i <= max; i++) {
+        if (!serials.includes(i)) {
+            gaps.push(i);
+        }
+    }
+    
+    // Check for duplicates
+    Object.entries(serialMap).forEach(([serial, entries]) => {
+        if (entries.length > 1) {
+            // Check if it's a valid split load
+            const isSplit = isSplitLoad(null, serial, entries.map(e => ({
+                id: e.input.dataset.orderId,
+                field: e.input.dataset.field
+            })));
+            
+            if (!isSplit) {
+                duplicates.push({serial: parseInt(serial), entries});
+            }
+        }
+    });
+    
+    return {gaps, duplicates, min, max};
+}
+
+function updateSerialValidationUI() {
+    const allInputs = document.querySelectorAll('.invoice-input');
+    const taxSerials = [];
+    const noteSerials = [];
+    
+    allInputs.forEach(input => {
+        const val = parseInt(input.value);
+        const type = input.dataset.seqType;
+        
+        if (!isNaN(val) && val > 0) {
+            if (type === 'tax') {
+                taxSerials.push(val);
+            } else if (type === 'note') {
+                noteSerials.push(val);
+            }
+        }
+    });
+    
+    const taxValidation = checkSequence(taxSerials);
+    const noteValidation = checkSequence(noteSerials);
+    
+    return {
+        hasGaps: taxValidation.hasGaps || noteValidation.hasGaps,
+        hasDuplicates: taxValidation.hasDuplicates || noteValidation.hasDuplicates
+    };
+}
+
+
+function canSaveInvoice() {
+    const validation = updateSerialValidationUI();
+    return !validation.hasGaps && !validation.hasDuplicates;
+}
+
+// =============================================================================
+// UPDATED injectInvoiceToggleBar - Into action bar
+// =============================================================================
+
+function getInvoiceStateIcon(state) {
+    switch(state) {
+        case 'saved': return '<i class="fas fa-check-circle" style="color: #28a745;"></i>';
+        case 'rejected': return '<i class="fas fa-times-circle" style="color: #dc3545;"></i>';
+        case 'pending': return '<i class="far fa-circle" style="color: #6c757d;"></i>';
+        case 'error': return '<i class="fas fa-exclamation-circle" style="color: #ffc107;"></i>';
+        default: return '<i class="far fa-circle" style="color: #6c757d;"></i>';
+    }
+}
+
+function getInvoiceTypeLabel(type) {
+    const labels = {
+        'Tawoos': 'Tawoos',
+        'PL': 'PL',
+        'DeliveryNote': 'DN'
+    };
+    return labels[type] || type;
+}
+
+function getInvoiceTypeColor(type) {
+    const colors = {
+        'Tawoos': '#007bff',
+        'PL': '#6f42c1',
+        'DeliveryNote': '#fd7e14'
+    };
+    return colors[type] || '#6c757d';
+}
+
+async function handleQuickAction(action) {
+    const format = currentPreviewData.quickFormat; // 'PDF' or 'PNG'
+    const frame = document.getElementById('previewFrame');
+    const iframeBody = frame.contentWindow.document.body;
+    
+    // Construct Filename: DRAFT_Client_Serial.png
+    const clientName = currentPreviewData.data.CLIENT_NAME_INV || 'Client';
+    const safeClient = clientName.replace(/[^a-zA-Z0-9\u0600-\u06FF ]/g, "").trim();
+    const filename = `DRAFT_${safeClient}_${currentPreviewData.serial}`;
+
+    // 1. PNG Logic (Client Side)
+    if (format === 'PNG') {
+        try {
+            iframeBody.style.backgroundColor = "#ffffff";
+            const canvas = await html2canvas(iframeBody, {
+                scale: 2, 
+                logging: false, 
+                useCORS: true,
+                windowWidth: iframeBody.scrollWidth,
+                windowHeight: iframeBody.scrollHeight
+            });
+            
+            const dataUrl = canvas.toDataURL('image/png');
+            
+            if (action === 'print') {
+                const printWindow = window.open('', '_blank');
+                printWindow.document.write(`<html><body><img src="${dataUrl}" style="width:100%;"></body></html>`);
+                printWindow.document.close();
+                printWindow.focus();
+                setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
+            } else {
+                // Download with DRAFT prefix
+                const link = document.createElement('a');
+                link.download = `${filename}.png`;
+                link.href = dataUrl;
+                link.click();
+            }
+        } catch(e) {
+            showToast('Quick Action Failed: ' + e.message, 'error');
+        }
+    } 
+    // 2. PDF Logic
+    else {
+        if (action === 'print') {
+            frame.contentWindow.print();
+        } else {
+            // Note: Browser print dialog handles the filename, we can't force it easily here
+            // without generating it on backend.
+            frame.contentWindow.print();
+            showToast('Select "Save as PDF"', 'info');
+        }
+    }
+}
+
+
+function renderIframeContent() {
+    const frame = document.getElementById('previewFrame');
+    if (!frame) return;
+
+    try {
+        const d = currentPreviewData.data;
+        const isAr = currentPreviewData.lang === 'ar';
+        const dir = isAr ? 'rtl' : 'ltr';
+        const isDN = currentPreviewData.type === 'DeliveryNote';
+        
+        // Hide Bonus Flag
+        const hideBonus = document.getElementById('p-hide-bonus') ? document.getElementById('p-hide-bonus').checked : false;
+
+        // Financial formatting helper: negative values shown as (value)
+        const formatMoney = (value) => {
+            const num = parseFloat(value || 0);
+            if (num < 0) {
+                return `(${Math.abs(num).toFixed(2)})`;
+            }
+            return num.toFixed(2);
+        };
+        
+        // 1. Capture Margins (These elements EXIST)
+        const mt = document.getElementById('p-margin-top').value;
+        const mb = document.getElementById('p-margin-bottom').value;
+        const ml = document.getElementById('p-margin-left').value;
+        const mr = document.getElementById('p-margin-right').value;
+        
+        // 2. Set Defaults for Removed Sliders
+        const pad = 8;    // Default padding px
+        
+        // Auto-fit columns - no fixed widths, let content determine size
+        // Pre-calculate CSS
+        const initialStyles = `
+            body { 
+                padding-top: ${mt}mm !important; 
+                padding-bottom: ${mb}mm !important; 
+                padding-left: ${ml}mm !important; 
+                padding-right: ${mr}mm !important; 
+            }
+            td { padding: ${pad}px 5px !important; }
+        `;
+
+        // Define Labels
+        const labels = {
+            title: isAr ? (isDN ? 'إذن تسليم' : 'فاتورة') : (isDN ? 'DELIVERY NOTE' : 'INVOICE'),
+            date: isAr ? 'التاريخ' : 'Date',
+            serial: isAr ? 'تسلسل' : 'Serial #',
+            from: isAr ? 'البائع (من)' : 'Seller (from)',
+            to: isAr ? 'المشتري (إلى)' : 'Buyer (to)',
+            taxReg: isAr ? 'رقم تسجيل ضريبي' : 'VAT Reg #',
+            item: isAr ? 'الصنف' : 'Item',
+            barcode: isAr ? 'باركود' : 'Barcode',
+            unit: isAr ? 'وحدة' : 'Unit',
+            qty: isAr ? 'الكمية' : 'Qty',
+            bonus: isAr ? 'بونص' : 'Bonus',
+            price: isAr ? 'سعر' : 'Price',
+            total: isAr ? 'الاجمالي' : 'Total',
+            totalOriginal: isAr ? 'الإجمالي قبل الضريبة' : 'Total Original',
+            vat: isAr ? 'ضريبة القيمة المضافة' : 'VAT',
+            deduction: isAr ? 'خصم أ.ت.ص' : 'WHT Deduction',
+            netTotal: isAr ? 'الصافي' : 'Net Total',
+            addDiscount: isAr ? 'خصم إضافي' : 'Additional Discount',
+            totalAddDiscount: isAr ? 'إجمالي الخصم الإضافي' : 'Total Additional Discount',
+            internalOrder: isAr ? 'رقم أوردر داخلي' : 'Internal Order #',
+            loadOrder: isAr ? 'ترتيب التحميل' : 'Loading Order',
+            driver: isAr ? 'سائق' : 'Driver',
+            truck: isAr ? 'سيارة' : 'Truck',
+            rep: isAr ? 'مندوب' : 'Rep',
+            receiver: isAr ? 'المستلم' : 'Receiver',
+            signature: isAr ? 'التوقيع' : 'Signature',
+            disclaimer: isAr ? 'تم اصدار هذا البيان بناءاً علي طلب العميل و لا يُعتد به كفاتورة بيع' : 'This statement was issued at client request and is not a sales invoice',
+            comments: isAr ? 'ملاحظات' : 'Notes'
+        };
+
+        const client = d.CLIENT_DETAILS || { name: d.CLIENT_NAME || '', branch: '', address: '', vat: '' };
+        
+        // If cash sales mode, override client name
+        if (currentPreviewData.isCashSales) {
+            const cashSalesName = currentPreviewData.lang === 'ar' ? 'بيع نقدي' : 'Cash Sales';
+            client.name = cashSalesName;
+        }
+        const orderRow = accountingData.orders.find(o => o.orderId == currentPreviewData.orderId) || {};
+        const products = d.PRODUCTS_DETAIL || [];
+        
+        // Detect if bonus exists in products
+        const hasBonus = products.some(p => (parseFloat(p.bonus)||0) > 0);
+        const showBonus = hasBonus && !hideBonus;
+
+        let bodyContent = '';
+        let rows = '';
+        
+        if (isDN) {
+            // ==================== DELIVERY NOTE VERSION ====================
+            
+            let dnTotalManualDiscount = 0;
+            
+            if (products.length > 0) {
+                products.forEach(p => {
+                    const displayName = isAr ? (p.nameAr || p.name) : (p.nameEn || p.name);
+                    const qty = parseFloat(p.qty)||0;
+                    const bonus = parseFloat(p.bonus)||0;
+                    const unitPrice = parseFloat(p.unitPrice)||0;
+                    
+                    // CRITICAL: For DN, only QTY is used in calculations (bonus is FREE)
+                    const lineSubtotal = unitPrice * qty;
+                    
+                    rows += `
+                    <tr>
+                        <td class="product-name">${displayName}</td>
+                        <td>${isAr ? (p.unitAr || '-') : (p.unitEn || '-')}</td>
+                        <td>${qty}</td>
+                        ${showBonus ? `<td>${bonus}</td>` : ''}
+                        <td>${unitPrice.toFixed(2)}</td>
+                        <td>${lineSubtotal.toFixed(2)}</td>
+                    </tr>`;
+                    
+                    // Manual discount handling
+                    if (p.hasManualDiscount) {
+                        const manualDiscountPerItem = parseFloat(p.manualDiscountPerItem || 0);
+                        const discountAmt = manualDiscountPerItem * qty;  // Only qty, not bonus
+                        dnTotalManualDiscount += discountAmt;
+                        
+                        rows += `
+                        <tr class="discount-row">
+                            <td class="product-name indent">${labels.addDiscount}</td>
+                            <td></td>
+                            <td></td>
+                            ${showBonus ? '<td></td>' : ''}
+                            <td></td>
+                            <td class="discount-value">(${discountAmt.toFixed(2)})</td>
+                        </tr>`;
+                    }
+                });
+            } else {
+                const colspan = showBonus ? 6 : 5;
+                rows = `<tr><td colspan="${colspan}" style="padding:20px; text-align:center;">No products</td></tr>`;
+            }
+            
+            bodyContent = `
+                <div class="header anonymous">
+                    <div class="header-side start">
+                        <h1 class="main-title">${labels.title}</h1>
+                    </div>
+                    <div class="header-center">
+                        <div class="serial-display">#${currentPreviewData.serial}</div>
+                    </div>
+                    <div class="header-side end">
+                        <div class="date-display"><i class="fas fa-calendar-alt"></i> ${d.INVOICE_DATE}</div>
+                    </div>
+                </div>
+                
+                <div class="box-container">
+                    <div class="info-box">
+                        <div class="box-header">${labels.to}</div>
+                        <div class="box-content">
+                            <div class="row-item"><strong>${client.name}</strong></div>
+                            ${client.branch ? `<div class="row-item">${client.branch}</div>` : ''}
+                            <div class="row-item">${client.address}</div>
+                        </div>
+                    </div>
+                    <div class="info-box">
+                        <div class="box-header">Logistics</div>
+                        <div class="box-content logistics-grid">
+                            <div><span class="meta-label">${labels.date}:</span> <strong>${d.INVOICE_DATE}</strong></div>
+                            <div><span class="meta-label">${labels.internalOrder}:</span> <strong>${d.ORDER_NUMBER || currentPreviewData.orderId}</strong></div>
+                            <div><span class="meta-label">${labels.loadOrder}:</span> ${orderRow.loadingOrder || '-'}</div>
+                            <div><span class="meta-label">${labels.truck}:</span> ${orderRow.truck || '-'}</div>
+                            <div><span class="meta-label">${labels.driver}:</span> ${orderRow.driver || '-'}</div>
+                            <div><span class="meta-label">${labels.rep}:</span> ${orderRow.deliveryRep || '-'}</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="table-wrapper">
+                    <table id="invoiceTable">
+                        <thead>
+                            <tr>
+                                <th style="width: 40%">${labels.item}<div class="resizer"></div></th>
+                                <th style="width: 10%">${labels.unit}<div class="resizer"></div></th>
+                                <th style="width: 10%">${labels.qty}<div class="resizer"></div></th>
+                                ${showBonus ? `<th style="width: 10%">${labels.bonus}<div class="resizer"></div></th>` : ''}
+                                <th style="width: 15%">${labels.price}<div class="resizer"></div></th>
+                                <th style="width: 15%">${labels.total}<div class="resizer"></div></th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+                
+                <div class="footer-section">
+                    <table class="totals-table">
+                        ${dnTotalManualDiscount > 0 ? `
+                        <tr><td>${labels.totalAddDiscount}</td><td class="discount-value">(${dnTotalManualDiscount.toFixed(2)})</td></tr>` : ''}
+                        <tr>
+                            <td style="font-weight:700; border-top:2px solid #1e3a5f;">${labels.netTotal}</td>
+                            <td style="font-weight:700; border-top:2px solid #1e3a5f;">${parseFloat(d.TOTAL_INVOICE_FINAL||0).toFixed(2)} EGP</td>
+                        </tr>
+                    </table>
+                </div>
+                
+                ${orderRow.externalComments ? `
+                <div class="comment-box">
+                    <div class="comment-label"><i class="fas fa-comment-dots"></i> ${labels.comments}</div>
+                    <div style="white-space: pre-wrap;">${orderRow.externalComments}</div>
+                </div>` : ''}
+
+                <div class="dn-footer">
+                    <div class="disclaimer">${labels.disclaimer}</div>
+                    <div class="signature-area">
+                        <div>${labels.receiver}: ...................................</div>
+                        <div>${labels.signature}: ...................................</div>
+                    </div>
+                </div>
+            `;
+            
+        } else {
+            // ==================== TAX INVOICE VERSION ====================
+            
+            // Group products by VAT rate
+            const products14 = products.filter(p => p.vatRate > 0);
+            const products0 = products.filter(p => p.vatRate === 0);
+            
+            const generateProductRows = (productList) => {
+                let rows = '';
+                let subtotalBeforeDiscount = 0;
+                let totalPromotionalDiscount = 0;
+                let totalContractDiscount = 0;
+                let totalManualDiscount = 0;
+                let subtotalAfterDiscount = 0;
+                
+                productList.forEach(p => {
+                    const displayName = isAr ? (p.nameAr || p.name) : (p.nameEn || p.name);
+                    const barcodeDisplay = p.barcodeSVG ? p.barcodeSVG : (p.barcode ? `<div style="font-size: 9px; color: #666;">${p.barcode}</div>` : '');
+                    
+                    const unitPrice = parseFloat(p.unitPrice || 0);
+                    const totalQty = parseFloat(p.totalQty || 0);
+                    const lineSubtotal = unitPrice * parseFloat(p.qty || 0);
+                    
+                    subtotalBeforeDiscount += lineSubtotal;
+                    subtotalAfterDiscount += parseFloat(p.finalAmount || 0);
+                    
+                    // Main product row
+                    rows += `
+                    <tr>
+                        <td class="product-name">${displayName}</td>
+                        <td class="barcode-cell">${barcodeDisplay}</td>
+                        <td>${isAr ? (p.unitAr || '') : (p.unitEn || '')}</td>
+                        <td>${totalQty}</td>
+                        <td>${unitPrice.toFixed(2)}</td>
+                        <td>${lineSubtotal.toFixed(2)}</td>
+                    </tr>`;
+                    
+                    // Promotional Discount Row
+                    if (p.hasPromotionalDiscount) {
+                        const discountAmt = parseFloat(p.promotionalDiscountAmount || 0);
+                        totalPromotionalDiscount += discountAmt;
+                        const label = isAr 
+                            ? `خصم ترويجي (${p.promotionalDiscountPct.toFixed(1)}٪) [${p.officialPrice.toFixed(2)} → ${p.promotionalPrice.toFixed(2)}]`
+                            : `Promotional Discount (${p.promotionalDiscountPct.toFixed(1)}%) [${p.officialPrice.toFixed(2)} → ${p.promotionalPrice.toFixed(2)}]`;
+                        
+                        rows += `
+                        <tr class="discount-row">
+                            <td class="product-name indent">${label}</td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td class="discount-value">${formatMoney(-discountAmt / totalQty)}</td>
+                            <td class="discount-value">${formatMoney(-discountAmt)}</td>
+                        </tr>`;
+                    }
+                    
+                    // Invoice Discount Row
+                    if (p.hasContractDiscount) {
+                        const discountAmt = parseFloat(p.contractDiscountAmount || 0);
+                        totalContractDiscount += discountAmt;
+                        const label = isAr 
+                            ? `خصم الفاتورة (${p.contractDiscountPct.toFixed(1)}٪)`
+                            : `Invoice Discount (${p.contractDiscountPct.toFixed(1)}%)`;
+                        
+                        rows += `
+                        <tr class="discount-row">
+                            <td class="product-name indent">${label}</td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td class="discount-value">${formatMoney(-discountAmt / totalQty)}</td>
+                            <td class="discount-value">${formatMoney(-discountAmt)}</td>
+                        </tr>`;
+                    }
+                    
+                    // Manual Discount Row
+                    if (p.hasManualDiscount) {
+                        const discountAmt = parseFloat(p.manualDiscountAmount || 0);
+                        totalManualDiscount += discountAmt;
+                        const label = isAr 
+                            ? `خصم إضافي`
+                            : `Additional Discount`;
+                        
+                        rows += `
+                        <tr class="discount-row">
+                            <td class="product-name indent">${label}</td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td class="discount-value">${formatMoney(-discountAmt / totalQty)}</td>
+                            <td class="discount-value">${formatMoney(-discountAmt)}</td>
+                        </tr>`;
+                    }
+                });
+                
+                return { rows, subtotalBeforeDiscount, totalPromotionalDiscount, totalContractDiscount, totalManualDiscount, subtotalAfterDiscount };
+            };
+            
+            // Generate rows for 14% products
+            let allRows = '';
+            let grandSubtotalBefore = 0;
+            let grandPromotional = 0;
+            let grandContract = 0;
+            let grandManual = 0;
+            let grandSubtotalAfter = 0;
+            
+            if (products14.length > 0) {
+                const result14 = generateProductRows(products14);
+                allRows += result14.rows;
+                
+                const label14 = isAr ? 'المجموع الفرعي (منتجات 14٪)' : 'Subtotal (14% Products)';
+                allRows += `
+                <tr class="subtotal-row">
+                    <td colspan="5" style="text-align: end; font-weight: 700;">${label14}</td>
+                    <td style="font-weight: 700;">${result14.subtotalAfterDiscount.toFixed(2)}</td>
+                </tr>`;
+                
+                grandSubtotalBefore += result14.subtotalBeforeDiscount;
+                grandPromotional += result14.totalPromotionalDiscount;
+                grandContract += result14.totalContractDiscount;
+                grandManual += result14.totalManualDiscount;
+                grandSubtotalAfter += result14.subtotalAfterDiscount;
+            }
+            
+            // Generate rows for 0% products
+            if (products0.length > 0) {
+                const result0 = generateProductRows(products0);
+                allRows += result0.rows;
+                
+                const label0 = isAr ? 'المجموع الفرعي (منتجات 0٪)' : 'Subtotal (0% Products)';
+                allRows += `
+                <tr class="subtotal-row">
+                    <td colspan="5" style="text-align: end; font-weight: 700;">${label0}</td>
+                    <td style="font-weight: 700;">${result0.subtotalAfterDiscount.toFixed(2)}</td>
+                </tr>`;
+                
+                grandSubtotalBefore += result0.subtotalBeforeDiscount;
+                grandPromotional += result0.totalPromotionalDiscount;
+                grandContract += result0.totalContractDiscount;
+                grandManual += result0.totalManualDiscount;
+                grandSubtotalAfter += result0.subtotalAfterDiscount;
+            }
+            
+            rows = allRows || '<tr><td colspan="6" style="padding:20px; text-align:center;">No products</td></tr>';
+            
+            const sellerName = isAr ? '<strong>الطاووس لتعبئة و تجارة المواد الغذائية</strong>' : '<strong>AlTawoos for packing and food trading</strong>';
+            
+            bodyContent = `
+                <div class="header">
+                    <div class="title-group">
+                        <h1 class="main-title">${labels.title}</h1>
+                        <div class="badge">#${currentPreviewData.serial}</div>
+                        <div class="badge">${d.INVOICE_DATE || ''}</div>
+                    </div>
+                </div>
+
+                <div class="box-container">
+                    <div class="info-box">
+                        <div class="box-header">${labels.from}</div>
+                        <div class="box-content">
+                            ${sellerName}<br>
+                            ${labels.taxReg}: <span class="vat-number">498-871-282</span>
+                        </div>
+                    </div>
+                    <div class="info-box">
+                        <div class="box-header">${labels.to}</div>
+                        <div class="box-content">
+                            <strong>${client.name}</strong><br>
+                            ${client.branch ? client.branch + '<br>' : ''}
+                            ${client.address}<br>
+                            ${labels.taxReg}: <span class="vat-number">${client.vat || '-'}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-wrapper">
+                    <table id="invoiceTable">
+                        <thead>
+                            <tr>
+                                <th>${labels.item}<div class="resizer"></div></th>
+                                <th>${labels.barcode}<div class="resizer"></div></th>
+                                <th>${labels.unit}<div class="resizer"></div></th>
+                                <th>${labels.qty}<div class="resizer"></div></th>
+                                <th>${labels.price}<div class="resizer"></div></th>
+                                <th>${labels.total}<div class="resizer"></div></th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+
+                <div class="footer-section">
+                    <table class="totals-table">
+                        <tr><td>${isAr ? 'الإجمالي قبل الخصومات' : 'Subtotal Before Discounts'}</td><td>${grandSubtotalBefore.toFixed(2)}</td></tr>
+                        ${grandPromotional > 0 ? `<tr><td>${isAr ? 'إجمالي الخصم الترويجي' : 'Total Promotional Discount'}</td><td class="discount-value">${formatMoney(-grandPromotional)}</td></tr>` : ''}
+                        ${grandContract > 0 ? `<tr><td>${isAr ? 'إجمالي خصم الفاتورة' : 'Total Invoice Discount'}</td><td class="discount-value">${formatMoney(-grandContract)}</td></tr>` : ''}
+                        ${grandManual > 0 ? `<tr><td>${isAr ? 'إجمالي الخصم الإضافي' : 'Total Additional Discount'}</td><td class="discount-value">${formatMoney(-grandManual)}</td></tr>` : ''}
+                        <tr><td>${labels.totalOriginal}</td><td>${parseFloat(d.TOTAL_ORIGINAL_AMT||0).toFixed(2)}</td></tr>
+                        <tr><td>${labels.vat} (14%)</td><td>${parseFloat(d.TOTAL_VAT_AMT||0).toFixed(2)}</td></tr>
+                        ${parseFloat(d.TOTAL_DEDUCTION||0) > 0 ? `<tr><td>${labels.deduction} (1%)</td><td class="discount-value">${formatMoney(-parseFloat(d.TOTAL_DEDUCTION||0))}</td></tr>` : ''}
+                        <tr><td>${labels.netTotal}</td><td>${parseFloat(d.TOTAL_INVOICE_FINAL||0).toFixed(2)} EGP</td></tr>
+                    </table>
+                </div>
+                
+                <div class="page-meta">${new Date().toLocaleString()} - - - - User: ${d.USER_EMAIL || 'N/A'} - - - - Order: ${d.ORDER_ID_DISPLAY || 'N/A'} - - - - v${d.VERSION || 1}</div>
+            `;
+        }
+
+        // Build complete HTML document
+        const html = `<!DOCTYPE html>
+            <html dir="${dir}">
+            <head>
+                <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&family=Libre+Barcode+128&display=swap" rel="stylesheet">
+                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+                <style id="dynamic-styles">${initialStyles}</style>
+                <style>
+                    /* Static Styles */
+                    body { font-family: 'Tajawal', sans-serif; margin: 0; padding: 0; color: #333; box-sizing: border-box; background: white; min-height: 100vh; }
+                    *, *::before, *::after { box-sizing: inherit; }
+                    
+                    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 2px solid #1e3a5f; padding-bottom: 15px; }
+                    .header.anonymous { }
+                    .header-side { flex: 1; }
+                    .header-side.start { text-align: start; }
+                    .header-side.end { display: flex; justify-content: flex-end; }
+                    .header-center { flex: 1; text-align: center; display: flex; justify-content: center; }
+                    .title-group { display: flex; align-items: center; gap: 10px; }
+                    .main-title { font-size: 32px; font-weight: 900; color: #1e3a5f; margin: 0; }
+                    .badge { background: #f8f9fa; color: #495057; padding: 4px 8px; border-radius: 8px; font-size: 14px; font-weight: 700; border: 1px solid #dee2e6; white-space: nowrap; }
+                    .serial-display { font-size: 24px; font-weight: 900; color: #333; background: #f8f9fa; padding: 5px 20px; border-radius: 8px; border: 2px solid #dee2e6; display: inline-block; }
+                    .date-display { font-size: 16px; font-weight: 600; color: #555; display: flex; align-items: center; gap: 8px; background: #f8f9fa; padding: 6px 12px; border-radius: 6px; border: 1px solid #dee2e6; }
+                    
+                    .box-container { display: flex; gap: 15px; margin-bottom: 20px; }
+                    .info-box { flex: 1; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; }
+                    .box-header { background: #f1f3f5; padding: 6px 10px; font-size: 10px; font-weight: 700; color: #6c757d; text-transform: uppercase; border-bottom: 1px solid #e0e0e0; }
+                    .box-content { padding: 10px; font-size: 12px; line-height: 1.4; }
+                    .row-item { margin-bottom: 3px; }
+                    .vat-number { font-family: sans-serif; direction: ltr; unicode-bidi: embed; font-weight: 700; }
+                    .logistics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+                    .meta-label { color: #666; font-size: 11px; }
+
+                    .table-wrapper { width: 100%; border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 20px; overflow: hidden; }
+                    table { width: 100%; border-collapse: collapse; table-layout: auto; }
+                    th { background: #e3f2fd; color: #1e3a5f; padding: 8px 4px; font-size: 11px; font-weight: 800; text-align: center; position: relative; border-bottom: 1px solid #90caf9; }
+                    td { border-bottom: 1px solid #eee; padding: 8px 4px; font-size: 11px; text-align: center; vertical-align: middle; overflow: hidden; }
+                    .discount-row { background: #f9f9f9; font-style: italic; color: #d9534f; }
+                    .discount-row td { border-bottom: none; padding: 4px 8px; font-size: 10px; }
+                    .discount-value { color: #d9534f; font-weight: 600; }
+                    .indent { padding-inline-start: 30px !important; }
+                    .subtotal-row { background: #e3f2fd; }
+                    .subtotal-row td { border-top: none !important; border-bottom: 2px solid #1e3a5f !important; padding: 8px; }
+                    
+                    .product-name { text-align: start; font-weight: 600; color: #1e3a5f; padding-inline-start: 8px; white-space: normal; min-width: 150px; }
+                    .barcode-cell { font-family: 'Libre Barcode 128', cursive; font-size: 32px; line-height: 0.8; }
+
+                    .resizer { position: absolute; top: 0; bottom: 0; right: 0; width: 5px; cursor: col-resize; z-index: 10; opacity: 0; }
+                    [dir="rtl"] .resizer { right: auto; left: 0; }
+                    th:hover .resizer { opacity: 1; background: rgba(30, 58, 95, 0.2); }
+
+                    .footer-section { display: flex; justify-content: flex-end; }
+                    .totals-table { width: 250px; border-collapse: collapse; }
+                    .totals-table td { padding: 4px 0; border-bottom: 1px solid #eee; text-align: end; font-size: 12px; }
+                    .totals-table tr:last-child td { border-top: 2px solid #1e3a5f; border-bottom: none; font-size: 14px; font-weight: 900; color: #1e3a5f; padding-top: 8px; }
+                    
+                    .comment-box { margin-top: 15px; padding: 15px; border: 2px solid #333; border-radius: 8px; font-size: 12px; background-color: #fff; }
+                    .comment-label { font-weight: 700; display: flex; align-items: center; gap: 8px; margin-bottom: 5px; text-transform: uppercase; }
+                    .dn-footer { margin-top: 30px; padding-top: 10px; border-top: 2px solid #333; }
+                    .disclaimer { font-weight: 700; font-size: 11px; margin-bottom: 20px; text-align: center; }
+                    .signature-area { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; margin-top: 30px; }
+                    
+                    .page-meta { font-size: 9px; color: #ccc; margin-top: 30px; text-align: center; border-top: 1px solid #eee; padding-top: 5px; }
+                </style>
+            </head>
+            <body>
+                <div id="invoice-content">${bodyContent}</div>
+                
+                <script>
+                    (function() {
+                        const table = document.getElementById('invoiceTable');
+                        if(!table) return;
+                        const headers = table.querySelectorAll('th');
+                        headers.forEach(th => {
+                            const resizer = th.querySelector('.resizer');
+                            if(!resizer) return;
+                            let x = 0; let w = 0;
+                            resizer.addEventListener('mousedown', function(e) {
+                                x = e.clientX; w = th.offsetWidth;
+                                document.addEventListener('mousemove', mm);
+                                document.addEventListener('mouseup', mu);
+                            });
+                            function mm(e) {
+                                const dir = document.documentElement.getAttribute('dir');
+                                const dx = e.clientX - x;
+                                th.style.width = (dir==='rtl' ? w-dx : w+dx) + 'px';
+                            }
+                            function mu() {
+                                document.removeEventListener('mousemove', mm);
+                                document.removeEventListener('mouseup', mu);
+                            }
+                        });
+                    })();
+                <\/script>
+            </body>
+        </html>`;
+        
+        // Use srcdoc for reliable rendering
+        frame.srcdoc = html;
+        
+        // Ensure iframe loads before we try to manipulate it
+        frame.onload = function() {
+            updatePreviewStyles();
+        };
+
+    } catch(e) {
+        console.error("Render Crash", e);
+        showToast("Preview Error: " + e.message, 'error');
+    }
+}
+
+function updatePreviewStyles() {
+    const mt = parseInt(document.getElementById('p-margin-top')?.value || 48);
+    const mb = parseInt(document.getElementById('p-margin-bottom')?.value || 40);
+    const ml = parseInt(document.getElementById('p-margin-left')?.value || 5);
+    const mr = parseInt(document.getElementById('p-margin-right')?.value || 5);
+    
+    document.getElementById('val-mt').textContent = mt;
+    document.getElementById('val-mb').textContent = mb;
+    document.getElementById('val-ml').textContent = ml;
+    document.getElementById('val-mr').textContent = mr;
+    
+    const mtGuide = document.getElementById('margin-guide-top');
+    const mbGuide = document.getElementById('margin-guide-bottom');
+    const mlGuide = document.getElementById('margin-guide-left');
+    const mrGuide = document.getElementById('margin-guide-right');
+    
+    if (mtGuide) {
+        mtGuide.style.top = `${mt}mm`;
+        mtGuide.style.left = `${ml}mm`;
+        mtGuide.style.right = `${mr}mm`;
+    }
+    if (mbGuide) {
+        mbGuide.style.bottom = `${mb}mm`;
+        mbGuide.style.left = `${ml}mm`;
+        mbGuide.style.right = `${mr}mm`;
+    }
+    if (mlGuide) {
+        mlGuide.style.left = `${ml}mm`;
+        mlGuide.style.top = '0';
+        mlGuide.style.bottom = '0';
+    }
+    if (mrGuide) {
+        mrGuide.style.right = `${mr}mm`;
+        mrGuide.style.top = '0';
+        mrGuide.style.bottom = '0';
+    }
+    
+    debouncedRender(10000); // DEBOUNCED - wait 500ms after last slider change
+}
+
+function setPreviewLang(lang, btn) {
+    if (!currentPreviewData) return;
+    currentPreviewData.lang = lang;
+    
+    const siblings = btn.parentElement.querySelectorAll('.toggle-btn, .header-toggle-btn');
+    siblings.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    
+    debouncedRender(100); // Use debounce, not immediate render
+    // Update cash sales label
+    const cashSalesLabel = document.getElementById('cash-sales-label');
+    if (cashSalesLabel) {
+        cashSalesLabel.textContent = lang === 'ar' ? 'بيع نقدي' : 'Cash Sales';
+    }
+}
+
+function setOutputFormat(format, btn) {
+    if (!currentPreviewData) return;
+    currentPreviewData.format = format;
+    
+    document.querySelectorAll('.action-toggle-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.action-toggle-btn').forEach(b => {
+        if (b.querySelector('i').classList.contains(format === 'PDF' ? 'fa-file-pdf' : 'fa-file-image')) {
+            b.classList.add('active');
+        }
+    });
+    
+    // No render needed - format doesn't affect preview
+}
+
+function setQuickFormat(format, btn) {
+    if (!currentPreviewData) return;
+    currentPreviewData.quickFormat = format;
+    
+    const siblings = btn.parentElement.querySelectorAll('.mini-toggle-btn');
+    siblings.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    
+    // No render needed
+}
+
+function autofitPage(mode, btn) {
+    const siblings = btn.parentElement.querySelectorAll('.layout-btn');
+    siblings.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    
+    const wrapper = document.querySelector('.paper-wrapper');
+    if (!wrapper) return;
+    
+    if (mode === 'height') {
+        wrapper.style.transform = 'scale(0.95)';
+        wrapper.style.transformOrigin = 'top center';
+    } else if (mode === 'width') {
+        wrapper.style.transform = 'scale(0.85)';
+        wrapper.style.transformOrigin = 'top center';
+    } else {
+        wrapper.style.transform = 'scale(1)';
+        wrapper.style.transformOrigin = 'top center';
+    }
+    
+    // No render needed - just CSS transform
+}
+
+function closePreview() {
+    const modal = document.getElementById('previewModal');
+    if (modal) {
+        modal.classList.remove('active');
+    }
+    
+    document.body.style.overflow = '';
+    
+    // IMPORTANT: Clear preview data to prevent errors
+    currentPreviewData = null;
+    
+    // Reset save button if it exists
+    const saveBtn = document.getElementById('btn-save-invoice');
+    if (saveBtn) {
+        saveBtn.innerHTML = '<i class="fas fa-save"></i> Save';
+        saveBtn.onclick = confirmSingleGeneration;
+        saveBtn.classList.remove('header-btn-done');
+        saveBtn.classList.add('header-btn-save');
+        saveBtn.disabled = false;
+    }
+    
+    // Show cancel button again
+    const cancelBtn = document.querySelector('.header-btn-reject');
+    if (cancelBtn) cancelBtn.style.display = '';
+    
+    // Disable quick actions again
+    const printBtn = document.getElementById('quick-print-btn');
+    const downloadBtn = document.getElementById('quick-download-btn');
+    if (printBtn) printBtn.disabled = true;
+    if (downloadBtn) downloadBtn.disabled = true;
+}
+
+
+function checkSequence(serials) {
+    if (serials.length === 0) return { hasGaps: false, hasDuplicates: false };
+    
+    serials.sort((a, b) => a - b);
+    const min = serials[0];
+    const max = serials[serials.length - 1];
+    
+    let hasGaps = false;
+    for (let i = min; i <= max; i++) {
+        if (!serials.includes(i)) {
+            hasGaps = true;
+            break;
+        }
+    }
+    
+    const hasDuplicates = serials.length !== new Set(serials).size;
+    
+    return { hasGaps, hasDuplicates };
+}
+
+// Call this when serial is edited
+// function handleSerialEdit(newSerial) {
+//     const currentInvoice = multiInvoiceState.invoices[multiInvoiceState.currentIndex];
+    
+//     currentInvoice.serial = newSerial;
+//     currentPreviewData.serial = newSerial;
+    
+//     const card = document.getElementById(`acc-card-${multiInvoiceState.orderId}`);
+//     const input = card.querySelector(`[data-field="${currentInvoice.field}"]`);
+//     if (input) {
+//         input.value = newSerial;
+//     }
+    
+//     // Validate
+//     const validation = updateSerialValidationUI();
+//     const validationIcon = document.getElementById('serial-validation-icon');
+    
+//     if (validationIcon) {
+//         if (!validation.hasGaps && !validation.hasDuplicates) {
+//             validationIcon.innerHTML = '<i class="fas fa-check-circle" style="color: #28a745;"></i>';
+//         } else if (validation.hasGaps) {
+//             validationIcon.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: #ffc107;"></i>';
+//         } else {
+//             validationIcon.innerHTML = '<i class="fas fa-times-circle" style="color: #dc3545;"></i>';
+//         }
+//     }
+    
+//     updateActionButtons();
+//     updateToggleBarUI();
+    
+//     const toggleBtn = document.querySelector(`.invoice-toggle-chip[data-index="${multiInvoiceState.currentIndex}"]`);
+//     if (toggleBtn) {
+//         toggleBtn.querySelector('.chip-serial').textContent = `#${newSerial}`;
+//     }
+    
+//     debouncedRender(300); // DEBOUNCED - wait 300ms after typing stops
+// }
+
+// function handleRejectInvoice() {
+//     const currentInvoice = multiInvoiceState.invoices[multiInvoiceState.currentIndex];
+    
+//     // Simple confirm instead of showCustomConfirm
+//     const confirmed = confirm(
+//         `Reject ${getInvoiceTypeLabel(currentInvoice.type)} #${currentInvoice.serial}?\n\nThis will free the serial number.`
+//     );
+    
+//     if (confirmed) {
+//         // Mark as rejected
+//         currentInvoice.state = 'rejected';
+        
+//         // Clear serial from card input
+//         const card = document.getElementById(`acc-card-${multiInvoiceState.orderId}`);
+//         const input = card.querySelector(`[data-field="${currentInvoice.field}"]`);
+//         if (input) {
+//             input.value = '';
+//             input.classList.remove('locked-input');
+//             input.removeAttribute('readonly');
+//         }
+        
+//         // Update UI
+//         updateToggleBarUI();
+//         updateActionButtons();
+//         updateSerialValidationUI();
+        
+//         showToast('Invoice rejected', 'info');
+//     }
+// }
+
+function markCardAsSaved(orderId, invoiceData) {
+    const card = document.getElementById(`acc-card-${orderId}`);
+    const btn = document.getElementById(`btn-gen-${orderId}`);
+    const trans = translations[currentLang];
+
+    card.classList.add('saved-card');
+    card.classList.remove('editing-mode');
+    btn.innerHTML = `<i class="fas fa-cog"></i> ${trans.generateBtn}`;
+    btn.disabled = true;
+
+    let indicator = card.querySelector('.saved-indicator');
+    if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.className = 'saved-indicator';
+        indicator.innerHTML = `<i class="fas fa-check-circle"></i> ${trans.alreadySaved}`;
+        const edge = card.querySelector('.acc-card-edge');
+        edge.insertBefore(indicator, btn);
+    }
+
+    const orderIndex = accountingData.orders.findIndex(o => o.orderId.toString() === orderId.toString());
+    if (orderIndex > -1) {
+        const order = accountingData.orders[orderIndex];
+        if (invoiceData.tawoosInvoice) order.tawoosInvoice = invoiceData.tawoosInvoice;
+        if (invoiceData.plInvoice) order.plInvoice = invoiceData.plInvoice;
+        if (invoiceData.deliveryNote) order.deliveryNote = invoiceData.deliveryNote;
+    }
+
+    calculateAccountingStats();
+    updateDashboardStatsUI();
+}
+
+function updateDashboardStatsUI() {
+    const stats = accountingData.stats;
+    const trans = translations[currentLang];
+    const ordEl = document.querySelector(`.compact-stat[title="${trans.ordersToPrepare}"] span`);
+    const ordDiv = document.querySelector(`.compact-stat[title="${trans.ordersToPrepare}"]`);
+    if(ordEl) ordEl.innerText = stats.ordersCountStr;
+    if(ordDiv) stats.ordersComplete ? ordDiv.classList.add('complete') : ordDiv.classList.remove('complete');
+
+    const invEl = document.querySelector(`.compact-stat[title="${trans.invoicesNeeded}"] span`);
+    const invDiv = document.querySelector(`.compact-stat[title="${trans.invoicesNeeded}"]`);
+    if(invEl) invEl.innerText = stats.invoicesCountStr;
+    if(invDiv) stats.invoicesComplete ? invDiv.classList.add('complete') : invDiv.classList.remove('complete');
+}
+
+function isSplitLoad(dummyId, serialVal, entries) {
+    if (entries.length < 2) return false;
+    const baseCard = document.getElementById(`acc-card-${entries[0].id}`);
+    const baseClient = baseCard.dataset.client;
+    const baseDate = baseCard.dataset.date;
+    const baseType = entries[0].field;
+
+    return entries.every(entry => {
+        const c = document.getElementById(`acc-card-${entry.id}`);
+        return c.dataset.client === baseClient && c.dataset.date === baseDate && entry.field === baseType;
+    });
+}
+
+// Helper to determine invoice needs based on VAT and Product Mix
+function determineInvoiceNeeds(order) {
+    const hasVat = order.vat && order.vat.trim() !== '';
+    
+    // If no VAT -> Delivery Note Only
+    if (!hasVat) {
+        return { 
+            tawoos: false, 
+            pl: false, 
+            deliveryNote: true 
+        };
+    }
+    
+    // If VAT exists -> Check flags from backend
+    // (Fallback: if flags undefined, assume Tawoos to be safe)
+    const isTawoosNeeded = (order.hasTawoos !== undefined) ? order.hasTawoos : true;
+    const isPLNeeded = (order.hasPL !== undefined) ? order.hasPL : false;
+
+    return {
+        tawoos: isTawoosNeeded,
+        pl: isPLNeeded,
+        deliveryNote: false
+    };
+}
+
+// Global debounce timer
+let renderDebounceTimer = null;
+
+// Debounced render function
+function debouncedRender(delay = 100000) {
+    if (renderDebounceTimer) {
+        clearTimeout(renderDebounceTimer);
+    }
+    renderDebounceTimer = setTimeout(() => {
+        renderIframeContent();
+    }, delay);
+}
+
+function handleCashSalesToggle() {
+    if (!currentPreviewData) return;
+    
+    const checkbox = document.getElementById('cash-sales-checkbox');
+    const isChecked = checkbox.checked;
+    
+    // Update preview data
+    currentPreviewData.isCashSales = isChecked;
+    
+    // Enable/disable save button
+    const saveBtn = document.getElementById('btn-save-invoice');
+    saveBtn.disabled = !isChecked;
+    
+    // Enable/disable quick actions
+    const printBtn = document.getElementById('quick-print-btn');
+    const downloadBtn = document.getElementById('quick-download-btn');
+    if (printBtn) printBtn.disabled = !isChecked;
+    if (downloadBtn) downloadBtn.disabled = !isChecked;
+    
+    // Re-render invoice with updated client name
+    renderIframeContent();
+}
+</script>
