@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AL Tawoos</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <?!= include('styles'); ?>
+</head>
+<body>
+    <!-- Login Page -->
+    <div id="loginPage" class="page active login-page">
+        <div class="login-container">
+            <div class="login-header">
+                <img src="https://lh3.googleusercontent.com/d/1KuZm8n-1MFpWNTUIVbnHBONCVnkWZh7z" alt="ERP Logo" onerror="this.style.display='none'">
+                <h4 id="headerTitle">Welcome to AL Tawoos</h4>
+            </div>
+            
+            <div class="login-body">
+                <div class="lang-switch">
+                    <button class="lang-btn active" onclick="switchLanguage('en')" data-lang="en">English</button>
+                    <button class="lang-btn" onclick="switchLanguage('ar')" data-lang="ar">العربية</button>
+                </div>
+                
+                <form id="loginForm" onsubmit="handleLogin(event)">
+                    <div class="mb-3">
+                        <label for="email" class="form-label" id="emailLabel">Email</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="fas fa-envelope"></i></span>
+                            <input type="email" class="form-control" id="email" required>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label for="password" class="form-label" id="passwordLabel">Password</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="fas fa-lock"></i></span>
+                            <input type="password" class="form-control" id="password" required>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-success btn-login" id="loginBtn">
+                        <span id="btnText">Login</span>
+                        <span id="btnSpinner" style="display:none;"><span class="spinner"></span></span>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Home Page -->
+    <div id="homePage" class="page">
+        <!-- Navbar -->
+        <nav class="navbar">
+            <div class="container-fluid">
+                <div class="d-flex align-items-center justify-content-between w-100">
+                    <a class="navbar-brand">
+                        <img src="https://lh3.googleusercontent.com/d/1KuZm8n-1MFpWNTUIVbnHBONCVnkWZh7z" alt="ERP Logo" onerror="this.style.display='none'">
+                    </a>
+                    
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="user-info">
+                            <i class="fas fa-user-circle fa-2x"></i>
+                            <span id="userName">User</span>
+                        </div>
+                        
+                        <div class="nav-buttons">
+                            <button class="lang-toggle" onclick="toggleLanguage()">
+                                <i class="fas fa-language"></i> <span id="navLangText">عربي</span>
+                            </button>
+                            <button class="nav-btn" onclick="goHome()" data-tooltip="Home">
+                                <i class="fas fa-home"></i>
+                            </button>
+                            <button class="nav-btn" onclick="refreshPage()" data-tooltip="Refresh">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                            <button class="nav-btn logout-btn" onclick="logout()" data-tooltip="Logout">
+                                <i class="fas fa-sign-out-alt"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <div class="welcome-card">
+                <h2 id="welcomeTitle">Welcome Back!</h2>
+                <p id="welcomeText">Choose an action below to get started</p>
+            </div>
+
+            <div class="quick-actions">
+                <div class="action-card module-card" onclick="openSalesModule()">
+                    <i class="fas fa-chart-line"></i>
+                    <h4 id="salesModuleCard">Sales Module</h4>
+                    <p id="salesModuleDesc">Manage orders, clients, and products</p>
+                    <div class="module-badges" id="salesModuleBadges"></div>
+                </div>
+
+                <div class="action-card module-card" onclick="openOperationsModule()">
+                    <i class="fas fa-cogs"></i>
+                    <h4 id="operationsModuleCard">Operations Module</h4>
+                    <p id="operationsModuleDesc">Manage purchases, materials, and production</p>
+                    <div class="module-badges" id="operationsModuleBadges"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sales Module Page -->
+    <div id="salesPage" class="page">
+        <!-- Navbar -->
+        <nav class="navbar">
+            <div class="container-fluid">
+                <div class="d-flex align-items-center justify-content-between w-100">
+                    <a class="navbar-brand">
+                        <img src="https://lh3.googleusercontent.com/d/1KuZm8n-1MFpWNTUIVbnHBONCVnkWZh7z" alt="ERP Logo" onerror="this.style.display='none'">
+                    </a>
+                    
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="user-info">
+                            <i class="fas fa-user-circle fa-2x"></i>
+                            <span id="userNameSales">User</span>
+                        </div>
+                        
+                        <div class="nav-buttons">
+                            <button class="lang-toggle" onclick="toggleLanguage()">
+                                <i class="fas fa-language"></i> <span id="navLangTextSales">عربي</span>
+                            </button>
+                            <button class="nav-btn" onclick="goHome()" data-tooltip="Home">
+                                <i class="fas fa-home"></i>
+                            </button>
+                            <button class="nav-btn" onclick="refreshPage()" data-tooltip="Refresh">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                            <button class="nav-btn logout-btn" onclick="logout()" data-tooltip="Logout">
+                                <i class="fas fa-sign-out-alt"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Module Header -->
+        <div class="module-header">
+            <h3 id="salesModuleTitle">Sales Module</h3>
+        </div>
+
+        <!-- Tabs Navigation -->
+        <div class="module-tabs">
+            <button class="module-tab active" onclick="switchTab('orders')" id="ordersTabBtn">
+                <i class="fas fa-shopping-cart"></i>
+                <span id="ordersTabLabel">Orders</span>
+                <span class="permission-badge" id="ordersPermissionBadge">-</span>
+            </button>
+            <!-- More tabs will be added later -->
+        </div>
+
+        <!-- Tab Content -->
+        <div class="tab-content-area">
+            <div id="ordersTabContent" class="tab-content active">
+                <div class="orders-subtabs">
+                    <button class="orders-subtab active" data-subtab="all-orders" onclick="switchOrdersSubtab('all-orders')">
+                        <i class="fa-solid fa-clipboard-list"></i>
+                        <span data-i18n="allOrdersSubtab" id="subtab-label-all-orders">All Orders</span>
+                        <span class="permission-badge" id="subtab-badge-all-orders">-</span>
+                    </button>
+
+                    <button class="orders-subtab" data-subtab="distribution" onclick="switchOrdersSubtab('distribution')">
+                        <i class="fas fa-truck-loading"></i>
+                        <span data-i18n="distributionSubtab" id="subtab-label-distribution">Distribution Plan</span>
+                        <span class="permission-badge" id="subtab-badge-distribution">-</span>
+                    </button>
+
+                    <button class="orders-subtab" data-subtab="accounting" onclick="switchOrdersSubtab('accounting')">
+                        <i class="fas fa-file-invoice"></i>
+                        <span data-i18n="accountingSubtab" id="subtab-label-accounting">Accounting</span>
+                        <span class="permission-badge" id="subtab-badge-accounting">-</span>
+                    </button>
+
+                    <button class="orders-subtab" data-subtab="warehouse" onclick="switchOrdersSubtab('warehouse')">
+                        <i class="fas fa-warehouse"></i>
+                        <span data-i18n="warehouseSubtab" id="subtab-label-warehouse">Release Stock</span>
+                        <span class="permission-badge" id="subtab-badge-warehouse">-</span>
+                    </button>
+
+                    <button class="orders-subtab" data-subtab="return" onclick="switchOrdersSubtab('return')">
+                        <i class="fas fa-undo"></i>
+                        <span data-i18n="returnStockSubtab" id="subtab-label-return">Return Stock</span>
+                        <span class="permission-badge" id="subtab-badge-return">-</span>
+                    </button>
+
+                    <button class="orders-subtab" data-subtab="eta" onclick="switchOrdersSubtab('eta')">
+                        <i class="fas fa-file-invoice-dollar"></i>
+                        <span data-i18n="etaSubtab" id="subtab-label-eta">ETA Tracking</span>
+                        <span class="permission-badge" id="subtab-badge-eta">-</span>
+                    </button>
+                </div>
+                
+                <!---=============================================== Sales subtabs content =================================================--->
+                
+                <!-- Subtab: Distribution Plan -->
+                <div id="subtab-distribution" class="orders-subtab-content">
+                    <!-- Distribution Planning Layout -->
+                    <div class="distribution-container">
+                        <!-- Resizable Panels -->
+                        <div class="distribution-panels">
+                            <!-- Left Panel: Orders -->
+                            <div class="distribution-panel orders-panel" id="ordersPanel">
+                                <div class="panel-header">
+                                    <h4 id="ordersPanelTitle">Available Orders</h4>
+                                    <div class="panel-header-actions">
+                                        <button class="btn-toggle-grouping" id="btnToggleGrouping" onclick="toggleRegionGrouping()">
+                                            <i class="fas fa-layer-group"></i>
+                                            <span id="toggleGroupingText">Group by Region</span>
+                                        </button>
+                                        <button class="btn-distance-checker" id="btnDistanceChecker" onclick="toggleDistanceChecker()">
+                                            <i class="fas fa-ruler"></i>
+                                            <span id="distanceCheckerText">Distance</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <!-- Distance Checker Tool - MOVED TO TOP -->
+                                <div class="distance-checker-tool" id="distanceCheckerTool" style="display: none;">
+                                    <div class="distance-checker-header">
+                                        <h5>
+                                            <i class="fas fa-ruler"></i>
+                                            <span id="distanceCheckerTitle">Distance Checker</span>
+                                        </h5>
+                                        <button class="btn-clear-checker" onclick="clearDistanceChecker()">
+                                            <i class="fas fa-redo"></i>
+                                        </button>
+                                    </div>
+                                    <div class="distance-checker-body">
+                                        <div class="distance-checker-slots">
+                                            <div class="distance-slot" 
+                                                id="distanceSlot1"
+                                                ondrop="handleDistanceSlotDrop(event, 1)"
+                                                ondragover="event.preventDefault(); event.currentTarget.classList.add('drag-over');"
+                                                ondragleave="event.currentTarget.classList.remove('drag-over');">
+                                                <p>Drag order here</p>
+                                            </div>
+                                            
+                                            <div class="distance-separator">
+                                                <i class="fas fa-arrows-alt-h"></i>
+                                            </div>
+                                            
+                                            <div class="distance-slot" 
+                                                id="distanceSlot2"
+                                                ondrop="handleDistanceSlotDrop(event, 2)"
+                                                ondragover="event.preventDefault(); event.currentTarget.classList.add('drag-over');"
+                                                ondragleave="event.currentTarget.classList.remove('drag-over');">
+                                                <p>Drag order here</p>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="distance-result" id="distanceResult" style="display: none;"></div>
+                                    </div>
+                                </div>
+                                
+                                <div class="panel-body" id="ordersPanelBody">
+                                    <!-- Orders will be loaded here -->
+                                    <div class="empty-state">
+                                        <i class="fas fa-box-open"></i>
+                                        <h4 id="emptyOrdersTitle">No Orders Available</h4>
+                                        <p id="emptyOrdersDesc">Select a loading date to view available orders for planning</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Resizable Divider -->
+                            <div class="panel-divider" id="panelDivider">
+                                <div class="divider-handle">
+                                    <i class="fas fa-grip-vertical"></i>
+                                </div>
+                            </div>
+                            
+                            <!-- Right Panel: Plan -->
+                            <div class="distribution-panel plan-panel" id="planPanel">
+                                <div class="panel-header">
+                                    <h4 id="planPanelTitle">Distribution Plan</h4>
+                                    <div class="panel-header-actions">
+                                        <button class="btn-reset-plan" id="btnResetPlan" onclick="resetLoadingOrders()">
+                                            <i class="fas fa-undo"></i>
+                                            <span id="resetBtnText">Reset</span>
+                                        </button>
+                                        <button class="btn-save-plan" id="btnSavePlan" onclick="saveLoadingOrders()">
+                                            <i class="fas fa-save"></i>
+                                            <span id="saveBtnText">Save</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <div class="panel-body" id="planPanelBody">
+                                    <!-- Loading Date Selector -->
+                                    <div class="loading-date-section">
+                                        <div class="form-group-inline">
+                                            <label for="planLoadingDate" id="labelPlanLoadingDate">
+                                                <i class="fas fa-calendar-alt"></i>
+                                                Loading Date:
+                                            </label>
+                                            <input type="date" class="form-control-inline" id="planLoadingDate" onchange="handleLoadingDateChange()">
+                                            <div class="plan-date-display" id="planDateDisplay" style="margin-left: 12px;">
+                                                <span class="plan-date-value" id="planDateValue">Select Date</span>
+                                                <span class="plan-date-weekday weekday" id="planDateWeekday">MON</span>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="last-loading-order" id="lastLoadingOrderInfo" style="display: none;">
+                                            <i class="fas fa-info-circle"></i>
+                                            <span id="lastLoadingOrderText">Last Used Loading Order: #15</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Loading Orders Container -->
+                                    <div class="loading-orders-container" id="loadingOrdersContainer">
+                                        <!-- Loading order boxes will be rendered here -->
+                                    </div>
+                                    
+                                    <!-- Action Buttons - MOVED TO PANEL HEADER -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Subtab: Accounting -->
+                <div id="subtab-accounting" class="orders-subtab-content">
+                    <!-- Placeholder for future implementation -->
+                </div>
+                
+                <!-- WAREHOUSE SUBTAB HTML STRUCTURE -->
+                <!-- Replace line 337-339 in app.html -->
+
+                <div id="subtab-warehouse" class="orders-subtab-content">
+                    
+                    <div class="warehouse-filter-container" dir="rtl">
+                        <div class="warehouse-filter-summary" onclick="toggleFilterBar()">
+                            <div class="summary-content">
+                                <div class="filter-icon-box"><i class="fas fa-filter"></i></div>
+                                <span id="warehouse-filter-text" class="active-filter-text">عرض سجلات اليوم أو المسودات (غير المحفوظة)</span>
+                            </div>
+                            <div class="summary-actions">
+                                <button class="warehouse-reset-btn-main" onclick="event.stopPropagation(); resetWarehouseFilters()" title="عودة للافتراضي">
+                                    <i class="fas fa-times"></i> مسح التصفيات
+                                </button>
+                                <div class="toggle-indicator">
+                                    <i class="fas fa-chevron-down toggle-icon" id="filter-toggle-icon"></i>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="warehouse-filter-panel" id="warehouse-filter-panel" style="display: none;">
+                            <div class="filter-compact-grid">
+                                <div class="filter-col">
+                                    <div class="filter-mini-group">
+                                        <div class="filter-label"><i class="far fa-calendar-alt"></i> الفترة الزمنية</div>
+                                        <div class="d-flex gap-1">
+                                            <select class="form-control-xs" onchange="setDatePreset(this.value)" style="width: 90px;">
+                                                <option value="">فترة...</option>
+                                                <option value="today">اليوم</option>
+                                                <option value="yesterday">أمس</option>
+                                                <option value="last7">7 أيام</option>
+                                                <option value="thisMonth">الشهر</option>
+                                                <option value="all">الكل</option>
+                                            </select>
+                                            <div class="date-range-compact">
+                                                <input type="date" id="warehouse-filter-date-start" class="form-control-xs">
+                                                <span class="text-muted">-</span>
+                                                <input type="date" id="warehouse-filter-date-end" class="form-control-xs">
+                                            </div>
+                                            <button type="button" class="btn-xs-server" onclick="searchWarehouseHistory()" title="تحميل من السيرفر">
+                                                <i class="fas fa-cloud-download-alt"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="filter-mini-group mt-2">
+                                        <div class="filter-label"><i class="fas fa-search"></i> بحث معرفات</div>
+                                        <div class="d-flex gap-1">
+                                            <input type="text" id="warehouse-filter-dismiss" placeholder="رقم الصرف" class="form-control-xs">
+                                            <input type="text" id="warehouse-filter-order" placeholder="رقم الطلب" class="form-control-xs">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="filter-col border-h-dim">
+                                    <div class="filter-mini-group">
+                                        <div class="filter-label"><i class="fas fa-tasks"></i> الحالة</div>
+                                        <select id="warehouse-filter-save-status" class="form-control-xs mb-1">
+                                            <option value="">حالة الحفظ (الكل)</option>
+                                            <option value="draft">مسودة (Draft)</option>
+                                            <option value="saved">محفوظ (Saved)</option>
+                                        </select>
+                                        <select id="warehouse-filter-status" class="form-control-xs">
+                                            <option value="">التوزيع (الكل)</option>
+                                            <option value="Prepare">Prepare</option>
+                                            <option value="Shipped">Shipped</option>
+                                            <option value="Delivered">Delivered</option>
+                                        </select>
+                                    </div>
+                                    <div class="filter-mini-group mt-2">
+                                        <select id="warehouse-filter-completion" class="form-control-xs">
+                                            <option value="">الاكتمال (الكل)</option>
+                                            <option value="complete">مكتمل</option>
+                                            <option value="incomplete">غير مكتمل</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="filter-col border-h-dim">
+                                    <div class="filter-mini-group">
+                                        <div class="filter-label"><i class="fas fa-truck"></i> اللوجستيات</div>
+                                        <div class="d-flex gap-1 mb-1">
+                                            <select id="warehouse-filter-truck" class="form-control-xs"><option value="">السيارة</option></select>
+                                            <select id="warehouse-filter-driver" class="form-control-xs"><option value="">السائق</option></select>
+                                        </div>
+                                    </div>
+                                    <div class="filter-mini-group mt-1">
+                                        <div class="filter-label"><i class="fas fa-box"></i> المحتوى</div>
+                                        <select id="warehouse-filter-products" class="form-control-xs" multiple size="1" style="height: 30px;" onchange="updateProductSummaryDisplay()">
+                                            </select>
+                                        <div id="product-selection-summary" class="tiny-summary"></div>
+                                    </div>
+                                </div>
+
+                                <div class="filter-col border-h-dim bg-subtle">
+                                    <div class="filter-mini-group">
+                                        <div class="filter-label"><i class="fas fa-undo"></i> الارتجاع</div>
+                                        <input type="date" id="warehouse-filter-return-date" class="form-control-xs mb-1">
+                                        <label class="checkbox-compact">
+                                            <input type="checkbox" id="warehouse-filter-return-mismatch"> 
+                                            مخالف للتحميل
+                                        </label>
+                                    </div>
+                                    <div class="filter-actions-compact">
+                                        <button class="btn-xs-apply" onclick="applyWarehouseFilters()">
+                                            تطبيق <i class="fas fa-check"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="warehouse-control-bar" dir="rtl">
+                        <div class="warehouse-stats-container">
+                            <div class="stat-pill total" data-tooltip-target="tooltip-total">
+                                <span class="stat-label">العدد</span>
+                                <span class="stat-value" id="stat-count-total">0</span>
+                                <div class="stat-tooltip" id="tooltip-total"></div>
+                            </div>
+                            <div class="stat-pill saved" data-tooltip-target="tooltip-saved">
+                                <span class="stat-label">محفوظ</span>
+                                <span class="stat-value" id="stat-count-saved">0</span>
+                                <div class="stat-tooltip" id="tooltip-saved"></div>
+                            </div>
+                            <div class="stat-pill draft" data-tooltip-target="tooltip-draft">
+                                <span class="stat-label">مسودة</span>
+                                <span class="stat-value" id="stat-count-draft">0</span>
+                                <div class="stat-tooltip" id="tooltip-draft"></div>
+                            </div>
+                            <div class="stat-pill ready" data-tooltip-target="tooltip-ready">
+                                <span class="stat-label">جاهز</span>
+                                <span class="stat-value" id="stat-count-ready">0</span>
+                                <div class="stat-tooltip" id="tooltip-ready"></div>
+                            </div>
+                        </div>
+
+                        <div class="warehouse-batch-actions">
+                            <button class="btn-batch-save" id="btn-batch-save" onclick="handleBatchSaveAll()" disabled>
+                                <i class="fas fa-save"></i> حفظ الكل
+                            </button>
+                            <button class="btn-batch-print" id="btn-batch-print" onclick="handleBatchPrintAll()" disabled>
+                                <i class="fas fa-print"></i> طباعة الكل
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="warehouse-loading" class="warehouse-loading" style="display: none;">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <span>جاري التحميل...</span>
+                    </div>
+
+                    <div id="warehouse-cards-container" class="warehouse-cards-container"></div>
+
+                    <div id="warehouse-no-records" class="warehouse-no-records" style="display: none;">
+                        <i class="fas fa-inbox fa-3x"></i>
+                        <p>لا توجد سجلات</p>
+                    </div>
+                </div>
+                
+                <!-- Subtab: return stock -->
+                <div id="subtab-return" class="orders-subtab-content">
+                    
+                    <div class="warehouse-filter-container" dir="rtl">
+                        <div class="warehouse-filter-summary" onclick="toggleReturnFilterBar()">
+                            <div class="summary-content">
+                                <div class="filter-icon-box"><i class="fas fa-undo"></i></div>
+                                <span id="return-filter-text" class="active-filter-text">عرض سجلات اليوم (تحميل أو إرجاع) أو غير المكتملة</span>
+                            </div>
+                            <div class="summary-actions">
+                                <button class="warehouse-reset-btn-main" onclick="event.stopPropagation(); resetReturnFilters()" title="عودة للافتراضي">
+                                    <i class="fas fa-times"></i> مسح التصفيات
+                                </button>
+                                <div class="toggle-indicator">
+                                    <i class="fas fa-chevron-down toggle-icon" id="return-filter-toggle-icon"></i>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="warehouse-filter-panel" id="return-filter-panel" style="display: none;">
+                            <!-- Warning Banner (shown when date filter active) -->
+                            <div id="return-filter-warning" class="filter-warning-banner" style="display: none;">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <span>يجب تحميل البيانات من السيرفر أولاً عند استخدام فلتر التاريخ</span>
+                            </div>
+
+                            <div class="filter-compact-grid">
+                                <!-- Column 1: Dates -->
+                                <div class="filter-col">
+                                    <div class="filter-mini-group">
+                                        <div class="filter-label"><i class="far fa-calendar-alt"></i> الفترة الزمنية</div>
+                                        
+                                        <!-- Date Field Selector -->
+                                        <select id="return-filter-date-field" class="form-control-xs mb-1">
+                                            <option value="both">كلا التاريخين</option>
+                                            <option value="loading">تاريخ التحميل فقط</option>
+                                            <option value="return">تاريخ الإرجاع فقط</option>
+                                        </select>
+
+                                        <!-- Quick Presets -->
+                                        <select id="return-quick-preset" class="form-control-xs mb-1" onchange="setReturnDatePreset(this.value)">
+                                            <option value="">فترة سريعة...</option>
+                                            <option value="today">اليوم</option>
+                                            <option value="yesterday">أمس</option>
+                                            <option value="last7">آخر 7 أيام</option>
+                                            <option value="thisMonth">هذا الشهر</option>
+                                            <option value="all">الكل</option>
+                                        </select>
+
+                                        <!-- Date Range -->
+                                        <div class="date-range-compact mb-1">
+                                            <input type="date" id="return-filter-date-start" class="form-control-xs">
+                                            <span class="text-muted">-</span>
+                                            <input type="date" id="return-filter-date-end" class="form-control-xs">
+                                        </div>
+
+                                        <!-- Single Date -->
+                                        <input type="date" id="return-filter-single-date" class="form-control-xs mb-1" placeholder="تاريخ واحد">
+
+                                        <!-- Server Load Button -->
+                                        <button type="button" class="btn-xs-server-full" onclick="loadReturnHistory()">
+                                            <i class="fas fa-cloud-download-alt"></i> تحميل من السيرفر
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Column 2: Identifiers -->
+                                <div class="filter-col border-h-dim">
+                                    <div class="filter-mini-group">
+                                        <div class="filter-label"><i class="fas fa-search"></i> بحث معرفات</div>
+                                        <input type="text" id="return-filter-return-number" placeholder="رقم الإرجاع" class="form-control-xs mb-1">
+                                        <input type="text" id="return-filter-dismiss-number" placeholder="رقم الصرف" class="form-control-xs mb-1">
+                                        <input type="text" id="return-filter-order" placeholder="رقم الاوردر" class="form-control-xs">
+                                    </div>
+                                </div>
+
+                                <!-- Column 3: Products & Content -->
+                                <div class="filter-col border-h-dim">
+                                    <div class="filter-mini-group">
+                                        <div class="filter-label"><i class="fas fa-box"></i> المنتجات</div>
+                                        
+                                        <!-- Multi-Select -->
+                                        <select id="return-filter-products" class="form-control-xs mb-1" multiple size="1" style="height: 30px;" onchange="updateReturnProductSummary()">
+                                        </select>
+                                        <div id="return-product-selection-summary" class="tiny-summary"></div>
+
+                                        <!-- OR/AND Logic -->
+                                        <div class="product-logic-toggle">
+                                            <label class="logic-radio">
+                                                <input type="radio" name="returnProductLogic" value="OR" checked> أي منتج
+                                            </label>
+                                            <label class="logic-radio">
+                                                <input type="radio" name="returnProductLogic" value="AND"> كل المنتجات
+                                            </label>
+                                        </div>
+
+                                        <!-- Expected/Returned Filter -->
+                                        <select id="return-filter-product-type" class="form-control-xs mt-1">
+                                            <option value="">الكل</option>
+                                            <option value="expected">متوقع فقط</option>
+                                            <option value="returned">مُرجع فقط</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <!-- Column 4: Logistics & Status -->
+                                <div class="filter-col bg-subtle">
+                                    <div class="filter-mini-group">
+                                        <div class="filter-label"><i class="fas fa-truck"></i> اللوجستيات</div>
+                                        <select id="return-filter-truck" class="form-control-xs mb-1">
+                                            <option value="">السيارة - الكل</option>
+                                        </select>
+                                        <select id="return-filter-driver" class="form-control-xs mb-1">
+                                            <option value="">السائق - الكل</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="filter-mini-group mt-2">
+                                        <div class="filter-label"><i class="fas fa-tasks"></i> الحالة</div>
+                                        <select id="return-filter-save-status" class="form-control-xs mb-1">
+                                            <option value="">حالة الحفظ (الكل)</option>
+                                            <option value="draft">مسودة (Draft)</option>
+                                            <option value="saved">محفوظ (Saved)</option>
+                                        </select>
+                                        <select id="return-filter-completion" class="form-control-xs">
+                                            <option value="">الاكتمال (الكل)</option>
+                                            <option value="complete">مكتمل</option>
+                                            <option value="incomplete">غير مكتمل</option>
+                                            <option value="pending">معلق</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="filter-actions-compact">
+                                        <button class="btn-xs-apply" id="btn-apply-return-filters" onclick="applyReturnFilters()">
+                                            تطبيق <i class="fas fa-check"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Cards Container -->
+                    <div id="return-cards-container" class="warehouse-cards-container"></div>
+
+                    <!-- Loading Overlay -->
+                    <div id="return-loading-overlay" class="loading-overlay" style="display: none;">
+                        <div class="loading-spinner"></div>
+                        <div class="loading-text">جاري التحميل...</div>
+                    </div>
+                </div>
+
+    <!-- =========================================== ETA INVOICES TRACKER ===================================================== -->
+                <div id="subtab-eta" class="orders-subtab-content" style="display:none;">
+                  <div class="eta-dashboard-container">
+                    <div class="eta-header-card">
+                      <div class="eta-title">
+                        <div style="background: #e0f2f1; padding: 8px; border-radius: 8px; color: #00695c;">
+                          <i class="fas fa-network-wired"></i>
+                        </div>
+                        <span>ETA Reconciliation Dashboard</span>
+                      </div>
+
+                      <div class="eta-stats-wrapper">
+                        <span id="stat-summary-text" class="text-muted small">Ready to sync</span>
+                      </div>
+
+                      <button class="btn-sync" id="btn-eta-sync" onclick="refreshEtaData()">
+                        <i class="fas fa-sync-alt"></i> Sync Portal
+                      </button>
+                    </div>
+                    
+                    <div class="eta-table-card">
+                      <div style="max-height: 75vh; overflow-y: auto;">
+                        <table class="reconcile-table" id="main-reconcile-table">
+                          <thead>
+                            <tr>
+                              <th width="5%" class="text-center">State</th>
+                              <th width="8%" class="text-center">Invoice #</th> 
+                              <th width="13%" class="text-end">Order Summary</th>
+                              <th width="50%">Details (Client / Meta)</th>
+                              <th width="10%">Date</th>
+                              <th width="12%" class="text-end">Total</th>
+                              <th width="8%" class="text-center">File</th>
+                            </tr>
+                          </thead>
+                          </table>
+                        
+                        <div id="eta-loading-state" class="text-center p-5 text-muted" style="display:none;">
+                          <i class="fas fa-circle-notch fa-spin fa-2x text-primary mb-3"></i><br>
+                          Analyzing Invoices...
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <!--  ==================== Subtab: ALL ORDERS ===================== -->
+                <div id="subtab-all-orders" class="orders-subtab-content tab-pane fade" role="tabpanel" style="display:none;">
+                    
+                    <div id="all-orders-filter-container" class="mb-3"></div>
+                    
+                    <div id="all-orders-data-container" class="position-relative" style="min-height: 200px;">
+                        <div class="text-center p-5 text-muted">
+                            <div class="spinner-border text-primary mb-2"></div>
+                            <p>Loading module...</p>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+  <!-- ==============================================================================================================-->
+  <!-- ============================================= Operations Module ==============================================-->
+
+    <div id="operationsPage" class="page">
+      <nav class="navbar">
+          <div class="container-fluid">
+              <div class="d-flex align-items-center justify-content-between w-100">
+                  <a class="navbar-brand">
+                      <img src="https://lh3.googleusercontent.com/d/1KuZm8n-1MFpWNTUIVbnHBONCVnkWZh7z" alt="ERP Logo" onerror="this.style.display='none'">
+                  </a>
+                  
+                  <div class="d-flex align-items-center gap-3">
+                      <div class="user-info">
+                          <i class="fas fa-user-circle fa-2x"></i>
+                          <span id="userNameOperations">User</span>
+                      </div>
+                      
+                      <div class="nav-buttons">
+                          <button class="lang-toggle" onclick="toggleLanguage()">
+                              <i class="fas fa-language"></i> <span id="navLangTextOperations">عربي</span>
+                          </button>
+                          <button class="nav-btn" onclick="goHome()" data-tooltip="Home">
+                              <i class="fas fa-home"></i>
+                          </button>
+                          <button class="nav-btn" onclick="refreshPage()" data-tooltip="Refresh">
+                              <i class="fas fa-sync-alt"></i>
+                          </button>
+                          <button class="nav-btn logout-btn" onclick="logout()" data-tooltip="Logout">
+                              <i class="fas fa-sign-out-alt"></i>
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      </nav>
+
+      <div class="module-header">
+          <h3 id="operationsModuleTitle">Operations Module</h3>
+      </div>
+
+      <div class="module-tabs">
+          <button class="module-tab active" onclick="switchOperationsTab('purchases')" id="purchasesTabBtn">
+              <i class="fas fa-shopping-cart"></i>
+              <span id="purchasesTabLabel">Purchases</span>
+              <span class="permission-badge" id="purchasesPermissionBadge">-</span>
+          </button>
+          
+          <button class="module-tab" onclick="switchOperationsTab('materials')" id="materialsTabBtn">
+              <i class="fas fa-boxes"></i>
+              <span id="materialsTabLabel">Materials</span>
+              <span class="permission-badge" id="materialsPermissionBadge">-</span>
+          </button>
+          
+          <button class="module-tab" onclick="switchOperationsTab('production')" id="productionTabBtn">
+              <i class="fas fa-industry"></i>
+              <span id="productionTabLabel">Production</span>
+              <span class="permission-badge" id="productionPermissionBadge">-</span>
+          </button>
+      </div>
+
+      <div class="tab-content-area">
+          <div id="purchasesTabContent" class="tab-content active">
+              <div class="text-center p-5 text-muted">
+                  <i class="fas fa-shopping-cart fa-3x mb-3"></i>
+                  <h4>Purchases Dashboard</h4>
+                  <p>Sub-tabs for this section will be loaded here.</p>
+              </div>
+          </div>
+
+          <div id="materialsTabContent" class="tab-content">
+              <div class="text-center p-5 text-muted">
+                  <i class="fas fa-boxes fa-3x mb-3"></i>
+                  <h4>Materials Dashboard</h4>
+                  <p>Sub-tabs for this section will be loaded here.</p>
+              </div>
+          </div>
+
+          <div id="productionTabContent" class="tab-content">
+              <div class="text-center p-5 text-muted">
+                  <i class="fas fa-industry fa-3x mb-3"></i>
+                  <h4>Production Dashboard</h4>
+                  <p>Sub-tabs for this section will be loaded here.</p>
+              </div>
+          </div>
+      </div>
+  </div>
+
+  <!--=================  MODALS  ====================-->
+    <!-- Add Order Modal -->
+    <div id="addOrderModal" class="modal-overlay">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3 id="modalTitle">Add New Order</h3>
+                <button class="modal-close-btn" onclick="closeAddOrderModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="modal-body">
+                <form id="addOrderForm" onsubmit="handleSaveOrder(event)">
+                    <!-- Invoice Date -->
+                    <div class="form-group">
+                        <label for="invoiceDate" class="required" id="labelInvoiceDate">Invoice Date</label>
+                        <input type="date" class="form-control" id="invoiceDate" required>
+                    </div>
+                    
+                    <!-- Client Name -->
+                    <div class="form-group">
+                        <label for="clientName" class="required" id="labelClientName">Client Name</label>
+                        <input type="text" class="form-control" id="clientName" required autocomplete="off" placeholder="">
+                        <div id="clientSuggestions" class="client-suggestions"></div>
+                    </div>
+                    
+                    <!-- VAT Toggle Buttons -->
+                    <div class="form-group">
+                        <label id="labelVat">VAT</label>
+                        <div class="vat-toggle-group">
+                            <button type="button" class="vat-toggle-btn vat-blank active" data-value="" onclick="selectVat(this, '')">
+                                <span class="vat-none-en">None</span>
+                                <span class="vat-none-ar">بدون</span>
+                            </button>
+                            <button type="button" class="vat-toggle-btn" data-value="ضريبي" onclick="selectVat(this, 'ضريبي')">
+                                <span>ضريبي</span>
+                                <small>EXCL</small>
+                            </button>
+                            <button type="button" class="vat-toggle-btn" data-value="ضريبة و خصم 1%" onclick="selectVat(this, 'ضريبة و خصم 1%')">
+                                <span>ضريبة و خصم 1%</span>
+                                <small>EXCL -1%</small>
+                            </button>
+                            <button type="button" class="vat-toggle-btn" data-value="سعر شامل الضريبة" onclick="selectVat(this, 'سعر شامل الضريبة')">
+                                <span>سعر شامل الضريبة</span>
+                                <small>INCL</small>
+                            </button>
+                            <button type="button" class="vat-toggle-btn" data-value="سعر شامل و خصم 1%" onclick="selectVat(this, 'سعر شامل و خصم 1%')">
+                                <span>سعر شامل و خصم 1%</span>
+                                <small>INCL -1%</small>
+                            </button>
+                        </div>
+                        <input type="hidden" id="vat" value="">
+                    </div>
+                    
+                    <!-- PO Numbers Row -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="poTawoos" id="labelPoTawoos">PO Tawoos</label>
+                            <input type="text" class="form-control" id="poTawoos">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="poPrivateLabel" id="labelPoPrivateLabel">PO Private Label</label>
+                            <input type="text" class="form-control" id="poPrivateLabel">
+                        </div>
+                    </div>
+                    
+                    <!-- Attachments -->
+                    <div class="form-group">
+                        <label id="labelAttachments">Attachments (Max 3 files)</label>
+                        <div class="attachments-upload-area">
+                            <input type="file" id="fileInput" multiple accept="*/*" style="display: none;" onchange="handleFileSelect(event)">
+                            <button type="button" class="btn-select-files" onclick="document.getElementById('fileInput').click()">
+                                <i class="fas fa-paperclip"></i>
+                                <span id="btnSelectFiles">Select Files</span>
+                            </button>
+                            <div id="selectedFilesList" class="selected-files-list"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- Comments with Icons -->
+                    <div class="form-group">
+                        <label for="internalComments">
+                            <i class="fas fa-lock"></i>
+                            <span id="labelInternalComments">Internal Comments</span>
+                        </label>
+                        <textarea class="form-control" id="internalComments" rows="3"></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="externalComments">
+                            <i class="fas fa-comment"></i>
+                            <span id="labelExternalComments">External Comments</span>
+                        </label>
+                        <textarea class="form-control" id="externalComments" rows="3"></textarea>
+                    </div>
+                    
+                    <!-- Order Type -->
+                    <div class="form-group">
+                        <label for="orderType" id="labelOrderType">Order Type</label>
+                        <select class="form-control" id="orderType">
+                            <option value="توريد" selected>توريد</option>
+                            <option value="ارتجاع و خصم القيمة">ارتجاع و خصم القيمة</option>
+                            <option value="ارتجاع بدون خصم">ارتجاع بدون خصم</option>
+                            <option value="بدل مرتجع قديم">بدل مرتجع قديم</option>
+                            <option value="تبديل">تبديل</option>
+                            <option value="تحصيل">تحصيل</option>
+                            <option value="اداري">اداري</option>
+                            <option value="فاتورة فقط مع تحصيل الضريبة">فاتورة فقط مع تحصيل الضريبة</option>
+                            <option value="فاتورة فقط بدون تحصيل">فاتورة فقط بدون تحصيل</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Sales Rep -->
+                    <div class="form-group">
+                        <label for="salesRep" id="labelSalesRep">Sales Rep</label>
+                        <select class="form-control" id="salesRep">
+                            <option value="">-- Select Sales Rep --</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Products Section -->
+                    <div class="products-section">
+                        <div class="products-header">
+                            <h5 id="productsTitle">Products</h5>
+                            <button type="button" class="btn-add-product" onclick="addProductRow()">
+                                <i class="fas fa-plus"></i>
+                                <span id="addProductBtn">Add Product</span>
+                            </button>
+                        </div>
+                        
+                        <div id="productsContainer" class="products-container">
+                            <!-- Product rows will be added here dynamically -->
+                        </div>
+                        
+                        <div id="productsInfo" class="products-info">
+                            <i class="fas fa-info-circle"></i>
+                            <span id="productsInfoText">Click "Add Product" to add products to this order</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Modal Footer -->
+                    <div class="modal-footer">
+                        <button type="button" class="btn-cancel" onclick="closeAddOrderModal()">
+                            <i class="fas fa-times"></i>
+                            <span id="btnCancel">Cancel</span>
+                        </button>
+                        <button type="submit" class="btn-save" id="btnSaveOrder">
+                            <i class="fas fa-save"></i>
+                            <span id="btnSave">Save Order</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    
+    <!-- Confirmation Modal -->
+    <div id="confirmModal" class="modal-overlay">
+        <div class="modal-container" style="max-width: 500px;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);">
+                <h3 id="confirmModalTitle">Confirm New Client</h3>
+                <button class="modal-close-btn" onclick="closeConfirmModal(false)">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="modal-body">
+                <div style="text-align: center; padding: 20px;">
+                    <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #ffc107; margin-bottom: 20px;"></i>
+                    <p id="confirmModalMessage" style="font-size: 16px; margin-bottom: 30px;"></p>
+                    
+                    <div style="display: flex; gap: 12px; justify-content: center;">
+                        <button type="button" class="btn-cancel" onclick="closeConfirmModal(false)">
+                            <i class="fas fa-times"></i>
+                            <span id="confirmNo">No, Let Me Fix</span>
+                        </button>
+                        <button type="button" class="btn-save" onclick="closeConfirmModal(true)">
+                            <i class="fas fa-check"></i>
+                            <span id="confirmYes">Yes, New Client</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container"></div>
+
+    <?!= include('script'); ?>
+    <?!= include('script-distribution'); ?>
+    <?!= include('script-accounting'); ?>
+    <?!= include('script-warehouse'); ?>
+    <?!= include('script-return'); ?>
+    <?!= include('script-all-orders'); ?>
+    <?!= include('script-eta-reconciliation'); ?>
+    <?!= include('script-production'); ?>
+    <?!= include('script-materials'); ?>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
