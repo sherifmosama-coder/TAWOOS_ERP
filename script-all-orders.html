@@ -1,0 +1,4469 @@
+<script>
+
+console.log("LOADED: All Orders Script v6.0");
+
+// --- 1. GLOBAL STATE ---
+let allOrdersState = {
+    records: [],
+    initialized: false,
+    isExpanded: true
+};
+
+let aoPendingFiles = [];
+
+// --- CONFIG: STRATEGY VISUALS (User Defined) ---
+const AO_STRATEGY_CONFIG = {
+    'جملة': { 
+        icon: 'fa-solid fa-boxes-stacked', 
+        color: '#198754' // Green
+    },       
+    'تجزئة': { 
+        icon: 'fa-solid fa-box-open', 
+        color: '#20c997' // Light Green / Teal
+    }, 
+    'اسعار خاصة': { 
+        icon: 'fa-brands fa-shirtsinbulk', 
+        color: '#0d6efd' // Blue
+    },
+    // Fallback Default
+    'default': { 
+        icon: 'fas fa-user', 
+        color: '#6c757d' // Gray
+    }    
+};
+
+let aoClientDataMap = {}; // Global map: { "Client Name": "Strategy" }
+
+// --- CONFIG: CONFIRMATION STATUS ICONS (New) ---
+const AO_CONFIRM_STATUS_CONFIG = {
+    'Not Confirmed': { icon: 'fa-question-circle', color: '#fd7e14' }, // Orange
+    'Confirmed':     { icon: 'fa-check',           color: '#20c997' }, // Light Green
+    'Revised':       { icon: 'fa-check-double',    color: '#198754' }, // Green
+    'Canceled':      { icon: 'fa-xmark',           color: '#6c757d' }, // Grey
+    // Fallback
+    'default':       { icon: 'fa-circle-question', color: '#adb5bd' }
+};
+
+// --- HELPER: Get Confirmation Icon ---
+function ao_getConfirmationIcon(state) {
+    const key = state ? state.toString().trim() : 'Not Confirmed';
+    const config = AO_CONFIRM_STATUS_CONFIG[key] || AO_CONFIRM_STATUS_CONFIG['default'];
+    return `<i class="fa-solid ${config.icon} fa-lg" style="color: ${config.color};" title="${key}"></i>`;
+}
+
+// --- EXPORT CONFIGURATION (v17.0 - ULTIMATE FIELD MAPPING) ---
+const EXPORT_MASTER_MAP = [
+    {
+        group: "ORDER BASICS",
+        fields: [
+            { id: 'exp_date',    label: 'Invoice Date', path: 'dateIso' },
+            { id: 'exp_load',    label: 'Loading Date', path: 'deliveryData.loadingDateIso' },
+            { id: 'exp_oid',     label: 'Order ID', path: 'orderId' },
+            { id: 'exp_type',    label: 'Order Type', path: 'type' },
+            { id: 'exp_conf',    label: 'Confirmation', path: 'confirmationState' }, // NEW
+            { id: 'exp_stat',    label: 'Status', path: 'status' },
+            { id: 'exp_price',   label: 'Pricing Strategy', path: 'pricingStrategy' }
+        ]
+    },
+    {
+        group: "CLIENT INFO",
+        fields: [
+            { id: 'exp_cname',   label: 'Client Name', path: 'clientName' },
+            { id: 'exp_oname',   label: 'Official Name', path: 'clientData.officialName' },
+            { id: 'exp_fid',     label: 'Full ID', path: 'clientData.fullId' },
+            { id: 'exp_mid',     label: 'Main ID', path: 'clientData.mainId' },
+            { id: 'exp_br',      label: 'Branch', path: 'clientData.branch' },
+            { id: 'exp_cat',     label: 'Category', path: 'clientData.category' },
+            { id: 'exp_reg',     label: 'Region', path: 'clientData.region' },
+            { id: 'exp_addr',    label: 'Address', path: 'clientData.address' },
+            { id: 'exp_loc',     label: 'Map Link', path: 'clientData.locationUrl' },
+            { id: 'exp_cp',      label: 'Contact Person', path: 'clientData.contactPerson' },
+            { id: 'exp_wh',      label: 'Work Hours', path: 'clientData.workHours' },
+            { id: 'exp_vatn',    label: 'VAT Reg #', path: 'clientData.vatNo' },
+            { id: 'exp_phone',   label: 'Phone', path: 'clientData.phone' },
+            { id: 'exp_plan',    label: 'Payment Plan', path: 'clientData.paymentPlan' }
+        ]
+    },
+    {
+        group: "FINANCIALS",
+        fields: [
+            { id: 'exp_tot',     label: 'Total Amount', path: 'financeData.calc.total' },
+            { id: 'exp_sub',     label: 'Subtotal', path: 'financeData.calc.beforeVat' },
+            { id: 'exp_vatv',    label: 'VAT Value', path: 'financeData.calc.vatVal' },
+            { id: 'exp_wht',     label: 'WHT Value', path: 'financeData.calc.whtVal' },
+            { id: 'exp_vatt',    label: 'VAT Type', path: 'financeData.vatType' },
+            
+            // IDs
+            { id: 'exp_docd',    label: 'Deliv. Note #', path: 'doc', sub: 'Delivery Note' },
+            { id: 'exp_doct',    label: 'Tawoos Inv #', path: 'doc', sub: 'Tawoos Inv' },
+            { id: 'exp_docp',    label: 'PL Inv #', path: 'doc', sub: 'Private Label' },
+            
+            // FILES
+            { id: 'exp_lk_dn',   label: 'Link: Deliv. Note', path: 'docLink', sub: 'Delivery Note' },
+            { id: 'exp_lk_ti',   label: 'Link: Tawoos Inv', path: 'docLink', sub: 'Tawoos Inv' },
+            { id: 'exp_lk_pi',   label: 'Link: PL Inv', path: 'docLink', sub: 'Private Label' },
+
+            // E-Invoices
+            { id: 'exp_einv',    label: 'E-Inv Complete', path: 'financeData.eInvStatus.isComplete' },
+            { id: 'exp_lk_taw',  label: 'Link: E-Inv Tawoos', path: 'financeData.eInvoices.tawoos' },
+            { id: 'exp_lk_pl',   label: 'Link: E-Inv PL', path: 'financeData.eInvoices.pl' }
+        ]
+    },
+    {
+        group: "LOGISTICS",
+        fields: [
+            { id: 'exp_truck',   label: 'Truck', path: 'deliveryData.truck' },
+            { id: 'exp_driv',    label: 'Driver', path: 'deliveryData.driver' },
+            { id: 'exp_sales',   label: 'Sales Rep', path: 'deliveryData.salesRep' },
+            { id: 'exp_delr',    label: 'Delivery Rep', path: 'deliveryData.delRep' },
+            { id: 'exp_load2',   label: 'Load Order', path: 'deliveryData.loadOrder' },
+            { id: 'exp_wei',     label: 'Weight', path: 'deliveryData.weight' },
+            { id: 'exp_dis',     label: 'Dismissal #', path: 'deliveryData.dismissNum' },
+            { id: 'exp_dist',    label: 'Dismiss Status', path: 'deliveryData.dismissStatus' },
+            { id: 'exp_ret',     label: 'Return #', path: 'deliveryData.returnNum' },
+            { id: 'exp_lk_dis',  label: 'Link: Dismiss File', path: 'deliveryData.fileDismiss' },
+            { id: 'exp_lk_ret',  label: 'Link: Return File', path: 'deliveryData.fileReturn' }
+        ]
+    },
+    {
+        group: "METADATA",
+        fields: [
+            { id: 'exp_cnt',     label: 'Item Count', path: 'itemsCount' },
+            { id: 'exp_psum',    label: 'Product Summary', path: 'prodSummary' },
+            { id: 'exp_po',      label: 'PO Text', path: 'poData.text' },
+            { id: 'exp_pof',     label: 'Link: PO Files', path: 'poData.files' },
+            { id: 'exp_comi',    label: 'Internal Comm', path: 'comments.internal' },
+            { id: 'exp_comc',    label: 'Client Comm', path: 'comments.client' }
+        ]
+    }
+];
+
+// --- 2. CONFIGURATION: FIELD MAPPING ---
+const FIELD_MAP = {
+    // BASICS
+    orderId:      { label: 'Order #', path: 'orderId', type: 'text' },
+    date:         { label: 'Invoice Date', path: 'dateIso', type: 'date' }, 
+    type:         { label: 'Type', path: 'type', type: 'select' },
+    status:       { label: 'Status', path: 'status', type: 'select' },
+    confirmationState: { label: 'Confirmation', path: 'confirmationState', type: 'select' }, // NEW
+    loadingDate:  { label: 'Loading Date', path: 'deliveryData.loadingDate', type: 'date' },
+    
+    // CLIENT
+    clientName:   { label: 'Client Name', path: 'clientName', type: 'text' },
+    officialName: { label: 'Official Name', path: 'clientData.officialName', type: 'text' },
+    mainId:       { label: 'Main ID', path: 'clientData.mainId', type: 'text' },
+    branch:       { label: 'Branch', path: 'clientData.branch', type: 'text' },
+    category:     { label: 'Category', path: 'clientData.category', type: 'text' },
+    region:       { label: 'Region', path: 'clientData.region', type: 'text' },
+    paymentPlan:  { label: 'Payment Plan', path: 'clientData.paymentPlan', type: 'text' },
+    pricingStrategy: { label: 'Pricing', path: 'pricingStrategy', type: 'text' },
+
+    // FINANCE
+    amtTotal:     { label: 'Total Amount', path: 'financeData.calc.total', type: 'number' },
+    vatType:      { label: 'VAT Type', path: 'financeData.vatType', type: 'select' },
+    eInvStatus:   { label: 'E-Inv Complete', path: 'financeData.eInvStatus.isComplete', type: 'boolean' },
+    docDelivery:  { label: 'Deliv. Note ID', path: 'financeData.documents', subPath: 'Delivery Note', type: 'doc' },
+    docTawoos:    { label: 'Tawoos Inv ID', path: 'financeData.documents', subPath: 'Tawoos Inv', type: 'doc' },
+    docPL:        { label: 'PL Inv ID', path: 'financeData.documents', subPath: 'Private Label', type: 'doc' },
+
+    // LOGISTICS
+    truck:        { label: 'Truck', path: 'deliveryData.truck', type: 'text' },
+    driver:       { label: 'Driver', path: 'deliveryData.driver', type: 'text' },
+    salesRep:     { label: 'Sales Rep', path: 'deliveryData.salesRep', type: 'text' },
+    delRep:       { label: 'Del Rep', path: 'deliveryData.delRep', type: 'text' },
+    loadOrder:    { label: 'Load Order', path: 'deliveryData.loadOrder', type: 'number' },
+    dismissNum:   { label: 'Dismiss #', path: 'deliveryData.dismissNum', type: 'text' },
+
+    // METADATA
+    poData:       { label: 'PO Text', path: 'poData.text', type: 'text' },
+    prodSummary:  { label: 'Product Summary', path: 'prodSummary', type: 'text' },
+    commInternal: { label: 'Internal Comm', path: 'comments.internal', type: 'text' },
+    commClient:   { label: 'Client Comm', path: 'comments.client', type: 'text' }
+};
+
+// --- 3. SECTION CONFIGURATIONS (MUST BE DEFINED HERE) ---
+
+const SEARCH_CONFIG = [
+    { key: 'basics',    label: 'Order Basics',             fields: ['orderId', 'date', 'loadingDate'] },
+    { key: 'client',    label: 'Client Information',       fields: ['clientName', 'officialName', 'mainId', 'branch', 'category'] },
+    { key: 'finance',   label: 'Financial Data',           fields: ['amtTotal', 'docDelivery', 'docTawoos', 'docPL'] },
+    { key: 'logistics', label: 'Logistics & Distribution', fields: ['dismissNum'] },
+    { key: 'metadata',  label: 'Metadata & Search',        fields: ['poData', 'prodSummary', 'commInternal', 'commClient'] }
+];
+
+const FILTER_CONFIG = [
+    { key: 'basics',    label: 'Order Basics',             fields: ['date', 'type', 'status', 'confirmationState', 'loadingDate'] }, // ADDED
+    { key: 'client',    label: 'Client Information',       fields: ['clientName', 'mainId', 'category', 'region', 'paymentPlan', 'pricingStrategy'] },
+    { key: 'finance',   label: 'Financial Data',           fields: ['vatType', 'eInvStatus'] },
+    { key: 'logistics', label: 'Logistics & Distribution', fields: ['truck', 'driver', 'salesRep', 'delRep', 'loadOrder'] }
+];
+
+const VIEW_CONFIG = [
+    { key: 'basics',    label: 'Order Basics',             fields: ['date', 'type', 'status', 'confirmationState', 'loadingDate'] }, // ADDED
+    { key: 'client',    label: 'Client Information',       fields: ['clientName', 'mainId', 'branch', 'category', 'region', 'paymentPlan', 'pricingStrategy'] },
+    { key: 'finance',   label: 'Financial Data',           fields: ['amtTotal', 'vatType', 'eInvStatus', 'docTawoos', 'docPL'] },
+    { key: 'logistics', label: 'Logistics & Distribution', fields: ['truck', 'driver', 'salesRep', 'delRep', 'loadOrder', 'dismissNum'] },
+    { key: 'metadata',  label: 'Metadata & Search',        fields: ['poData'] }
+];
+
+
+// --- PRESETS CONFIGURATION (v22.0 - Single Source of Truth) ---
+const PRESETS_CONFIG = [
+    // 1. THE MASTER DEFAULT (Defined ONCE here)
+    {
+        title: "Master Default",
+        icon: "fa-star", 
+        desc: "Standard View: Not Yet/Prepare/Shipped, grouped by Status.",
+        config: {
+            // A. FILTERS
+            filters: [
+                { key: 'status', values: ['Not Yet', 'Prepare', 'Shipped'] }
+            ],
+            // B. VIEW
+            group: 'status',
+            // C. SORTING
+            sort: [
+                { field: 'loadingDate_smart', dir: 'asc' },
+                { field: 'date_smart', dir: 'asc' },
+                { field: 'status', dir: 'asc' },
+                { field: 'loadOrder', dir: 'asc' }
+            ]
+        }
+    },
+
+    // 2. LOGISTICS CHECK
+    {
+        title: "Logistics Check",
+        icon: "fa-truck-fast",
+        desc: "Focus on active logistics sorted by Truck.",
+        config: {
+            filters: [
+                { key: 'status', values: ['Prepare', 'Shipped'] }
+            ],
+            group: 'truck',
+            sort: [
+                { field: 'loadingDate', dir: 'asc' },
+                { field: 'truck', dir: 'asc' }
+            ]
+        }
+    },
+
+    // 3. UNPAID INVOICES (Example)
+    {
+        title: "Unpaid Invoices",
+        icon: "fa-file-invoice-dollar",
+        desc: "Delivered orders that are not Paid yet.",
+        config: {
+            filters: [
+                { key: 'status', values: ['Delivered'] }, 
+                { key: 'date', preset: 'month' }
+            ],
+            group: 'clientName',
+            sort: [
+                { field: 'amtTotal', dir: 'desc' }
+            ]
+        }
+    }
+];
+
+// --- SORT BUILDER LOGIC (v19.2 - Connected to Summary) ---
+// Configuration for Restricted Sort Fields
+const SORT_OPTS_STRICT = [
+    { val: 'orderId',           label: 'Order ID' },
+    { val: 'date',              label: 'Invoice Date' },
+    { val: 'date_smart',        label: '⚡ Inv. Date (Today Top)' },
+    { val: 'loadingDate',       label: 'Loading Date' },
+    { val: 'loadingDate_smart', label: '⚡ Load. Date (Today Top)' },
+    { val: 'status',            label: 'Order Status (Process Flow)' },
+    { val: 'confirmationState', label: 'Confirmation Status' }, // NEW
+    { val: 'amtTotal',          label: 'Total Amount' },
+    { val: 'vatId',             label: 'VAT ID (Tawoos/PL)' }, 
+    { val: 'docDelivery',       label: 'Delivery Note ID' },
+    { val: 'loadOrder',         label: 'Load Order' },
+    { val: 'dismissNum',        label: 'Dismissal Number' }
+];
+
+
+// --- HELPER: Get Icon HTML ---
+function ao_getConfirmationIcon(state) {
+    // Normalize input (trim spaces)
+    const key = state ? state.toString().trim() : 'Not Confirmed';
+    const config = AO_CONFIRM_STATUS_CONFIG[key] || AO_CONFIRM_STATUS_CONFIG['default'];
+    
+    return `<i class="fa-solid ${config.icon} fa-lg" style="color: ${config.color};" title="${key}"></i>`;
+}
+
+// 1. Add a New Sort Row
+function addSortRule(defaultVal = 'orderId', defaultDir = 'desc') {
+    const container = document.getElementById('ao-sort-rules-container');
+    const index = container.children.length + 1;
+
+    if(index > 5) return; 
+
+    // Generate unique ID for the select to track it in Summary Bar
+    const uniqueId = 'ao-sort-select-' + Date.now() + Math.random().toString(36).substr(2, 5);
+
+    const div = document.createElement('div');
+    div.className = 'ao-sort-row animate__animated animate__fadeInRight faster';
+    div.innerHTML = `
+        <span class="ao-sort-num">#${index}</span>
+        
+        <select id="${uniqueId}" class="form-select form-select-sm border-0 bg-transparent shadow-none fw-bold text-dark" style="flex: 1;" onchange="updateSummaryBar()">
+            ${SORT_OPTS_STRICT.map(opt => `<option value="${opt.val}" ${opt.val === defaultVal ? 'selected' : ''}>${opt.label}</option>`).join('')}
+        </select>
+        
+        <div class="vr mx-2 text-muted opacity-25"></div>
+
+        <button type="button" class="ao-dir-btn" data-dir="${defaultDir}" onclick="toggleSortDir(this)">
+            ${defaultDir === 'asc' ? 'Asc' : 'Desc'}
+        </button>
+
+        <button type="button" class="btn btn-sm text-muted ms-1 hover-text-danger" onclick="removeSortRule(this)">
+            <i class="fas fa-times"></i>
+        </button>
+    `;
+    container.appendChild(div);
+    
+    updateSummaryBar(); // Update Summary immediately
+}
+
+// 2. Remove a Row
+function removeSortRule(btn) {
+    const row = btn.closest('.ao-sort-row');
+    const container = row.parentElement;
+    
+    // If it's the last rule, reset it instead of removing
+    if(container.children.length <= 1) {
+        row.querySelector('select').value = 'date';
+        const dirBtn = row.querySelector('.ao-dir-btn');
+        dirBtn.dataset.dir = 'desc';
+        dirBtn.innerHTML = 'Desc';
+    } else {
+        row.remove();
+        // Re-index numbers
+        Array.from(container.children).forEach((el, i) => {
+            el.querySelector('.ao-sort-num').innerText = `#${i+1}`;
+        });
+    }
+    updateSummaryBar(); // Update Summary
+}
+
+// 3. Toggle Direction
+function toggleSortDir(btn) {
+    const current = btn.dataset.dir;
+    const next = current === 'asc' ? 'desc' : 'asc';
+    
+    btn.dataset.dir = next;
+    btn.innerHTML = next === 'asc' ? 'Asc' : 'Desc';
+    
+    updateSummaryBar(); // Update Summary
+}
+
+// 4. Initializer for View Tab (Call this when rendering)
+function initSortBuilder() {
+    const container = document.getElementById('ao-sort-rules-container');
+    if(container && container.children.length === 0) {
+        addSortRule('date', 'desc'); // Default Rule
+    }
+}
+
+// --- 5. INITIALIZATION (v20.6 - Applies Master Template on Load) ---
+function initializeAllOrdersSubtab() {
+    console.log("Initializing All Orders Subtab...");
+    const container = document.getElementById('all-orders-filter-container');
+    const grid = document.getElementById('all-orders-data-container');
+
+    if (!container) {
+        console.error("Error: 'all-orders-filter-container' not found");
+        return;
+    }
+
+    // 1. Render the UI
+    renderReportManagerUI();
+    
+    // 2. Set Default Configuration (MASTER TEMPLATE)
+    // This applies the Status Filter, Grouping, and Smart Sorting immediately.
+    if (typeof restoreDefaultSettings === 'function') {
+        restoreDefaultSettings(); 
+    } else {
+        // Fallback just in case
+        applyDatePreset('month', 'date');
+    }
+    
+    // 3. Check cache
+    if (allOrdersState.initialized && allOrdersState.records.length > 0) {
+        console.log("Data cached. Skipping fetch.");
+        populateSmartFilters();
+        
+        // Update grid to "Ready" state
+        grid.innerHTML = `
+                <div class="text-center p-5">
+                    <div class="ao-levitate-wrapper mb-2">
+                        <i class="fas fa-bolt ao-levitate-icon"></i>
+                        <div class="ao-levitate-shadow"></div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, #2D8C6C 0%, #157285 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; opacity: 0.9;">
+                        <h5 class="fw-bold mb-0">${currentLang === 'ar' ? 'جاهز للعمل' : 'Ready to Generate'}</h5>
+                        <small class="text-muted" style="-webkit-text-fill-color: #adb5bd;">Master Template Active. Click Generate.</small>
+                    </div>
+                </div>`;
+        return;
+    }
+    
+    // 4. Loading State
+    const t = aoTranslations[currentLang] || aoTranslations.en;
+    grid.innerHTML = `
+        <div class="text-center p-5">
+            <div class="ao-loader-wrapper mb-4">
+                <div class="ao-loader-ring"></div>
+                <div class="ao-loader-core">
+                    <i class="fa-solid fa-person-digging"></i>
+                </div>
+            </div>
+
+            <div style="background: linear-gradient(135deg, #2D8C6C 0%, #157285 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; opacity: 0.8;">
+                <h5 class="fw-bold mb-0 text-uppercase" style="letter-spacing: 1px;">${t.loading}</h5>
+                <small class="text-muted" style="-webkit-text-fill-color: #adb5bd;">Data Mining in progress</small>
+            </div>
+        </div>
+    `;
+
+    // 5. Fetch Data
+    google.script.run
+        .withSuccessHandler((data) => {
+            console.log("Data fetched:", data.length);
+            
+            // --- NORMALIZE DATA (Status Fix) ---
+            allOrdersState.records = data.map(r => {
+                // Trim spaces to ensure " " becomes "" -> "Not Yet"
+                const s = r.status ? String(r.status).trim() : '';
+                if (s === '') {
+                    r.status = 'Not Yet';
+                } else {
+                    r.status = s; 
+                }
+                return r;
+            });
+
+            allOrdersState.initialized = true;
+            
+            // --- POPULATE DROPDOWNS ---
+            populateSmartFilters(); 
+            
+            grid.innerHTML = `
+                <div class="text-center p-5">
+                    <div class="ao-levitate-wrapper mb-2">
+                        <i class="fas fa-bolt ao-levitate-icon"></i>
+                        <div class="ao-levitate-shadow"></div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, #2D8C6C 0%, #157285 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; opacity: 0.9;">
+                        <h5 class="fw-bold mb-0">${currentLang === 'ar' ? 'جاهز للعمل' : 'Ready to Generate'}</h5>
+                        <small class="text-muted" style="-webkit-text-fill-color: #adb5bd;">Master Template Active. Click Generate.</small>
+                    </div>
+                </div>`;
+        })
+        .withFailureHandler((err) => {
+            grid.innerHTML = `<div class="alert alert-danger m-3">${err.message}</div>`;
+        })
+        .getAllOrdersReport();
+}
+
+// --- HELPER: Force Reload Data ---
+function refreshAllOrdersData() {
+    allOrdersState.initialized = false;
+    allOrdersState.records = [];
+    showToast("Refreshing data...", "info");
+    initializeAllOrdersSubtab();
+}
+
+// --- RENDER UI (v20.5 - Fixed Input ID) ---
+function renderReportManagerUI() {
+    const container = document.getElementById('all-orders-filter-container');
+    
+    // Inject Styles for the new "add new order" Modal
+    if (!document.getElementById('ao-add-order-styles')) {
+        const style = document.createElement('style');
+        style.id = 'ao-add-order-styles';
+        style.innerHTML = AO_MODAL_CSS; // Defined at bottom
+        document.head.appendChild(style);
+    }
+    // --- ICONS & HELPERS ---
+    const ICONS = {
+        basics:    { icon: 'fa-calendar-alt', class: 'ao-icon-basics' },
+        client:    { icon: 'fa-user-circle', class: 'ao-icon-client' },
+        finance:   { icon: 'fa-file-invoice-dollar', class: 'ao-icon-finance' },
+        logistics: { icon: 'fa-truck', class: 'ao-icon-logistics' },
+        metadata:  { icon: 'fa-tags', class: 'ao-icon-metadata' }
+    };
+
+    // --- BUILD INPUT (Fixed: Restored ID) ---
+    const buildInput = (key, section) => {
+        const conf = FIELD_MAP[key];
+        if(!conf) return '';
+        const idBase = `ao-${section}-${key}`;
+
+        // A. Date Range
+        if (section === 'filter' && (conf.type === 'date' || key === 'loadingDate')) {
+            const presetsHtml = (key === 'date') ? `
+                <div class="d-flex gap-1 mt-2 justify-content-between">
+                    <span class="badge bg-white text-secondary border cursor-pointer hover-bg-light fw-normal" onclick="applyDatePreset('last7', '${key}')">7 Days</span>
+                    <span class="badge bg-white text-secondary border cursor-pointer hover-bg-light fw-normal" onclick="applyDatePreset('last30', '${key}')">30 Days</span>
+                    <span class="badge bg-white text-secondary border cursor-pointer hover-bg-light fw-normal" onclick="applyDatePreset('month', '${key}')">Month</span>
+                    <span class="badge bg-white text-secondary border cursor-pointer hover-bg-light fw-normal" onclick="applyDatePreset('quarter', '${key}')">Qtr</span>
+                </div>` : '';
+
+            return `
+                <div class="col-12">
+                    <label class="ao-form-label">${conf.label}</label>
+                    <div class="input-group input-group-sm">
+                        <input type="date" id="${idBase}-from" class="form-control ao-input" title="From">
+                        <span class="input-group-text bg-white border-0 text-muted"><i class="fas fa-arrow-right small"></i></span>
+                        <input type="date" id="${idBase}-to" class="form-control ao-input" title="To">
+                    </div>
+                    ${presetsHtml}
+                </div>`;
+        }
+        
+        // B. Boolean Select
+        if (conf.type === 'boolean') {
+             return `
+                <div class="col-12 col-md-6">
+                    <label class="ao-form-label" for="${idBase}">${conf.label}</label>
+                    <div class="position-relative">
+                        <select id="${idBase}" class="form-select ao-input">
+                            <option value="">Any</option>
+                            <option value="true">Yes</option>
+                            <option value="false">No</option>
+                        </select>
+                    </div>
+                </div>`;
+        }
+        
+        // C. Standard Input (Text, Number, Select)
+        let listAttr = '';
+        let dataListHtml = '';
+        let iconHtml = '';
+        let listId = ''; 
+
+        const isSmartField = (conf.type === 'text' || conf.type === 'number' || conf.type === 'select');
+
+        if (section === 'filter' && isSmartField) {
+            listId = `list-${idBase}`; 
+            listAttr = `list="${listId}"`;
+            dataListHtml = `<datalist id="${listId}"></datalist>`;
+            iconHtml = `<i class="fas fa-chevron-down position-absolute text-muted" style="right: 12px; top: 50%; transform: translateY(-50%); font-size: 0.75rem; pointer-events: none;"></i>`;
+        }
+
+        const inputType = conf.type === 'number' ? 'number' : 'text';
+        
+        // FIXED LINE BELOW: Added id="${idBase}" back to the input
+        return `
+            <div class="col-12 col-md-6">
+                <label class="ao-form-label">${conf.label}</label>
+                <div id="wrapper-${idBase}" class="ao-filter-wrapper">
+                    <div class="ao-filter-row">
+                        <div class="position-relative flex-grow-1">
+                            <input type="${inputType}" 
+                                   id="${idBase}"
+                                   class="form-control ao-input ao-multi-input" 
+                                   data-key="${key}"
+                                   placeholder="..."
+                                   style="${section === 'filter' ? 'padding-right: 30px;' : ''}" 
+                                   ${listAttr} autocomplete="off">
+                            ${iconHtml}
+                        </div>
+                        ${section === 'filter' ? `<div class="ao-btn-icon-small ao-btn-add" onclick="addFilterRow('${key}', '${listId}')" title="Add another value"><i class="fas fa-plus"></i></div>` : ''}
+                    </div>
+                </div>
+                ${dataListHtml}
+            </div>`;
+    };
+
+    const buildCard = (cat, section) => {
+        const inputsHtml = cat.fields.map(k => buildInput(k, section)).join('');
+        if(!inputsHtml) return '';
+        const style = ICONS[cat.key] || { icon: 'fa-cube', class: 'bg-light' };
+        return `
+            <div class="col-12 col-lg-4 col-xl-3 d-flex align-items-start">
+                <div class="ao-cat-card w-100 d-flex flex-column">
+                    <div class="ao-cat-header d-flex align-items-center">
+                        <div class="ao-cat-icon ${style.class}"><i class="fas ${style.icon}"></i></div>
+                        <span>${cat.label}</span>
+                    </div>
+                    <div class="ao-card-body-content">
+                        <div class="row g-3 py-2">
+                            ${inputsHtml}
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+    };
+
+    const buildViewOptions = () => VIEW_CONFIG.map(cat => `<optgroup label="${cat.label}">${cat.fields.map(k => `<option value="${k}">${FIELD_MAP[k].label}</option>`).join('')}</optgroup>`).join('');
+
+    container.innerHTML = `
+        <div class="ao-main-card mb-4 shadow-sm" style="border-radius: 16px;">
+            
+            <div class="card-header bg-white p-3 border-bottom-0" style="border-radius: 16px 16px 0 0;">
+                <div class="d-flex justify-content-between align-items-center rounded-3">
+                    <div class="d-flex align-items-center cursor-pointer" onclick="toggleGeneratorSection(this)">
+                        <div class="rounded-circle d-flex align-items-center justify-content-center shadow-sm me-3" style="width: 40px; height: 40px; background: linear-gradient(135deg, #2D5787 0%, #183A69 100%); color: #DCE7FA;">
+                            <i class="fa-solid fa-screwdriver-wrench"></i>
+                        </div>
+                        <div>
+                            <h5 class="mb-0 fw-bold text-dark">Order Explorer</h5>
+                            <small class="text-muted">v23.0 &bull; Unified Module</small>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex align-items-center gap-2">
+                        <button class="ao-btn-circle-expand" onclick="refreshAllOrdersData()" title="Reload Data">
+                            <div class="ao-btn-circle-icon"><i class="fas fa-sync-alt ao-spin-hover"></i></div>
+                            <span class="ao-btn-circle-text">Reload Orders</span>
+                        </button>
+                    
+                        <button class="btn btn-success fw-bold shadow-sm d-flex align-items-center gap-2" onclick="ao_openAddOrderModal()">
+                            <i class="fa-solid fa-square-plus"></i>
+                            <span>New Order</span>
+                        </button>
+                        
+                    </div>
+                </div>
+            </div>
+
+            <div id="ao-generator-content" style="display: none; border-top: 1px solid #f0f0f0;">
+                <div class="px-3 pb-3 border-bottom bg-white pt-3">
+                    <ul class="nav ao-nav-pills" id="aoTabs" role="tablist">
+                        <li class="nav-item"><button class="nav-link active" onclick="switchTabAo('ao-tab-filter')" id="btn-ao-tab-filter"><i class="fas fa-filter me-2"></i>Filter</button></li>
+                        <li class="nav-item"><button class="nav-link" onclick="switchTabAo('ao-tab-search')" id="btn-ao-tab-search"><i class="fas fa-search me-2"></i>Find</button></li>
+                        <li class="nav-item"><button class="nav-link" onclick="switchTabAo('ao-tab-view')" id="btn-ao-tab-view"><i class="fas fa-sliders-h me-2"></i>View</button></li>
+                    </ul>
+                </div>
+
+                <div class="card-body p-4" style="background: transparent; min-height: 50px;">
+                    <div id="ao-tab-filter" class="ao-tab-panel animate__animated animate__fadeIn"><div class="row g-3">${FILTER_CONFIG.map(cat => buildCard(cat, 'filter')).join('')}</div></div>
+                    <div id="ao-tab-search" class="ao-tab-panel animate__animated animate__fadeIn" style="display: none;"><div class="row g-3">${SEARCH_CONFIG.map(cat => buildCard(cat, 'search')).join('')}</div></div>
+                    
+                    <div id="ao-tab-view" class="ao-tab-panel animate__animated animate__fadeIn" style="display: none;">
+                        <div class="row g-4 h-100">
+                             <div class="col-md-5">
+                                <div class="ao-cat-card h-100 d-flex flex-column p-4">
+                                    <div class="d-flex align-items-center mb-4 text-warning">
+                                        <i class="fas fa-layer-group fa-2x me-3 opacity-75"></i>
+                                        <h5 class="fw-bold mb-0 text-dark">Grouping</h5>
+                                    </div>
+                                    <p class="text-muted small mb-4">Select a primary attribute to categorize your results.</p>
+                                    <label class="ao-form-label">Group Results By</label>
+                                    <select id="ao-group-by" class="form-select form-select-lg shadow-sm border bg-light">
+                                        <option value="none">No Grouping (Flat List)</option>
+                                        ${buildViewOptions()}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-7">
+                                <div class="ao-cat-card h-100 d-flex flex-column p-4">
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <div class="d-flex align-items-center text-primary">
+                                            <i class="fas fa-sort-amount-down fa-2x me-3 opacity-75"></i>
+                                            <h5 class="fw-bold mb-0 text-dark">Sort Priority</h5>
+                                        </div>
+                                        <button class="btn btn-sm btn-light border text-primary fw-bold rounded-pill px-3 hover-bg-light" onclick="addSortRule()">
+                                            <i class="fas fa-plus me-1"></i> Add Level
+                                        </button>
+                                    </div>
+                                    <div id="ao-sort-rules-container" class="d-flex flex-column gap-2" style="max-height: 250px; overflow-y: auto;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="ao-footer-bar" class="card-footer bg-white border-top-0 d-flex align-items-center ao-footer-transition ao-footer-compact ao-footer-flat-bottom" style="border-radius: 0;">
+                <div class="flex-grow-1" style="width: 100%;">
+                    <div id="ao-summary-bar" class="ao-summary-container animate__animated animate__fadeIn" style="display:none; width: 100%;"></div>
+                </div>
+            </div>
+
+            <div class="ao-toggle-full-bar" onclick="ao_toggleFilterSection(this)" title="Toggle Generator">   
+                <div class="ao-toggle-icon-container">
+                    <i class="fas fa-chevron-down"></i>
+                </div>
+
+                <div class="ms-auto d-flex gap-2 align-items-center" onclick="event.stopPropagation()">
+                    <button class="btn btn-sm btn-light border shadow-sm fw-bold text-danger hover-bg-light ao-btn-expand" onclick="clearAllFilters()" title="Clear All Filters"><i class="fas fa-eraser"></i><span class="ao-btn-label">Clear</span></button>
+                    <button class="btn btn-sm btn-light border shadow-sm fw-bold text-primary hover-bg-light ao-btn-expand" onclick="restoreDefaultSettings()" title="Restore Master Default"><i class="fas fa-history"></i><span class="ao-btn-label">Restore</span></button>
+                    <button class="btn btn-sm btn-light border shadow-sm fw-bold text-success hover-bg-light ao-btn-expand" onclick="showExportModal()" title="Export Excel"><i class="fas fa-file-excel"></i><span class="ao-btn-label">Export</span></button>
+                    <button class="btn border shadow-sm fw-bold ao-btn-expand" style="background: linear-gradient(135deg, #0B6170 0%, #51708C 100%); color: #DEEFFC;" onclick="openPresetsPopover(event)" title="Saved Views">
+                        <i class="fa-solid fa-list-check"></i><span class="ao-btn-label">Presets</span>
+                    </button>
+                    <button class="btn btn-sm fw-bold shadow-sm ao-btn-expand ao-btn-shine" style="background: linear-gradient(135deg, #2D5787 0%, #183A69 100%); color: #DCE7FA;" onclick="executeReportGeneration()" title="Generate Report"><i class="fas fa-bolt"></i><span class="ao-btn-label">Generate</span></button>
+                </div>
+            </div>
+        </div>
+
+        <div id="ao-modal-add-order" class="ao-modal-overlay">
+            <div class="ao-modal-container">
+                <div class="ao-modal-header">
+                    <h3><i class="fas fa-cart-plus me-2"></i> Add New Order</h3>
+                    <button class="ao-modal-close-btn" onclick="ao_closeAddOrderModal()"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="ao-modal-body">
+                    <datalist id="ao-list-clients"></datalist>
+                    <datalist id="ao-list-products"></datalist>
+
+                    <form id="ao-form-add-order" onsubmit="ao_handleSaveOrder(event)">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label class="ao-form-label">Invoice Date <span class="text-danger">*</span></label>
+                                <input type="date" class="form-control" id="ao-new-date" required onchange="ao_fetchContractMap(); document.querySelectorAll('.ao-product-row').forEach(r => ao_refreshRowPrice(r.id))">
+                            </div>
+
+                            <div class="col-md-6">
+                              <label class="ao-form-label">Client Name <span class="text-danger">*</span></label>
+                              <div class="input-group">
+                                  <span class="input-group-text bg-white text-muted">
+                                      <i class="fas fa-user" id="ao-client-icon"></i>
+                                  </span>
+                                  
+                                  <input type="text" class="form-control" id="ao-new-client" list="ao-client-list" 
+                                        placeholder="Start typing..." autocomplete="off">
+                                  
+                                  <datalist id="ao-client-list"></datalist>
+                              </div>
+                              
+                              <div id="ao-client-strategy-label" class="mt-1 ms-1" 
+                                  style="font-size: 0.75rem; color: #6c757d; min-height: 18px;">
+                              </div>
+                          </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="ao-form-label">VAT Type</label>
+                            <div class="ao-vat-group">
+                                <button type="button" class="ao-vat-btn active" data-value="" onclick="ao_selectVat(this, '')">None</button>
+                                <button type="button" class="ao-vat-btn" data-value="ضريبي" onclick="ao_selectVat(this, 'ضريبي')">Excl.</button>
+                                <button type="button" class="ao-vat-btn" data-value="ضريبة و خصم 1%" onclick="ao_selectVat(this, 'ضريبة و خصم 1%')">Excl. -1%</button>
+                                <button type="button" class="ao-vat-btn" data-value="سعر شامل الضريبة" onclick="ao_selectVat(this, 'سعر شامل الضريبة')">Incl.</button>
+                                <button type="button" class="ao-vat-btn" data-value="سعر شامل و خصم 1%" onclick="ao_selectVat(this, 'سعر شامل و خصم 1%')">Incl. -1%</button>
+                            </div>
+                            <input type="hidden" id="ao-new-vat" value="">
+                        </div>
+                        
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label class="ao-form-label">PO Tawoos</label>
+                                <input type="text" class="form-control" id="ao-new-po-tawoos">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="ao-form-label">PO Private Label</label>
+                                <input type="text" class="form-control" id="ao-new-po-pl">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="ao-form-label">Attachments (Max 3)</label>
+                            <div class="ao-upload-area">
+                                <input type="file" id="ao-file-input" multiple accept="*/*" style="display: none;" onchange="ao_handleFileSelect(event)">
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="document.getElementById('ao-file-input').click()">
+                                    <i class="fas fa-paperclip me-1"></i> Select Files
+                                </button>
+                                <div id="ao-file-list" class="d-flex gap-2 flex-wrap mt-2"></div>
+                            </div>
+                        </div>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label class="ao-form-label"><i class="fas fa-lock me-1"></i> Internal Notes</label>
+                                <textarea class="form-control" id="ao-new-internal-notes" rows="2"></textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="ao-form-label"><i class="fas fa-comment me-1"></i> External Notes</label>
+                                <textarea class="form-control" id="ao-new-external-notes" rows="2"></textarea>
+                            </div>
+                        </div>
+
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-4">
+                                <label class="ao-form-label">Order Type</label>
+                                <select class="form-select" id="ao-new-order-type">
+                                    <option value="توريد" selected>توريد</option>
+                                    <option value="ارتجاع و خصم القيمة">ارتجاع و خصم القيمة</option>
+                                    <option value="ارتجاع بدون خصم">ارتجاع بدون خصم</option>
+                                    <option value="بدل مرتجع قديم">بدل مرتجع قديم</option>
+                                    <option value="تبديل">تبديل</option>
+                                    <option value="تحصيل">تحصيل</option>
+                                    <option value="اداري">اداري</option>
+                                    <option value="فاتورة فقط مع تحصيل الضريبة">فاتورة فقط مع تحصيل الضريبة</option>
+                                    <option value="فاتورة فقط بدون تحصيل">فاتورة فقط بدون تحصيل</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="ao-form-label">Confirmation State</label>
+                                <select class="form-select" id="ao-new-confirm-state">
+                                    <option value="NOT Confirmed">NOT Confirmed</option>
+                                    <option value="Confirmed" selected>Confirmed</option>
+                                    <option value="Revised">Revised</option>
+                                    
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="ao-form-label">Sales Rep</label>
+                                <select class="form-select" id="ao-new-sales-rep">
+                                    <option value="">-- Select --</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="ao-products-section">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h5 class="mb-0 fw-bold text-primary">Products</h5>
+                                <button type="button" class="btn btn-sm btn-primary rounded-pill px-3" onclick="ao_addProductRow()">
+                                    <i class="fas fa-plus me-1"></i> Add Item
+                                </button>
+                            </div>
+                            <div id="ao-new-products-container" class="d-flex flex-column gap-2"></div>
+                            <div class="text-muted small mt-2"><i class="fas fa-info-circle me-1"></i> Totals will be calculated automatically.</div>
+                        </div>
+
+                        <div class="ao-modal-footer mt-4 pt-3 border-top d-flex justify-content-end gap-2">
+                            <button type="button" class="btn btn-light border" onclick="ao_closeAddOrderModal()">Cancel</button>
+                            <button type="submit" class="btn btn-primary" id="ao-btn-save-order" disabled>
+                                <i class="fas fa-save"></i> Save Order
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    `;
+
+    initializeLiveSummary();
+    switchTabAo('ao-tab-filter');
+    initSortBuilder();
+}
+
+// --- FOOTER TOGGLE LOGIC (Updated for Toolbar Layout) ---
+function ao_toggleFilterSection(handle) {
+    const content = document.getElementById('ao-generator-content');
+    if (!content) return;
+    
+    // Ensure transition property exists
+    if (!content.style.transition) {
+        content.style.transition = "height 0.3s ease-out, opacity 0.3s ease-out";
+        content.style.overflow = "hidden";
+    }
+
+    // TARGET THE ICON CORRECTLY (It is now nested)
+    const icon = handle.querySelector('.ao-toggle-icon-container i') || handle.querySelector('i');
+
+    const isHidden = window.getComputedStyle(content).display === 'none';
+
+    if (isHidden) {
+        // --- EXPAND (Open) ---
+        content.style.display = 'block';
+        content.style.height = '0px';
+        content.style.opacity = '0';
+        
+        void content.offsetHeight; // Force Reflow
+
+        content.style.height = content.scrollHeight + 'px';
+        content.style.opacity = '1';
+
+        handle.classList.remove('collapsed');
+        if(icon) icon.className = 'fas fa-chevron-up';
+
+        setTimeout(() => {
+            content.style.height = 'auto';
+            content.style.overflow = 'visible';
+        }, 300);
+
+    } else {
+        // --- COLLAPSE (Close) ---
+        content.style.height = content.scrollHeight + 'px';
+        content.style.overflow = 'hidden';
+        
+        void content.offsetHeight; // Force Reflow
+
+        content.style.height = '0px';
+        content.style.opacity = '0';
+
+        handle.classList.add('collapsed');
+        if(icon) icon.className = 'fas fa-chevron-down';
+
+        setTimeout(() => {
+            content.style.display = 'none';
+        }, 300);
+    }
+}
+
+// --- POPULATE SMART DATALISTS (v12.2 - FIXED for SELECT) ---
+function populateSmartFilters() {
+    console.log("Starting Smart Filter Population...");
+    
+    // Safety check
+    if (!allOrdersState.records || allOrdersState.records.length === 0) {
+        console.warn("Smart Filters: No records found to populate.");
+        return;
+    }
+
+    FILTER_CONFIG.forEach(cat => {
+        cat.fields.forEach(key => {
+            const conf = FIELD_MAP[key];
+            
+            // LOGIC FIX: Allow 'text', 'number', AND 'select' types
+            // If it is NOT text AND NOT number AND NOT select, then skip it.
+            if (conf.type !== 'text' && conf.type !== 'number' && conf.type !== 'select') return;
+
+            const listId = `list-ao-filter-${key}`;
+            const dataList = document.getElementById(listId);
+            
+            if (dataList) {
+                // 1. Extract values
+                const values = allOrdersState.records.map(row => {
+                    const val = getNestedValue(row, conf);
+                    // Handle null/undefined/empty
+                    return (val !== null && val !== undefined && val !== '') ? String(val).trim() : null;
+                }).filter(v => v !== null);
+
+                // 2. Get Unique & Sort
+                const uniqueValues = [...new Set(values)].sort();
+
+                // 3. Populate
+                if (uniqueValues.length > 0) {
+                    // Limit to 200 options for performance
+                    dataList.innerHTML = uniqueValues.slice(0, 200).map(v => `<option value="${v}">`).join('');
+                }
+                
+                // Debug log
+                // console.log(`Populated ${key}: ${uniqueValues.length} options`);
+            }
+        });
+    });
+}
+
+// --- MULTI-FILTER ROW LOGIC ---
+
+// --- MULTI-FILTER ROW HELPERS (Required for Restore Defaults) ---
+
+function addFilterRow(key, listId) {
+    const wrapper = document.getElementById(`wrapper-ao-filter-${key}`);
+    if (!wrapper) return; // Safety check
+    
+    const inputType = FIELD_MAP[key].type === 'number' ? 'number' : 'text';
+    
+    // Create new row
+    const div = document.createElement('div');
+    div.className = 'ao-filter-row animate__animated animate__fadeInDown faster';
+    div.innerHTML = `
+        <div class="position-relative flex-grow-1">
+            <input type="${inputType}" 
+                   class="form-control ao-input ao-multi-input" 
+                   data-key="${key}"
+                   placeholder="..."
+                   style="padding-right: 30px;" 
+                   list="${listId}" autocomplete="off">
+            <i class="fas fa-chevron-down position-absolute text-muted" style="right: 12px; top: 50%; transform: translateY(-50%); font-size: 0.75rem; pointer-events: none;"></i>
+        </div>
+        <div class="ao-btn-icon-small ao-btn-remove" onclick="removeFilterRow(this)" title="Remove value"><i class="fas fa-minus"></i></div>
+    `;
+    wrapper.appendChild(div);
+}
+
+function removeFilterRow(btn) {
+    const row = btn.closest('.ao-filter-row');
+    row.remove();
+    updateSummaryBar(); // Refresh summary if value was removed
+}
+// --- EXPORT FUNCTION ---
+function exportToExcel() {
+    // 1. Validation
+    if (!allOrdersState.lastFilteredResults || allOrdersState.lastFilteredResults.length === 0) {
+        showToast("No data to export. Please generate a report first.", "warning");
+        return;
+    }
+
+    const btn = document.querySelector('button[onclick="exportToExcel()"]');
+    const originalHtml = btn.innerHTML;
+
+    // 2. Loading State
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span> Preparing...`;
+
+    // 3. Call Backend
+    google.script.run
+        .withSuccessHandler((res) => {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            
+            if (res.success) {
+                // Open the download link
+                window.open(res.url, '_blank');
+            } else {
+                showToast("Export Failed: " + res.message, "error");
+            }
+        })
+        .withFailureHandler((err) => {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            showToast("Error: " + err.message, "error");
+        })
+        .generateExcelReport(allOrdersState.lastFilteredResults); // Send the actual data
+}
+
+// --- 1. INITIALIZE LISTENERS ---
+function initializeLiveSummary() {
+    const container = document.getElementById('all-orders-filter-container');
+    // Listen for ANY change in the container (typing or selecting)
+    container.addEventListener('input', updateSummaryBar);
+    container.addEventListener('change', updateSummaryBar);
+}
+
+// --- 2. UPDATE SUMMARY BAR LOGIC (v22.3 - Fixed Multi-Row Visibility) ---
+function updateSummaryBar() {
+    const bar = document.getElementById('ao-summary-bar');
+    if(!bar) return;
+    
+    let html = '';
+    let hasActiveFilters = false;
+
+    // A. SEARCH
+    let searchChips = '';
+    SEARCH_CONFIG.flatMap(c => c.fields).forEach(key => {
+        const id = `ao-search-${key}`;
+        const el = document.getElementById(id);
+        if(el && el.value.trim() !== '') {
+            searchChips += buildChip(id, FIELD_MAP[key].label, el.value);
+            hasActiveFilters = true;
+        }
+    });
+    if(searchChips) html += `<div class="ao-summary-bucket"><span class="ao-bucket-label text-primary">Find</span>${searchChips}</div>`;
+
+    // B. FILTER
+    let filterChips = '';
+    FILTER_CONFIG.flatMap(c => c.fields).forEach(key => {
+        const conf = FIELD_MAP[key];
+        
+        // 1. Date Ranges
+        if (conf.type === 'date' || key === 'loadingDate') {
+            const fromId = `ao-filter-${key}-from`;
+            const toId = `ao-filter-${key}-to`;
+            const fromEl = document.getElementById(fromId);
+            const toEl = document.getElementById(toId);
+            if((fromEl && fromEl.value) || (toEl && toEl.value)) {
+                const val = `${fromEl.value || '...'} <i class="fas fa-long-arrow-alt-right mx-1"></i> ${toEl.value || '...'}`;
+                filterChips += buildChip(fromId + '|' + toId, conf.label, val, true);
+                hasActiveFilters = true;
+            }
+        } 
+        // 2. Standard Fields
+        else {
+            let values = [];
+            
+            // PRIORITY 1: Check Multi-Input Class
+            const multiInputs = document.querySelectorAll(`.ao-multi-input[data-key="${key}"]`);
+            
+            if (multiInputs.length > 0) {
+                multiInputs.forEach(input => {
+                    // LOGIC FIX:
+                    // 1. Must have a value
+                    // 2. Must NOT be a Search field (Search fields have IDs starting with 'ao-search-')
+                    // This allows:
+                    // - Main Filter (ID: ao-filter-...) -> PASS
+                    // - Extra Rows (No ID) -> PASS
+                    // - Search Input (ID: ao-search-...) -> FAIL
+                    if (input.value.trim() !== '' && (!input.id || !input.id.startsWith('ao-search-'))) {
+                        values.push(input.value.trim());
+                    }
+                });
+            } 
+            
+            // PRIORITY 2: Fallback to ID (for Boolean/Selects that aren't multi-input)
+            if (values.length === 0) {
+                const singleEl = document.getElementById(`ao-filter-${key}`);
+                if (singleEl && singleEl.value.trim() !== '') {
+                    let val = singleEl.value;
+                    if(conf.type === 'boolean') val = (val === 'true' ? 'Yes' : 'No');
+                    values.push(val);
+                }
+            }
+
+            if (values.length > 0) {
+                const displayVal = values.join(' <span class="text-muted fw-light mx-1">+</span> ');
+                filterChips += buildChip(`ao-filter-${key}`, conf.label, displayVal);
+                hasActiveFilters = true;
+            }
+        }
+    });
+    if(filterChips) html += `<div class="ao-summary-bucket"><span class="ao-bucket-label text-success">Filter</span>${filterChips}</div>`;
+
+    // C. VIEW
+    let viewChips = '';
+    const groupEl = document.getElementById('ao-group-by');
+    if(groupEl && groupEl.value !== 'none') {
+        const label = FIELD_MAP[groupEl.value].label;
+        viewChips += buildChip('ao-group-by', 'Group By', label);
+        hasActiveFilters = true;
+    }
+
+    // Sorting
+    const sortRows = document.querySelectorAll('.ao-sort-row');
+    sortRows.forEach((row, index) => {
+        const select = row.querySelector('select');
+        const dirBtn = row.querySelector('.ao-dir-btn');
+        if (select && dirBtn) {
+            const isDefault = (select.value === 'date' && dirBtn.dataset.dir === 'desc' && sortRows.length === 1);
+            if (!isDefault) {
+                const sortLabel = SORT_OPTS_STRICT.find(o => o.val === select.value)?.label || select.value;
+                const dirLabel = dirBtn.dataset.dir === 'asc' ? 'Asc' : 'Desc';
+                viewChips += buildChip(select.id, `Sort ${index + 1}`, `${sortLabel} <small class="text-muted">(${dirLabel})</small>`);
+                hasActiveFilters = true;
+            }
+        }
+    });
+
+    if(viewChips) html += `<div class="ao-summary-bucket"><span class="ao-bucket-label text-warning">View</span>${viewChips}</div>`;
+
+    if(hasActiveFilters) {
+        bar.innerHTML = html;
+        bar.style.display = 'block';
+    } else {
+        bar.style.display = 'none';
+    }
+}
+
+// --- Helper: Build Chip HTML ---
+function buildChip(id, label, value, isDateRange = false) {
+    // If Date Range, we pass combined IDs separated by pipe. clearField handles this.
+    return `
+        <span class="ao-chip animate__animated animate__fadeIn">
+            <span class="ao-chip-label">${label}:</span>
+            <span class="ao-chip-val">${value}</span>
+            <i class="fas fa-times-circle ao-chip-remove" onclick="clearAoField('${id}')" title="Remove"></i>
+        </span>
+    `;
+}
+
+// --- 3. RESET & CLEAR LOGIC (v20.2 - Smart Clear) ---
+function clearAoField(id) {
+    if(id.includes('|')) {
+        // Date Range
+        const parts = id.split('|');
+        parts.forEach(pid => {
+            const el = document.getElementById(pid);
+            if(el) el.value = '';
+        });
+    } else {
+        const el = document.getElementById(id);
+        if (el) {
+            // Sort Rule Logic
+            if (id.startsWith('ao-sort-select-')) {
+                const row = el.closest('.ao-sort-row');
+                if (row) {
+                    const removeBtn = row.querySelector('.hover-text-danger');
+                    if (removeBtn) {
+                        removeSortRule(removeBtn); 
+                        return; 
+                    }
+                }
+            }
+            
+            // Standard Fields
+            if (el.tagName === 'SELECT' && (id === 'ao-group-by')) el.value = 'none';
+            else el.value = '';
+
+            // --- NEW: Clear Multi-Value Rows ---
+            // If this is a filter input, check if there are extra rows for this key and remove them
+            if (el.classList.contains('ao-multi-input')) {
+                const key = el.dataset.key;
+                const wrapper = document.getElementById(`wrapper-ao-filter-${key}`);
+                if (wrapper) {
+                    // Remove all rows that have a "Remove" button (i.e., the extra rows)
+                    wrapper.querySelectorAll('.ao-filter-row').forEach(row => {
+                        if (row.querySelector('.ao-btn-remove')) row.remove();
+                    });
+                }
+            }
+        }
+    }
+    updateSummaryBar();
+}
+
+// --- CLEAR ALL (Renamed from Reset) ---
+function clearAllFilters() {
+    const container = document.getElementById('all-orders-filter-container');
+    
+    // 1. Wipe all Inputs
+    container.querySelectorAll('input').forEach(el => el.value = '');
+    container.querySelectorAll('select').forEach(el => {
+        if(el.id === 'ao-group-by') el.value = 'none';
+        else if(!el.id.includes('sort')) el.value = ''; 
+    });
+
+    // 2. Remove extra Multi-Value rows (Reset to single input)
+    // We look for rows that have the "Remove" button and delete them
+    container.querySelectorAll('.ao-filter-row').forEach(row => {
+        if(row.querySelector('.ao-btn-remove')) {
+            row.remove();
+        }
+    });
+
+    // 3. Reset Sort Builder to Basic State
+    const sortContainer = document.getElementById('ao-sort-rules-container');
+    if(sortContainer) {
+        sortContainer.innerHTML = ''; 
+        addSortRule('orderId', 'desc'); // Default fallback
+    }
+
+    // 4. Clear Summary Bar
+    updateSummaryBar();
+    
+    // 5. Reset Grid Visuals (Clean Slate)
+    const grid = document.getElementById('all-orders-data-container');
+    if(grid) {
+        grid.innerHTML = `
+            <div class="text-center p-5">
+                <div class="ao-clean-wrapper mb-3">
+                    <i class="fas fa-star ao-clean-sparkle"></i>
+                    <i class="fa-solid fa-broom ao-clean-icon"></i>
+                </div>
+                <div class="text-muted opacity-75">
+                    <h5 class="fw-bold mb-1">Filters Cleared</h5>
+                    <small>Select new criteria or restore defaults.</small>
+                </div>
+            </div>`;
+    }
+}
+
+// --- TOGGLE GENERATOR (v19.0 - With Compact Mode Logic) ---
+function toggleGeneratorSection(headerEl) {
+    const content = document.getElementById('ao-generator-content');
+    const footer = document.getElementById('ao-footer-bar');
+    const icon = document.getElementById('ao-toggle-arrow');
+    const titleSmall = headerEl.querySelector('small');
+
+    if (content.style.display === 'none') {
+        // --- EXPAND ---
+        // 1. Show Content
+        content.style.display = 'block';
+        content.classList.add('animate__animated', 'animate__fadeIn');
+        
+        // 2. Remove Compact Mode from Footer
+        if(footer) footer.classList.remove('ao-footer-compact');
+
+        // 3. Update Icon & Text
+        if(icon) {
+            icon.classList.remove('fa-chevron-down');
+            icon.classList.add('fa-chevron-up');
+        }
+        if(titleSmall) titleSmall.innerText = 'v19.0 \u2022 Dynamic Dashboard';
+        
+        // 4. Update Header Style
+        headerEl.style.borderRadius = "16px 16px 0 0";
+
+    } else {
+        // --- COLLAPSE ---
+        // 1. Hide Content
+        content.style.display = 'none';
+        
+        // 2. Add Compact Mode to Footer
+        if(footer) footer.classList.add('ao-footer-compact');
+
+        // 3. Update Icon & Text
+        if(icon) {
+            icon.classList.remove('fa-chevron-up');
+            icon.classList.add('fa-chevron-down');
+        }
+        if(titleSmall) titleSmall.innerText = 'v19.0 \u2022 Click to Expand Filters';
+    }
+}
+
+// --- TAB SWITCHER (v13.0 - WITH THEME LOGIC) ---
+function switchTabAo(targetId) {
+    const container = document.getElementById('all-orders-filter-container');
+    if (!container) return;
+
+    // 1. Hide Tabs
+    const tabs = container.querySelectorAll('.ao-tab-panel');
+    tabs.forEach(el => el.style.display = 'none');
+
+    // 2. Deactivate Buttons
+    const btns = container.querySelectorAll('.ao-nav-pills .nav-link');
+    btns.forEach(btn => btn.classList.remove('active'));
+
+    // 3. Show Target & Activate Button
+    const target = document.getElementById(targetId);
+    if (target) target.style.display = 'block';
+
+    const btnId = 'btn-' + targetId;
+    const activeBtn = document.getElementById(btnId);
+    if (activeBtn) activeBtn.classList.add('active');
+
+    // --- NEW: UPDATE CONTAINER THEME & FOOTER BADGE ---
+    const mainCard = container.querySelector('.ao-main-card');
+    const footerIndicator = document.getElementById('ao-footer-indicator');
+    
+    // Remove old themes
+    mainCard.classList.remove('ao-theme-filter', 'ao-theme-search', 'ao-theme-view');
+
+    // Apply new theme based on target
+    if (targetId === 'ao-tab-filter') {
+        mainCard.classList.add('ao-theme-filter');
+        if(footerIndicator) footerIndicator.innerHTML = `<span class="ao-badge-filter animate__animated animate__fadeIn"><i class="fas fa-filter"></i> Filtering Mode</span>`;
+    } 
+    else if (targetId === 'ao-tab-search') {
+        mainCard.classList.add('ao-theme-search');
+        if(footerIndicator) footerIndicator.innerHTML = `<span class="ao-badge-search animate__animated animate__fadeIn"><i class="fas fa-search"></i> Search Mode</span>`;
+    } 
+    else if (targetId === 'ao-tab-view') {
+        mainCard.classList.add('ao-theme-view');
+        if(footerIndicator) footerIndicator.innerHTML = `<span class="ao-badge-view animate__animated animate__fadeIn"><i class="fas fa-layer-group"></i> Organization Mode</span>`;
+    }
+}
+
+
+// --- TRANSLATIONS ---
+const aoTranslations = {
+    en: {
+        managerTitle: "Orders Finder",
+        searchSection: "1. Search",
+        filterSection: "2. Filters",
+        groupSection: "3. Grouping",
+        searchPlaceholder: "Order #, Client, PO...",
+        btnGenerate: "Show Orders",
+        loading: "Processing...",
+        noData: "No orders found.",
+        groupBy: "Group By:",
+        groupNone: "None",
+        groupMonth: "Month",
+        groupClient: "Client",
+        groupType: "Type"
+    },
+    ar: {
+        managerTitle: "باحث الاوردرات",
+        searchSection: "1. بحث عام",
+        filterSection: "2. تصفية النتائج",
+        groupSection: "3. تجميع وعرض",
+        searchPlaceholder: "رقم الاوردر، العميل...",
+        btnGenerate: "عرض  الاوردرات",
+        loading: "جاري المعالجة...",
+        noData: "لا توجد نتائج.",
+        groupBy: "تجميع حسب:",
+        groupNone: "بدون تجميع",
+        groupMonth: "الشهر",
+        groupClient: "العميل",
+        groupType: "النوع"
+    }
+};
+
+
+// --- EXECUTE REPORT GENERATION (v23.1 - Fixed Numeric Sort for OrderID) ---
+function executeReportGeneration() {
+    const container = document.getElementById('all-orders-data-container');
+    // 1. Safety Check
+    if (!allOrdersState.initialized || allOrdersState.records.length === 0) {
+        showToast("Data is loading. Please wait...", "info");
+        return;
+    }
+
+    // 2. Loading State
+    const t = aoTranslations[currentLang] || aoTranslations.en;
+    container.innerHTML = `
+        <div class="text-center p-5">
+            <div class="ao-loader-wrapper mb-4">
+                <div class="ao-loader-ring"></div>
+                <div class="ao-loader-core"><i class="fas fa-bolt"></i></div>
+            </div>
+            <div style="background: linear-gradient(135deg, #2D8C6C 0%, #157285 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; opacity: 0.8;">
+                <h5 class="fw-bold mb-0 text-uppercase" style="letter-spacing: 1px;">${t.loading}</h5>
+                <small class="text-muted" style="-webkit-text-fill-color: #adb5bd; font-size: 0.75rem;">Processing data...</small>
+            </div>
+        </div>`;
+    
+    setTimeout(() => {
+        try {
+            const searchFields = SEARCH_CONFIG.flatMap(c => c.fields);
+            const filterFields = FILTER_CONFIG.flatMap(c => c.fields);
+
+            // --- A. FILTERING & SEARCHING ---
+            let results = allOrdersState.records.filter(row => {
+                
+                // 1. SEARCH SECTION
+                for (const key of searchFields) {
+                    const el = document.getElementById(`ao-search-${key}`);
+                    if (el && el.value) {
+                        const val = getNestedValue(row, FIELD_MAP[key]);
+                        if (val === null || val === undefined) return false;
+                        if (!val.toString().toLowerCase().includes(el.value.toLowerCase())) return false;
+                    }
+                }
+
+                // 2. FILTER SECTION
+                for (const key of filterFields) {
+                    const conf = FIELD_MAP[key];
+
+                    // Date Ranges
+                    if (conf.type === 'date' || key === 'loadingDate') {
+                        const fromEl = document.getElementById(`ao-filter-${key}-from`);
+                        const toEl = document.getElementById(`ao-filter-${key}-to`);
+                        
+                        const rowVal = getNestedValue(row, conf);
+                        if ((fromEl.value || toEl.value) && !rowVal) return false;
+                        const rowDateStr = rowVal ? rowVal.toString() : '';
+                        if (fromEl && fromEl.value && rowDateStr < fromEl.value) return false;
+                        if (toEl && toEl.value && rowDateStr > toEl.value) return false;
+                    } 
+                    // Standard Fields (Multi-Value)
+                    else {
+                        const singleEl = document.getElementById(`ao-filter-${key}`);
+                        const multiInputs = document.querySelectorAll(`.ao-multi-input[data-key="${key}"]`);
+                        
+                        let filterValues = [];
+                        if (singleEl && singleEl.value) filterValues.push(singleEl.value.toLowerCase().trim());
+                        multiInputs.forEach(input => {
+                            if (input.value && input.value.trim() !== '') {
+                                filterValues.push(input.value.trim().toLowerCase());
+                            }
+                        });
+
+                        if (filterValues.length > 0) {
+                            let rowVal = getNestedValue(row, conf);
+                            if (conf.type === 'boolean') {
+                                rowVal = rowVal.toString();
+                            } else {
+                                rowVal = (rowVal || '').toString().toLowerCase().trim();
+                            }
+
+                            // Treat empty status as "not yet"
+                            if (key === 'status' && rowVal === '') {
+                                rowVal = 'not yet';
+                            }
+
+                            if (!filterValues.includes(rowVal)) return false;
+                        }
+                    }
+                }
+                return true;
+            });
+
+            // --- B. SORTING (Updated Status Logic) ---
+            const sortRows = document.querySelectorAll('#ao-sort-rules-container .ao-sort-row');
+            const sortRules = Array.from(sortRows).map(row => {
+                const select = row.querySelector('select');
+                const dirBtn = row.querySelector('.ao-dir-btn');
+                return {
+                    field: select ? select.value : 'date',
+                    dir: dirBtn ? dirBtn.dataset.dir : 'desc'
+                };
+            });
+
+            const now = new Date();
+            const todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+
+            if (sortRules.length > 0) {
+                results.sort((a, b) => {
+                    for (const rule of sortRules) {
+                        let valA, valB;
+                        let type = 'string';
+                        
+                        let dataField = rule.field;
+                        if (rule.field === 'date_smart') dataField = 'date';
+                        if (rule.field === 'loadingDate_smart') dataField = 'loadingDate';
+
+                        // --- 1. Custom Status Sort ---
+                        if (rule.field === 'status') {
+                            const getWeight = (s) => {
+                                const v = (s || '').toString().toLowerCase().trim();
+                                if (v.includes('prepare')) return 0;
+                                if (v === 'not yet' || v === '') return 1;
+                                if (v.includes('shipped')) return 2;
+                                if (v.includes('delivered')) return 3;
+                                if (v.includes('paid')) return 4;
+                                return 5; 
+                            };
+
+                            const wA = getWeight(a.status);
+                            const wB = getWeight(b.status);
+                            if (wA !== wB) {
+                                return rule.dir === 'asc' ? wA - wB : wB - wA;
+                            }
+                        }
+                        
+                        // --- 2. Smart Date Sort ---
+                        else if (rule.field === 'date_smart' || rule.field === 'loadingDate_smart') {
+                            const isoA = (rule.field === 'date_smart') ? a.dateIso : (a.deliveryData?.loadingDateIso);
+                            const isoB = (rule.field === 'date_smart') ? b.dateIso : (b.deliveryData?.loadingDateIso);
+                            const isAToday = (isoA === todayStr);
+                            const isBToday = (isoB === todayStr);
+                            if (isAToday && !isBToday) return -1;
+                            if (!isAToday && isBToday) return 1;
+                        }
+
+                        // --- 3. VAT ID Sort ---
+                        else if (rule.field === 'vatId') {
+                            const docA = (a.financeData?.documents || []).find(d => d.type === 'Tawoos Inv' || d.type === 'Private Label');
+                            const docB = (b.financeData?.documents || []).find(d => d.type === 'Tawoos Inv' || d.type === 'Private Label');
+                            valA = docA ? docA.id : '';
+                            valB = docB ? docB.id : '';
+                        } 
+                        // --- 4. Standard Field Sort ---
+                        else {
+                            if (valA === undefined) {
+                                const conf = FIELD_MAP[dataField];
+                                valA = getNestedValue(a, conf);
+                                valB = getNestedValue(b, conf);
+                                type = conf ? conf.type : 'string';
+                            }
+                        }
+
+                        if (valA === valB) continue;
+                        if (valA === null || valA === undefined || valA === '') return 1;
+                        if (valB === null || valB === undefined || valB === '') return -1;
+
+                        // --- NUMERIC SORT FIX ---
+                        // Added 'orderId' to this condition to force numeric comparison
+                        if (type === 'number' || rule.field === 'amtTotal' || rule.field === 'dismissNum' || rule.field === 'orderId') {
+                            const numA = parseFloat(valA) || 0;
+                            const numB = parseFloat(valB) || 0;
+                            if (numA !== numB) {
+                                return rule.dir === 'asc' ? numA - numB : numB - numA;
+                            }
+                        }
+                        else {
+                            if (valA < valB) return rule.dir === 'asc' ? -1 : 1;
+                            if (valA > valB) return rule.dir === 'asc' ? 1 : -1;
+                        }
+                    }
+                    return 0;
+                });
+            }
+
+            // --- C. GROUPING ---
+            allOrdersState.lastFilteredResults = results;
+            const groupKey = document.getElementById('ao-group-by').value;
+            
+            if (results.length === 0) {
+                container.innerHTML = `<div class="alert alert-info text-center m-3">No orders match your criteria.</div>`;
+            } else if (groupKey === 'none') {
+                renderFlatGrid(results);
+            } else {
+                renderDynamicGroupGrid(results, groupKey);
+            }
+
+        } catch (error) {
+            console.error(error);
+            container.innerHTML = `<div class="alert alert-danger m-3">Error: ${error.message}</div>`;
+        }
+    }, 100);
+}
+
+// --- HELPER: GET NESTED VALUE ---
+function getNestedValue(row, config) {
+    if (!config) return '';
+    
+    // Special Case: Document ID Extraction
+    if (config.type === 'doc') {
+        const docs = row.financeData?.documents || [];
+        const found = docs.find(d => d.type === config.subPath);
+        return found ? found.id : '';
+    }
+
+    // Standard Path Traversal
+    return config.path.split('.').reduce((obj, key) => (obj && obj[key] !== undefined) ? obj[key] : '', row);
+}
+
+// --- UPDATED GROUP RENDERER ---
+// Can now group by ANY field in the config
+function renderDynamicGroupGrid(data, groupKey) {
+    const container = document.getElementById('all-orders-data-container');
+    const dir = currentLang === 'ar' ? 'rtl' : 'ltr';
+    const conf = FIELD_MAP[groupKey];
+    
+    // Create Groups
+    const groups = {};
+    data.forEach(row => {
+        let val = getNestedValue(row, conf) || 'Unknown';
+        if (!groups[val]) groups[val] = [];
+        groups[val].push(row);
+    });
+
+    // Render HTML
+    let html = `<div class="d-flex flex-column gap-3 mt-2" dir="${dir}">`;
+    Object.keys(groups).forEach(gName => {
+        html += `
+            <div class="group-section">
+                <div class="p-2 bg-white border rounded mb-2 d-flex justify-content-between align-items-center shadow-sm">
+                    <span class="fw-bold text-primary">
+                        <span class="text-muted small text-uppercase me-2">${conf.label}:</span> ${gName}
+                    </span>
+                    <span class="badge bg-secondary">${groups[gName].length}</span>
+                </div>
+                <div class="d-flex flex-column gap-2 ps-2 border-start border-2 ms-2">
+                    ${groups[gName].map(row => buildRowCard(row)).join('')}
+                </div>
+            </div>`;
+    });
+    html += `</div>`;
+    container.innerHTML = html;
+}
+
+// --- CUSTOM TOGGLE FUNCTION (Fixes Collapse Issue) ---
+function toggleSection(elementId, triggerEl) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+
+    // Toggle Display
+    const isHidden = el.style.display === 'none';
+    el.style.display = isHidden ? 'block' : 'none';
+
+    // Toggle Icon (if trigger element passed)
+    if (triggerEl) {
+        const icon = triggerEl.querySelector('.fa-chevron-down, .fa-chevron-right, .fa-chevron-up');
+        if (icon) {
+            // Simple rotation logic
+            if (isHidden) {
+                icon.classList.remove('fa-chevron-right');
+                icon.classList.add('fa-chevron-down');
+            } else {
+                icon.classList.remove('fa-chevron-down');
+                icon.classList.add('fa-chevron-right');
+            }
+        }
+    }
+}
+
+function toggleReportManager() {
+    const body = document.getElementById('ao-manager-body');
+    const icon = document.getElementById('ao-toggle-icon');
+    if (body.classList.contains('show')) {
+        body.classList.remove('show');
+        body.style.display = 'none';
+        icon.classList.remove('fa-chevron-up');
+        icon.classList.add('fa-chevron-down');
+    } else {
+        body.classList.add('show');
+        body.style.display = 'block';
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-up');
+    }
+}
+
+// --- HELPER: DATE PRESETS ---
+function applyDatePreset(type, key) {
+    const fromEl = document.getElementById(`ao-filter-${key}-from`);
+    const toEl = document.getElementById(`ao-filter-${key}-to`);
+    if(!fromEl || !toEl) return;
+
+    const today = new Date();
+    const start = new Date();
+    const end = new Date(); // Defaults to today
+
+    if (type === 'last7') {
+        start.setDate(today.getDate() - 7);
+    } else if (type === 'last30') {
+        start.setDate(today.getDate() - 30);
+    } else if (type === 'month') {
+        start.setDate(1); // 1st of current month
+    } else if (type === 'quarter') {
+        const q = Math.floor(today.getMonth() / 3);
+        start.setMonth(q * 3);
+        start.setDate(1); // 1st of current quarter
+    }
+
+    // Format: YYYY-MM-DD
+    const fmt = d => d.toISOString().split('T')[0];
+    
+    fromEl.value = fmt(start);
+    toEl.value = fmt(end);
+
+    // Trigger update for Summary Bar
+    updateSummaryBar();
+}
+
+// --- GRID RENDERERS (Same as before) ---
+function renderFlatGrid(data) {
+    const container = document.getElementById('all-orders-data-container');
+    if(!data || data.length === 0) {
+        container.innerHTML = `<div class="alert alert-info text-center m-3">No Data Found</div>`;
+        return;
+    }
+    const dir = currentLang === 'ar' ? 'rtl' : 'ltr';
+    let html = `<div class="d-flex flex-column gap-2 mt-2" dir="${dir}">`;
+    data.forEach(row => { html += buildRowCard(row); });
+    html += `</div>`;
+    container.innerHTML = html;
+}
+
+function renderGroupedGrid(data, groupBy) {
+    const container = document.getElementById('all-orders-data-container');
+    if(!data || data.length === 0) {
+        container.innerHTML = `<div class="alert alert-info text-center m-3">No Data Found</div>`;
+        return;
+    }
+    const dir = currentLang === 'ar' ? 'rtl' : 'ltr';
+
+    // Grouping Logic
+    const groups = {};
+    data.forEach(row => {
+        let key = 'Other';
+        if (groupBy === 'client') key = row.clientName || 'Unknown';
+        else if (groupBy === 'type') key = row.type || 'N/A';
+        else if (groupBy === 'month') key = row.dateFormatted.split('-')[1] || 'Unknown'; 
+        
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(row);
+    });
+
+    let html = `<div class="d-flex flex-column gap-3 mt-2" dir="${dir}">`;
+    Object.keys(groups).forEach(groupName => {
+        html += `
+            <div class="group-section">
+                <div class="p-2 bg-secondary bg-opacity-10 rounded mb-2 fw-bold text-primary border-start border-4 border-primary">
+                    ${groupName} <span class="badge bg-white text-dark ms-2 shadow-sm">${groups[groupName].length}</span>
+                </div>
+                <div class="d-flex flex-column gap-2 ps-2">
+                    ${groups[groupName].map(row => buildRowCard(row)).join('')}
+                </div>
+            </div>
+        `;
+    });
+    html += `</div>`;
+    container.innerHTML = html;
+}
+
+// --- HELPER: BUILD CARD ---
+
+// --- CLIENT PRICING ICON HELPER ---
+function getClientPricingIcon(strategy) {
+    if (!strategy) return '';
+    
+    let icon = '';
+    // Note: Using requested classes. Ensure FontAwesome Pro/Brands is loaded if 'thin' or 'light' needed.
+    if (strategy === 'جملة') {
+        icon = `<i class="fa-solid fa-boxes-stacked ms-2" style="color: #198754;" title="${strategy}"></i>`; // Green
+    } else if (strategy === 'تجزئة') {
+        icon = `<i class="fa-solid fa-box-open ms-2" style="color: #20c997;" title="${strategy}"></i>`; // Light Green / Teal
+    } else if (strategy === 'اسعار خاصة') {
+        icon = `<i class="fa-brands fa-shirtsinbulk ms-2" style="color: #0d6efd;" title="${strategy}"></i>`; // Blue
+    }
+    
+    return icon;
+}
+
+function getOrderTypeVisuals(typeStr) {
+    // Default Fallback
+    var visual = { icon: 'fa-circle', color: '#6c757d', bg: '#e9ecef', tooltip: typeStr || 'Unknown' };
+    if (!typeStr) return visual;
+    var t = String(typeStr).trim();
+
+    // Priority 1: Invoices
+    if (t.indexOf('فاتورة فقط مع تحصيل') !== -1) return { icon: 'fa-solid fa-file-invoice-dollar', color: '#6610f2', bg: '#e0cffc', tooltip: typeStr }; 
+    if (t.indexOf('فاتورة فقط بدون تحصيل') !== -1) return { icon: 'fa-regular fa-file-lines', color: '#6f42c1', bg: '#f3e5f5', tooltip: typeStr }; 
+
+    // Priority 2: Operations
+    if (t.indexOf('توريد') !== -1) return { icon: 'fa-solid fa-right-from-bracket', color: '#198754', bg: '#d1e7dd', tooltip: typeStr };
+    if (t.indexOf('ارتجاع') !== -1) return { icon: 'fa-solid fa-right-to-bracket', color: '#dc3545', bg: '#f8d7da', tooltip: typeStr };
+    if (t.indexOf('بدل مرتجع') !== -1) return { icon: 'fa-solid fa-right-from-bracket', color: '#fd7e14', bg: '#ffe5d0', tooltip: typeStr };
+    if (t.indexOf('تبديل') !== -1) return { icon: 'fas fa-exchange-alt', color: '#0d6efd', bg: '#cfe2ff', tooltip: typeStr };
+    if (t.indexOf('تحصيل') !== -1) return { icon: 'fa-solid fa-hand-holding-dollar', color: '#20c997', bg: '#e0f7fa', tooltip: typeStr };
+    if (t.indexOf('اداري') !== -1) return { icon: 'fa-solid fa-briefcase', color: '#495057', bg: '#e9ecef', tooltip: typeStr };
+
+    return visual;
+}
+
+function getOrderStatusVisuals(statusRaw) {
+    var s = String(statusRaw || '').trim().toLowerCase();
+    if (s.indexOf('paid') !== -1) return { icon: 'fa-hand-holding-usd', color: '#28a745', tooltip: 'Paid' };
+    if (s.indexOf('delivered') !== -1) return { icon: 'fa-check', color: '#90ee90', tooltip: 'Delivered' };
+    if (s.indexOf('shipped') !== -1) return { icon: 'fa-truck', color: '#17a2b8', tooltip: 'Shipped' };
+    if (s.indexOf('prepare') !== -1) return { icon: 'fa-hourglass-half', color: '#ffc107', tooltip: 'Preparing' };
+    return { icon: 'fa-circle', color: '#9e9e9e', tooltip: 'Not Yet' };
+}
+
+// --- C. VAT Badge Helper (Renamed for Isolation) ---
+function getFinanceVatBadge(vat) {
+    // 1. If Blank -> Return explicit "N/A" gray badge
+    if (!vat || vat.trim() === '') {
+        return '<span class="vat-badge disabled" title="No VAT Info"><i class="fas fa-minus" style="font-size: 0.8em;"></i></span>';
+    }
+    
+    const vatLower = vat.trim();
+    let badgeText = '';
+    
+    // Mapping Logic
+    if (vatLower === 'ضريبي') {
+        badgeText = 'EXCL';
+    } else if (vatLower === 'ضريبة و خصم 1%') {
+        badgeText = 'EXCL -1%';
+    } else if (vatLower === 'سعر شامل الضريبة') {
+        badgeText = 'INCL';
+    } else if (vatLower === 'سعر شامل و خصم 1%') {
+        badgeText = 'INCL -1%';
+    } else {
+        badgeText = vat;
+    }
+    
+    // 2. Return Green Badge
+    return `<span class="vat-badge success"><i class="fas fa-tag"></i> ${badgeText}</span>`;
+}
+
+// --- 2. ROW BUILDER (Refined PO Chip) ---
+
+/**
+ * ROW BUILDER - UPDATED WITH DOCUMENT BADGES (v10.2)
+ */
+function buildRowCard(row) {
+    var dir = currentLang === 'ar' ? 'rtl' : 'ltr';
+    var typeStyle = getOrderTypeVisuals(row.type);
+    var confirmIconHtml = ao_getConfirmationIcon(row.confirmationState);
+    var statusStyle = getOrderStatusVisuals(row.status); 
+    var displayId = row.orderId ? row.orderId.toString().padStart(4, '0') : '----';
+
+    // 1. Get the Icon using the pricingStrategy field
+    var pricingIcon = getClientPricingIcon(row.pricingStrategy);
+
+    // 2. Render the Client Chip
+    var clientChipHtml = `
+        <div class="ao-data-chip flex-grow-1 text-truncate justify-content-start" 
+             onclick="openClientPopover(event, '${row.orderId}')" 
+             style="min-width: 140px;">
+            <i class="far fa-user-circle text-muted small"></i> 
+            <span class="fw-bold text-truncate ms-1">${row.clientName}</span>
+            ${pricingIcon}
+        </div>
+    `;
+
+    // 3. PO CHIP (Preserved Logic)
+    var poHtml = '';
+    if (row.poData && (row.poData.text || row.poData.hasFiles)) {
+        var txt = row.poData.text || '';
+        var textHtml = txt ? `<span class="text-secondary small fw-normal" style="font-size: 0.85rem; user-select: text;" title="PO">${txt}</span>` : '';
+        var iconHtml = row.poData.hasFiles ? 
+             `<div class="d-flex align-items-center justify-content-center ms-2 p-1 rounded-circle hover-effect-clip" 
+                  style="width: 24px; height: 24px; cursor: pointer; color: #0d6efd;"
+                  onclick="openFilePopover(event, '${row.orderId}')" title="Attached Files">
+                 <i class="fas fa-paperclip"></i>
+             </div>` : '';
+        poHtml = `<div class="d-flex align-items-center px-2 py-1 border rounded-pill" style="background-color: #fdfdfd; border-color: #e9ecef !important; height: 32px;">${textHtml}${iconHtml}</div>`;
+    }
+
+    // 4. FINANCE CHIP (NEW: Document Badges)
+    var financeChip = '';
+    var f = row.financeData;
+    if (f) {
+        var totalFormatted = (f.calc.total || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        
+        // A. VAT Badge Logic
+        var vatLower = (f.vatType || '').trim();
+        var vatClass = 'ao-vat-excl'; 
+        var vatLabel = f.vatType || '-'; 
+
+        if (vatLower === 'ضريبي') { vatLabel = 'EXCL'; vatClass = 'ao-vat-excl'; }
+        else if (vatLower === 'ضريبة و خصم 1%') { vatLabel = 'EXCL -1%'; vatClass = 'ao-vat-excl'; }
+        else if (vatLower === 'سعر شامل الضريبة') { vatLabel = 'INCL'; vatClass = 'ao-vat-incl'; }
+        else if (vatLower === 'سعر شامل و خصم 1%') { vatLabel = 'INCL -1%'; vatClass = 'ao-vat-incl'; }
+        else if (vatLower.toUpperCase().includes('INC') || vatLower.includes('شامل')) { vatClass = 'ao-vat-incl'; }
+        
+        // B. E-Invoice Logic
+        var eInvDotHtml = '';
+        var eInvTitle = 'No E-Invoice Info';
+        if (f.eInvStatus && f.eInvStatus.required > 0) {
+            const isComplete = f.eInvStatus.isComplete;
+            const dotClass = isComplete ? 'ao-einv-ok' : 'ao-einv-err';
+            eInvTitle = `E-Invoice: ${f.eInvStatus.found}/${f.eInvStatus.required}`;
+            eInvDotHtml = `<span class="ao-einv-dot ${dotClass}" title="${eInvTitle}"></span>`;
+        }
+
+        // C. NEW: Document Number Badges Logic
+        var docBadgesHtml = '';
+        if (f.documents && f.documents.length > 0) {
+            f.documents.forEach(doc => {
+                // Determine Color based on Type
+                let badgeStyle = 'background-color: #cff4fc; color: #055160; border: 1px solid #b6effb;'; // Default cyan
+                let icon = 'fa-file-invoice';
+                
+                if (doc.type === 'Delivery Note') {
+                    // Delivery: gray
+                    badgeStyle = 'background-color: #e9ecef; color: #6c757d; border: 1px solid #6c757d;';
+                    icon = 'fa-file-alt';
+                } else if (doc.type && doc.type.includes('Inv')) {
+                    // Invoice: cyan
+                    badgeStyle = 'background-color: #cff4fc; color: #055160; border: 1px solid #b6effb;';
+                    icon = 'fa-file-invoice';
+                }
+
+                // Build Small Badge
+                docBadgesHtml += `
+                    <span class="d-inline-flex align-items-center gap-1 px-1 rounded mx-1" 
+                          style="${badgeStyle} font-size: 0.7rem; height: 18px; line-height: 1;">
+                        <i class="fas ${icon}" style="font-size: 0.6rem;"></i> 
+                        <span style="font-family: monospace; font-weight: 700;">${doc.id}</span>
+                    </span>`;
+            });
+        }
+
+        // D. Construct the Chip
+        financeChip = `
+            <div class="ao-chip-finance ${vatClass}" onclick="openFinancePopover(event, '${row.orderId}')" title="${eInvTitle}">
+                ${eInvDotHtml}
+                <span>${vatLabel}</span>
+                
+                ${docBadgesHtml}
+                
+                <span class="ms-1 border-start ps-1 border-dark opacity-50" style="font-family: monospace;">
+                    ${totalFormatted}
+                </span>
+            </div>
+        `;
+    }
+
+    // 5. DELIVERY CHIP
+    var deliveryChip = '';
+    var d = row.deliveryData;
+    if (d && (d.truck || d.loadOrder)) {
+        let delClass = 'ao-del-unknown';
+        let delIcon = 'fa-clock';
+        
+        if (d.dismissStatus === true || d.dismissStatus === 'TRUE') {
+            delClass = 'ao-del-dismissed';
+            delIcon = 'fa-check-circle';
+        } else if (d.dismissStatus === false || d.dismissStatus === 'FALSE') {
+            delClass = 'ao-del-pending';
+            delIcon = 'fa-solid fa-circle-xmark';
+        }
+
+        var truckText = d.truck || 'Del';
+        var orderBadge = d.loadOrder 
+            ? `<span class="badge rounded-circle bg-white text-dark border border-secondary d-flex align-items-center justify-content-center shadow-sm" 
+                     style="width: 20px; height: 20px; padding: 0; margin-${dir==='rtl'?'right':'left'}: 5px; font-weight: 700; font-size: 0.75rem;">
+                     ${d.loadOrder}
+               </span>` 
+            : '';
+            
+        deliveryChip = `
+            <div class="ao-chip-delivery ${delClass}" 
+                 onclick="openDeliveryPopover(event, '${row.orderId}')"
+                 title="Click for Delivery Info">
+                <i class="fas ${delIcon}"></i>
+                <span class="mx-1 text-truncate" style="max-width: 80px;">${truckText}</span>
+                ${orderBadge}
+            </div>`;
+    }
+
+    // 6. PRODUCT CHIP
+    var count = row.itemsCount || 0;
+    var productChip = `
+        <span class="ao-chip" 
+              style="background-color: ${typeStyle.bg}; color: ${typeStyle.color}; border: 1px solid rgba(0,0,0,0.1);"
+              onclick="openProductPopover(event, '${row.orderId}')"
+              title="Product Summary">
+            <i class="fas fa-box"></i>
+            <span class="ms-1 fw-bold">${count}</span>
+        </span>
+    `;
+
+    // 7. COMMENT CHIPS
+    var commentChips = '';
+    if (row.comments) {
+        if (row.comments.internal) {
+            commentChips += `
+                <span class="ao-chip btn-outline-warning text-dark fw-bold" 
+                      style="border: 1px solid #ffc107; background: transparent;"
+                      onclick="openCommentPopover(event, 'internal', '${row.orderId}')"
+                      title="Internal Comment">
+                    Internal <i class="fa-solid fa-comment-dots ms-1"></i>
+                </span>`;
+        }
+        if (row.comments.client) {
+            commentChips += `
+                <span class="ao-chip btn-outline-secondary text-secondary" 
+                      style="border: 1px solid #dee2e6; background: transparent;"
+                      onclick="openCommentPopover(event, 'client', '${row.orderId}')"
+                      title="Client Comment">
+                    Client's <i class="fa-solid fa-comment-dots ms-1"></i>
+                </span>`;
+        }
+    }
+
+    // 8. FINAL CARD HTML
+    return `
+        <div class="card shadow-sm border-0 mb-2 ao-row-card">
+            <div class="card-body p-2 d-flex align-items-center gap-2 flex-wrap" dir="${dir}">
+                
+                <div class="d-flex align-items-center gap-2 me-2">
+                    <div class="d-flex align-items-center justify-content-center" style="width: 30px; height: 30px; color: ${statusStyle.color};"
+                         title="${statusStyle.tooltip}">
+                        <i class="fas ${statusStyle.icon} fa-lg"></i>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-center" 
+                        style="width: 30px; height: 30px; flex-shrink: 0;"
+                        title="Status: ${row.confirmationState || 'Not Confirmed'}">
+                        ${confirmIconHtml}
+                    </div>
+                </div>
+
+                <div class="ao-data-chip" onclick="aoOpenModal('master', '${row.orderId}')">
+                    <small class="text-muted opacity-75">#</small> <span class="font-monospace fw-bold">${displayId}</span>
+                </div>
+
+                <div class="ao-data-chip" onclick="openDatePopover(event, '${row.orderId}')">
+                    <i class="far fa-calendar-alt text-muted small"></i> <span>${row.dateFormatted}</span>
+                </div>
+
+                <div onclick="aoOpenModal('details', '${row.orderId}')">${productChip}</div>
+
+                ${clientChipHtml}
+
+                ${commentChips}
+
+                <div class="d-none d-md-flex gap-2 align-items-center">
+                    ${poHtml}
+                    ${financeChip}
+                    ${deliveryChip} 
+                </div>
+
+                <div class="d-md-none ms-auto text-muted cursor-pointer" onclick="aoOpenModal('master', '${row.orderId}')">
+                    <i class="fas fa-chevron-${dir === 'rtl' ? 'left' : 'right'}"></i>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function closePopover() {
+    const existing = document.getElementById('ao-popover');
+    if (existing) existing.remove();
+}
+
+function openClientPopover(event, orderId) {
+    event.stopPropagation();
+    closePopover();
+    
+    const rec = allOrdersState.records.find(r => r.orderId == orderId);
+    if (!rec || !rec.clientData) return;
+    const c = rec.clientData;
+
+    // Helper: Grid Card Builder
+    // span = 1 (half width) or 2 (full width)
+    const gridItem = (label, val, iconClass, span = 1, isCopy = false) => {
+        if (!val) return ''; // Hide empty fields
+        
+        let valHtml = `<div class="text-dark fw-bold text-break" style="font-size: 0.8rem; line-height: 1.2;">${val}</div>`;
+        
+        if (isCopy) {
+            valHtml = `
+                <div class="d-flex align-items-center justify-content-between">
+                    <div class="text-dark fw-bold text-truncate" style="font-size: 0.8rem;">${val}</div>
+                    <i class="fas fa-copy text-muted cursor-pointer hover-text-primary" 
+                       style="font-size: 0.8rem;"
+                       onclick="copyToClipboard('${val}', this)" title="Copy"></i>
+                </div>`;
+        }
+
+        return `
+            <div class="p-2 border rounded bg-white" style="grid-column: span ${span}; border-color: #e9ecef !important;">
+                <div class="d-flex align-items-center gap-1 mb-1 text-muted" style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                    <i class="fas ${iconClass}" style="opacity: 0.7;"></i> ${label}
+                </div>
+                ${valHtml}
+            </div>
+        `;
+    };
+
+    // --- BUILD SECTIONS ---
+
+    // Section 1: Client Profile (Grid)
+    // Layout:
+    // [Full ID] [Main ID]
+    // [Client Name (Full Width)]
+    // [Branch] [Category]
+    // [VAT #] [Official Name]
+    // [Payment Plan]
+    const s1Items = [
+        gridItem('Full ID', c.fullId, 'fa-id-card'),
+        gridItem('Main ID', c.mainId, 'fa-fingerprint'),
+        gridItem('Client Name', c.mainName, 'fa-user-circle', 2), // Renamed from Official Name
+        gridItem('Branch', c.branch, 'fa-code-branch'),
+        gridItem('Category', c.category, 'fa-layer-group'),
+        gridItem('VAT Reg #', c.vatNo, 'fa-file-invoice'),
+        gridItem('Official Name', c.officialName, 'fa-file-signature'), // New Field from Col U
+        gridItem('Payment Plan', c.paymentPlan, 'fa-credit-card')
+    ].join('');
+
+    // Section 2: Contact Info (Grid)
+    const s2Items = [
+        gridItem('Contact Person', c.contactPerson, 'fa-user-tie'),
+        gridItem('Phone', c.phone, 'fa-phone', 1, true),
+        gridItem('Region', c.region, 'fa-map'),
+        gridItem('Distance', c.distance ? `${c.distance} Km` : '', 'fa-route'),
+        gridItem('Address', c.address, 'fa-map-marker-alt', 2),
+        gridItem('Location', c.locationUrl, 'fa-location-arrow', 2, true)
+    ].join('');
+
+    // Section 3: Hours (Single Block)
+    const s3 = gridItem('Working Hours', c.workHours, 'fa-clock', 2);
+
+    // --- ASSEMBLE HTML ---
+    let html = `<div class="p-3" style="min-width: 320px; max-width: 360px; font-family: 'Segoe UI', sans-serif; background-color: #f8f9fa;">`;
+    
+    // Header
+    html += `
+        <div class="mb-3 d-flex align-items-center gap-2 text-primary border-bottom pb-2">
+            <i class="fas fa-id-badge fa-lg"></i> 
+            <span class="fw-bold text-uppercase" style="font-size: 0.85rem;">Client Profile</span>
+        </div>`;
+
+    // Render Section 1
+    if (s1Items) {
+        html += `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">${s1Items}</div>`;
+    }
+
+    // Render Section 2
+    if (s2Items) {
+        html += `
+            <div class="mb-2 mt-3 text-success fw-bold small text-uppercase d-flex align-items-center gap-2">
+                <i class="fas fa-address-book"></i> Contact Info
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">${s2Items}</div>`;
+    }
+
+    // Render Section 3
+    if (c.workHours) {
+        html += `
+            <div class="mb-2 mt-3 text-warning fw-bold small text-uppercase d-flex align-items-center gap-2">
+                <i class="fa-solid fa-business-time"></i> Working Days/Hours
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">${s3}</div>`;
+    }
+
+    html += `</div>`;
+
+    // Pass custom class if needed, or default
+    showPopover(event, html);
+}
+
+// Helper: Copy to Clipboard
+function copyToClipboard(text, iconElem) {
+    navigator.clipboard.writeText(text).then(() => {
+        // Visual feedback
+        const originalClass = iconElem.className;
+        iconElem.className = "fas fa-check text-success";
+        setTimeout(() => {
+            iconElem.className = originalClass;
+        }, 1500);
+    });
+}
+
+// --- PRODUCT POPOVER (Updated with Type Indicator) ---
+function openProductPopover(event, orderId) {
+    event.stopPropagation();
+    closePopover();
+    
+    const rec = allOrdersState.records.find(r => r.orderId == orderId);
+    if (!rec) return;
+
+    // 1. Get Summary Text
+    const summaryText = rec.prodSummary || 'No summary available.';
+
+    // 2. Get Type Visuals (Color & Label)
+    const typeVis = getOrderTypeVisuals(rec.type);
+    
+    // 3. Build Content
+    const content = `
+        <div class="p-3" style="min-width: 220px; max-width: 300px;">
+            <h6 class="section-label text-muted mb-2 d-flex align-items-center gap-2">
+                <i class="fas fa-list-ul text-secondary"></i>
+                <span>Product Summary</span>
+            </h6>
+            <div class="d-flex align-items-center justify-content-start gap-2 border-top pt-2 mb-2">
+                <span class="text-muted small text-uppercase fw-bold" style="font-size: 0.7rem;">Order Type</span>
+                <div class="d-flex align-items-center gap-1 border rounded-pill px-2 py-1 bg-white">
+                    <i class="fas fa-circle" style="font-size: 0.6rem; color: ${typeVis.color};"></i>
+                    <span class="fw-bold text-dark" style="font-size: 0.75rem;">${rec.type}</span>
+                </div>
+            </div>
+            
+            <div class="text-dark bg-light p-2 rounded border mb-3" 
+                 dir="rtl" 
+                 style="font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap; text-align: right;">${summaryText}</div>
+            
+        </div>
+    `;
+
+    showPopover(event, content);
+}
+
+// Fixed: Wraps links in 'd-flex' to ensure horizontal stacking
+function openFilePopover(event, orderId) {
+    event.stopPropagation();
+    closePopover();
+    
+    const record = allOrdersState.records.find(r => r.orderId == orderId);
+    if (!record || !record.poData || !record.poData.files.length) return;
+
+    let linksHtml = '';
+    record.poData.files.forEach((url, i) => {
+        linksHtml += `
+            <a href="${url}" target="_blank" class="text-decoration-none text-center p-2 rounded hover-bg-light">
+                <i class="fas fa-file-alt fa-2x text-primary mb-1"></i>
+                <div style="font-size: 0.6rem; color: #666;">File ${i+1}</div>
+            </a>`;
+    });
+
+    // We wrap the links in a flex container to force horizontal layout
+    const content = `<div class="d-flex gap-2 p-1">${linksHtml}</div>`;
+    
+    showPopover(event, content);
+}
+
+// NEW: Delivery Popover
+function openDeliveryPopover(event, orderId) {
+    event.stopPropagation();
+    closePopover();
+    const r = allOrdersState.records.find(r => r.orderId == orderId);
+    if (!r || !r.deliveryData) return;
+    const d = r.deliveryData;
+
+    // Files HTML (from Lookup)
+    let filesHtml = '';
+    if (d.fileDismiss) filesHtml += `<a href="${d.fileDismiss}" target="_blank" class="btn btn-sm btn-outline-secondary w-100 mb-1"><i class="fa-solid fa-file-circle-minus"></i></i> اذن صرف : ${d.dismissNum || '-'} </a>`;
+    if (d.fileReturn)  filesHtml += `<a href="${d.fileReturn}" target="_blank" class="btn btn-sm btn-outline-dark w-100"><i class="fa-solid fa-file-circle-plus"></i></i> اذن ارتجاع : ${d.returnNum || '-'} </a>`;
+    if (!filesHtml) filesHtml = '<span class="text-muted small">No delivery files</span>';
+
+    const content = `
+        <div class="p-2" style="min-width: 220px; font-size: 0.85rem;">
+            <div class="d-flex justify-content-between border-bottom pb-2 mb-2">
+                <strong><i class="fas fa-calendar-day me-1"></i> ${d.loadingDate || '-'}</strong>
+                <span class="badge bg-secondary">Order #${d.loadOrder || '-'}</span>
+            </div>
+            
+            <div class="mb-2">
+                <div class="text-truncate"><strong>Truck:</strong> ${d.truck || '-'}</div>
+                <div class="text-truncate"><strong>Driver:</strong> ${d.driver || '-'}</div>
+                <div class="text-truncate"><strong>Del Rep:</strong> ${d.delRep || '-'}</div>
+                <div class="text-truncate"><strong>Sales:</strong> ${d.salesRep || '-'}</div>
+            </div>
+
+            <div class="bg-light p-2 rounded mb-2">
+                <div class="d-flex justify-content-between"><i class="fa-solid fa-weight-hanging"></i></i><span> الوزن: </span> ${d.weight || '-'} كجم </div>
+            </div>
+
+            <div class="mt-2 text-center">
+                ${filesHtml}
+            </div>
+        </div>
+    `;
+    showPopover(event, content);
+}
+
+// --- DATE POPOVER ---
+function openDatePopover(event, orderId) {
+    event.stopPropagation();
+    closePopover();
+    
+    const rec = allOrdersState.records.find(r => r.orderId == orderId);
+    if (!rec) return;
+
+    const invoiceDate = rec.dateFormatted || 'N/A';
+    const loadingDate = rec.loadingDateFull || 'N/A';
+
+    const content = `
+        <div class="p-3" style="min-width: 200px;">
+            <h6 class="section-label text-muted mb-3 d-flex align-items-center gap-2">
+                <i class="far fa-clock"></i> Timeline
+            </h6>
+            
+            <div class="mb-3">
+                <div class="small text-muted text-uppercase fw-bold mb-1" style="font-size: 0.7rem;">Invoice Date</div>
+                <div class="d-flex align-items-center gap-2 text-primary bg-light p-2 rounded border">
+                    <i class="far fa-file-alt"></i>
+                    <span class="fw-bold font-monospace">${invoiceDate}</span>
+                </div>
+            </div>
+
+            <div class="mb-1">
+                <div class="small text-muted text-uppercase fw-bold mb-1" style="font-size: 0.7rem;">Loading Date</div>
+                <div class="d-flex align-items-center gap-2 text-dark bg-light p-2 rounded border">
+                    <i class="fas fa-truck-loading"></i>
+                    <span class="fw-bold font-monospace">${loadingDate}</span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    showPopover(event, content);
+}
+
+// --- NEW: Modern Finance Popover (Icons Beside Labels) ---
+function openFinancePopover(event, orderId) {
+    event.stopPropagation();
+    closePopover();
+    
+    const rec = allOrdersState.records.find(r => r.orderId == orderId);
+    if (!rec || !rec.financeData) return;
+    const f = rec.financeData;
+
+    const fmt = (n) => (n || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+    // --- SECTION 1: CALCULATIONS ---
+    const calcHtml = `
+        <div class="mb-3">
+            <h6 class="section-label text-muted mb-2 d-flex align-items-center gap-2">
+                <i class="fas fa-calculator text-primary"></i>
+                <span>Calculations</span>
+            </h6>
+            <div class="p-2 rounded bg-light border">
+                <div class="d-flex justify-content-between small mb-1 px-1">
+                    <span class="text-secondary">Subtotal</span>
+                    <span class="font-monospace fw-bold text-dark">${fmt(f.calc.beforeVat)}</span>
+                </div>
+                <div class="d-flex justify-content-between small mb-1 px-1">
+                    <span class="text-secondary">VAT</span>
+                    <span class="font-monospace fw-bold text-dark">${fmt(f.calc.vatVal)}</span>
+                </div>
+                ${f.calc.whtVal ? `<div class="d-flex justify-content-between small mb-1 px-1 text-danger"><span>WHT</span><span class="font-monospace">-${fmt(f.calc.whtVal)}</span></div>` : ''}
+                <div class="border-top mt-1 pt-1 d-flex justify-content-between align-items-center px-1">
+                    <span class="fw-bold text-dark small">TOTAL</span>
+                    <span class="font-monospace fw-bold text-success fs-6">${fmt(f.calc.total)}</span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // --- SECTION 2: INTERNAL DOCUMENTS ---
+    let docsHtml = '';
+    if (f.documents && f.documents.length > 0) {
+        docsHtml += `
+            <hr class="my-3 opacity-25">
+            <div class="mb-3">
+                <h6 class="section-label text-muted mb-2 d-flex align-items-center gap-2">
+                    <i class="fas fa-folder-open text-warning"></i>
+                    <span>Internal Documents</span>
+                </h6>
+                <div class="d-flex flex-column gap-2">`;
+        
+        f.documents.forEach(doc => {
+            const hasDetails = doc.details;
+            let iconClass = 'fa-file-invoice';
+            let iconBg = 'bg-info bg-opacity-10 text-info';
+            
+            if (doc.type === 'Delivery Note') { iconClass = 'fa-file-alt'; iconBg = 'bg-secondary bg-opacity-10 text-secondary'; }
+            if (doc.type.includes('Inv')) { iconClass = 'fa-file-invoice'; iconBg = 'bg-info bg-opacity-10 text-info'; }
+
+            const fileAction = (hasDetails && hasDetails.fileUrl) 
+                ? `<a href="${hasDetails.fileUrl}" target="_blank" class="btn btn-sm btn-light border text-success rounded-circle p-0 d-flex align-items-center justify-content-center" style="width:24px;height:24px;"><i class="fa-solid fa-print"></i></a>` 
+                : `<span class="d-flex align-items-center justify-content-center text-muted opacity-25" style="width:24px;height:24px;"><i class="fas fa-eye-slash small"></i></span>`;
+
+            const valHtml = hasDetails 
+                ? `<div class="d-flex justify-content-between mt-1 pt-1 border-top border-light" style="font-size: 0.65rem;"><span class="text-muted">Net: <span class="font-monospace text-dark">${fmt(hasDetails.totalBefore)}</span></span><span class="text-muted">Gross: <span class="font-monospace text-dark fw-bold">${fmt(hasDetails.totalAfter)}</span></span></div>`
+                : `<div class="mt-1 ps-1 text-muted opacity-50" style="font-size: 0.6rem;"><i>No details</i></div>`;
+
+            docsHtml += `
+                <div class="p-2 bg-white border rounded shadow-sm doc-card">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="rounded-circle d-flex align-items-center justify-content-center ${iconBg}" style="width:28px; height:28px; flex-shrink:0;"><i class="fas ${iconClass} small"></i></div>
+                            <div>
+                                <div class="fw-bold text-dark lh-1" style="font-size: 0.75rem;">${doc.type}</div>
+                                <div class="font-monospace text-muted" style="font-size: 0.65rem;">#${doc.id}</div>
+                            </div>
+                        </div>
+                        ${fileAction}
+                    </div>
+                    ${valHtml}
+                </div>`;
+        });
+        docsHtml += `</div></div>`;
+    }
+
+    // --- SECTION 3: E-INVOICES ---
+    let einvHtml = '';
+    if (f.eInvoices && (f.eInvoices.tawoos || f.eInvoices.pl)) {
+        einvHtml += `
+            <hr class="my-3 opacity-25">
+            <div>
+                <h6 class="section-label text-muted mb-2 d-flex align-items-center gap-2">
+                    <i class="fas fa-globe text-success"></i>
+                    <span>E-Invoices</span>
+                </h6>
+                <div class="row g-2">`;
+        if (f.eInvoices.tawoos) {
+            einvHtml += `<div class="col-6"><a href="${f.eInvoices.tawoos}" target="_blank" class="btn btn-sm btn-outline-success w-100 d-flex align-items-center justify-content-center gap-1 shadow-sm" style="font-size: 0.75rem;"><i class="fas fa-check-circle"></i> Tawoos</a></div>`;
+        }
+        if (f.eInvoices.pl) {
+            einvHtml += `<div class="col-6"><a href="${f.eInvoices.pl}" target="_blank" class="btn btn-sm btn-outline-dark w-100 d-flex align-items-center justify-content-center gap-1 shadow-sm" style="font-size: 0.75rem;"><i class="fas fa-tag"></i> P. Label</a></div>`;
+        }
+        einvHtml += `</div></div>`;
+    }
+
+    const content = `
+        <div class="p-3" style="min-width: 300px; max-width: 340px; font-family: 'Segoe UI', sans-serif;">
+            ${calcHtml}${docsHtml}${einvHtml}
+        </div>`;
+    
+    showPopover(event, content);
+}
+
+// --- HELPER: SMART POPOVER POSITIONING (v11.0 - Robust) ---
+function showPopover(event, innerHtml, extraClass = '') {
+    // 1. Create and Append (Hidden) to measure dimensions
+    const popover = document.createElement('div');
+    popover.id = 'ao-popover';
+    popover.className = `shadow-lg bg-white border position-absolute ${extraClass}`;
+    
+    // Add default styling if not a speech bubble
+    if (!extraClass.includes('speech-bubble')) {
+        popover.classList.add('rounded');
+    }
+    
+    // Base styles
+    popover.style.zIndex = '9999';
+    popover.style.visibility = 'hidden'; // Hide while calculating
+    popover.style.maxWidth = '90vw';     // Prevent horizontal overflow on mobile
+    
+    // Add Scrollbar styling
+    popover.style.overflowY = 'auto';
+    popover.style.overflowX = 'hidden';
+    
+    popover.innerHTML = innerHtml;
+    document.body.appendChild(popover);
+
+    // 2. Measure Dimensions
+    const targetRect = event.currentTarget.getBoundingClientRect();
+    const popRect = popover.getBoundingClientRect();
+    
+    const popHeight = popRect.height;
+    const popWidth = popRect.width;
+    
+    // Viewport Dimensions
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
+
+    // 3. Vertical Logic (Space Checks)
+    const spaceBelow = vh - targetRect.bottom - 10; // 10px buffer
+    const spaceAbove = targetRect.top - 10;
+    
+    let topPos = 0;
+    let finalHeight = null;
+
+    // DECISION TREE:
+    // A. Fits Below? -> Go Down
+    if (spaceBelow >= popHeight) {
+        topPos = targetRect.bottom + window.scrollY + 8;
+    } 
+    // B. Fits Above? -> Go Up
+    else if (spaceAbove >= popHeight) {
+        topPos = targetRect.top + window.scrollY - popHeight - 8;
+        popover.classList.add('popover-flipped');
+    } 
+    // C. Fits Neither? -> Pick the side with MORE space & Scroll
+    else {
+        if (spaceBelow >= spaceAbove) {
+            // Go Down (Constrained)
+            topPos = targetRect.bottom + window.scrollY + 8;
+            finalHeight = spaceBelow;
+        } else {
+            // Go Up (Constrained)
+            topPos = targetRect.top + window.scrollY - spaceAbove - 8; // Adjust for constrained height
+            // Note: When constraining top, we set the topPos relative to the available height
+            // Actually, simpler logic for top constraint:
+            // topPos = (targetRect.top + scrollY) - availableSpace - 8
+            // But we need to set max-height first.
+            finalHeight = spaceAbove;
+            topPos = targetRect.top + window.scrollY - finalHeight - 8;
+            popover.classList.add('popover-flipped');
+        }
+    }
+
+    // 4. Horizontal Logic (Keep on screen)
+    // Default: Align left edge with trigger left edge
+    let leftPos = targetRect.left + window.scrollX;
+
+    // If centering requested (speech bubble)
+    if (extraClass.includes('speech-bubble')) {
+        leftPos = (targetRect.left + window.scrollX) + (targetRect.width / 2) - (popWidth / 2);
+    } 
+    // Otherwise, auto-flip horizontal if it goes off right edge
+    else if (leftPos + popWidth > vw) {
+        // Align right edge with trigger right edge
+        leftPos = (targetRect.right + window.scrollX) - popWidth;
+    }
+
+    // Final Safety Clamp (Left/Right Screen Edges)
+    if (leftPos < 10) leftPos = 10;
+    if (leftPos + popWidth > vw - 10) leftPos = vw - popWidth - 10;
+
+    // 5. Apply Styles
+    popover.style.top = `${topPos}px`;
+    popover.style.left = `${leftPos}px`;
+    
+    if (finalHeight) {
+        popover.style.maxHeight = `${finalHeight}px`;
+        // Add a subtle border to indicate scrolling if needed
+        popover.style.borderTop = '1px solid #dee2e6';
+        popover.style.borderBottom = '1px solid #dee2e6';
+    }
+
+    // 6. Reveal & Listen for Close
+    requestAnimationFrame(() => {
+        popover.style.visibility = 'visible';
+        setTimeout(() => { document.addEventListener('click', closePopover, { once: true }); }, 50);
+    });
+}
+
+// --- COMMENT POPOVER ---
+function openCommentPopover(event, type, orderId) {
+    event.stopPropagation();
+    closePopover();
+    
+    const rec = allOrdersState.records.find(r => r.orderId == orderId);
+    if (!rec || !rec.comments) return;
+
+    const text = type === 'internal' ? rec.comments.internal : rec.comments.client;
+    if (!text) return;
+
+    // Oval Shape Content
+    const content = `
+        <div class="px-4 py-3 text-center" style="min-width: 150px; max-width: 250px;">
+            <div class="small fw-bold text-muted mb-1 text-uppercase">${type} Comment</div>
+            <div class="text-dark" 
+            dir="rtl"
+            style="font-size: 0.9rem; line-height: 1.4; text-align: right;">${text}</div>
+        </div>
+    `;
+
+    // Pass 'speech-bubble' class for styling
+    showPopover(event, content, 'speech-bubble');
+}
+// --- 4. OTHER MODALS (Legacy) ---
+function aoOpenModal(type, orderId) {
+    if (type === 'client' || type === 'master' || type === 'date') {
+        alert("Detailed View for " + type + " (Order " + orderId + ") coming in Phase 3.");
+    } else if (type === 'details') {
+         const rec = allOrdersState.records.find(r => r.orderId == orderId);
+         let msg = rec.products.map(p => `${p.name}: ${p.qty}`).join('\n');
+         alert(msg);
+    }
+}
+
+// --- RICH EXPORT MODAL LOGIC (v18.0) ---
+function showExportModal() {
+    // 1. Safety Check
+    if (!allOrdersState.lastFilteredResults || allOrdersState.lastFilteredResults.length === 0) {
+        showToast("No data to export. Please generate a report first.", "warning");
+        return;
+    }
+
+    // 2. Group Icons Mapping
+    const GROUP_ICONS = {
+        "ORDER BASICS": "fa-file-alt",
+        "CLIENT INFO": "fa-user-tie",
+        "FINANCIALS": "fa-file-invoice-dollar",
+        "LOGISTICS": "fa-truck-fast",
+        "METADATA": "fa-tags"
+    };
+
+    // 3. Build Sections HTML
+    let sectionsHtml = '';
+    
+    EXPORT_MASTER_MAP.forEach((section, index) => {
+        const groupId = `grp-${index}`; // Unique ID for group toggling
+        const icon = GROUP_ICONS[section.group] || "fa-list";
+        
+        // Build individual checkboxes
+        const checks = section.fields.map(f => `
+            <div class="col-12 col-sm-6 col-lg-4">
+                <div class="ao-export-item" onclick="toggleCheckbox('${f.id}')">
+                    <input class="form-check-input ao-exp-check ${groupId}" type="checkbox" 
+                           value="${f.id}" id="${f.id}" checked onclick="event.stopPropagation()">
+                    <label for="${f.id}" title="${f.label}">${f.label}</label>
+                </div>
+            </div>
+        `).join('');
+
+        // Build Section Card
+        sectionsHtml += `
+            <div class="ao-export-section">
+                <div class="ao-export-header">
+                    <div class="ao-export-title">
+                        <i class="fas ${icon} text-primary opacity-75"></i>
+                        ${section.group}
+                    </div>
+                    <div class="form-check form-switch m-0">
+                        <input class="form-check-input" type="checkbox" role="switch" checked 
+                               onchange="toggleExportGroup('${groupId}', this.checked)"
+                               title="Select/Deselect Group">
+                    </div>
+                </div>
+                <div class="ao-export-body">
+                    <div class="row g-1">
+                        ${checks}
+                    </div>
+                </div>
+            </div>`;
+    });
+
+    // 4. Modal Shell
+    // Note: Added fallback style in case Bootstrap is missing
+    const modalHtml = `
+        <div class="modal fade" id="aoExportModal" tabindex="-1" aria-hidden="true" style="background: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-content border-0 shadow-lg" style="height: 85vh;">
+                    
+                    <div class="ao-export-header bg-light border-bottom">
+                        <div>
+                            <h5 class="modal-title fw-bold text-dark mb-1">
+                                <i class="fas fa-file-excel text-success me-2"></i> Export Manager
+                            </h5>
+                            <p class="text-muted small mb-0">Customize your report columns below.</p>
+                        </div>
+                        <button type="button" class="btn-close" onclick="closeExportModal()"></button>
+                    </div>
+
+                    <div class="modal-body bg-light p-3">
+                        <form id="aoExportForm">
+                            ${sectionsHtml}
+                        </form>
+                    </div>
+
+                    <div class="modal-footer bg-white border-top">
+                        <div class="d-flex gap-2 me-auto">
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="toggleExportChecks(true)">Select All</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="toggleExportChecks(false)">Clear All</button>
+                        </div>
+                        <button type="button" class="btn btn-light" onclick="closeExportModal()">Cancel</button>
+                        <button type="button" class="btn btn-success fw-bold px-4 shadow-sm" onclick="executeFinalExport()">
+                            Download File <i class="fas fa-download ms-2"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // 5. Inject & Show
+    const existing = document.getElementById('aoExportModal');
+    if(existing) existing.remove();
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    const modalEl = document.getElementById('aoExportModal');
+    if (typeof bootstrap !== 'undefined') {
+        const modal = new bootstrap.Modal(modalEl);
+        modal.show();
+    } else {
+        modalEl.classList.add('show');
+        modalEl.style.display = 'block';
+        document.body.style.overflow = 'hidden';
+    }
+}
+
+// --- HELPER: Close Export Modal (Robust Version) ---
+function closeExportModal() {
+    const modalEl = document.getElementById('aoExportModal');
+    if (!modalEl) return;
+
+    // 1. Try using Bootstrap Library (if loaded)
+    if (typeof bootstrap !== 'undefined') {
+        const modalInstance = bootstrap.Modal.getInstance(modalEl);
+        if (modalInstance) {
+            modalInstance.hide();
+            return;
+        }
+    }
+
+    // 2. Manual Fallback (If Bootstrap is missing or instance lost)
+    modalEl.classList.remove('show');
+    modalEl.style.display = 'none';
+    document.body.style.overflow = ''; // Restore page scrolling
+    
+    // 3. Cleanup any stuck backdrops
+    const backdrop = document.querySelector('.modal-backdrop');
+    if (backdrop) backdrop.remove();
+}
+
+// --- HELPER: Toggle specific group ---
+function toggleExportGroup(groupId, state) {
+    document.querySelectorAll(`.${groupId}`).forEach(el => el.checked = state);
+}
+
+// --- HELPER: Click row to toggle check ---
+function toggleCheckbox(id) {
+    const el = document.getElementById(id);
+    if(el) el.checked = !el.checked;
+}
+
+// --- HELPER: Global Toggle ---
+function toggleExportChecks(state) {
+    document.querySelectorAll('.ao-exp-check').forEach(el => el.checked = state);
+    // Also update group switches
+    document.querySelectorAll('.ao-export-header .form-check-input').forEach(el => el.checked = state);
+}
+
+// --- EXECUTE EXPORT (v19.1 - Fixed Grouping) ---
+function executeFinalExport() {
+    const btn = document.querySelector('button[onclick="executeFinalExport()"]');
+    const originalHtml = btn.innerHTML;
+    
+    // 1. Gather Selected Columns
+    const selectedIds = Array.from(document.querySelectorAll('.ao-exp-check:checked')).map(el => el.value);
+    
+    if (selectedIds.length === 0) {
+        showToast("Please select at least one column.", "warning"); // UPDATED
+        return;
+    }
+
+    // 2. Build Config (CRITICAL FIX: Attach Group Name)
+    const dynamicConfig = [];
+    EXPORT_MASTER_MAP.forEach(section => {
+        // Find fields in this section that are selected
+        const activeFields = section.fields.filter(f => selectedIds.includes(f.id));
+        
+        activeFields.forEach(f => {
+            // We must CLONE the field and ADD the group name manually
+            // otherwise the backend receives {id, label, path} but NO group.
+            dynamicConfig.push({ 
+                ...f, 
+                group: section.group // <--- THIS WAS MISSING
+            }); 
+        });
+    });
+
+    // 3. Loading State
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span> Generating File...`;
+
+    // 4. Call Backend
+    google.script.run
+        .withSuccessHandler((res) => {
+            closeExportModal();
+
+            if (res.success) {
+                downloadBase64(res.base64, res.filename);
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            } else {
+                showToast("Export Failed: " + res.message, "error"); // UPDATED
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
+        })
+        .withFailureHandler((err) => {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            showToast("Error: " + err.message, "error"); // UPDATED
+        })
+        .generateExcelReport(allOrdersState.lastFilteredResults, dynamicConfig);
+}
+
+// --- HELPER: BASE64 DOWNLOADER ---
+function downloadBase64(base64Data, fileName) {
+    const byteCharacters = atob(base64Data);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], {type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    
+    const link = document.createElement('a');
+    link.href = window.URL.createObjectURL(blob);
+    link.download = fileName;
+    link.click();
+}
+
+// --- PRESETS LOGIC (v21.0) ---
+
+// --- PRESETS UI: POPOVER (v22.1 - Fixed Click Handler) ---
+function openPresetsPopover(event) {
+    event.stopPropagation();
+    closePopover(); // Close any existing popovers
+
+    let itemsHtml = '';
+    PRESETS_CONFIG.forEach(preset => {
+        // CRITICAL FIX: Pass the Title as a string, NOT the Index
+        itemsHtml += `
+            <div class="d-flex align-items-start gap-3 p-3 border-bottom cursor-pointer hover-bg-light" 
+                 onclick="applyPreset('${preset.title}')">
+                <div class="rounded-circle bg-light d-flex align-items-center justify-content-center flex-shrink-0" 
+                     style="width: 40px; height: 40px; color: #374F70;">
+                    <i class="fas ${preset.icon} fa-lg"></i>
+                </div>
+                <div>
+                    <div class="fw-bold text-dark">${preset.title}</div>
+                    <div class="text-muted small" style="line-height: 1.3;">${preset.desc}</div>
+                </div>
+                <div class="ms-auto text-muted"><i class="fas fa-chevron-right small"></i></div>
+            </div>
+        `;
+    });
+
+    const content = `
+        <div style="min-width: 300px; max-width: 350px;">
+            <div class="bg-light p-2 border-bottom fw-bold text-uppercase text-muted small d-flex align-items-center gap-2">
+                <i class="fa-solid fa-list-check"></i> Saved Views
+            </div>
+            <div class="bg-white">
+                ${itemsHtml}
+            </div>
+        </div>
+    `;
+
+    showPopover(event, content);
+}
+
+// --- PRESETS ENGINE (v22.0) ---
+
+// --- PRESETS ENGINE (v22.1) ---
+function applyPreset(targetTitle) {
+    // 1. Find Configuration by Title
+    const preset = PRESETS_CONFIG.find(p => p.title === targetTitle);
+    if (!preset) {
+        console.error(`Preset "${targetTitle}" not found in PRESETS_CONFIG.`);
+        return;
+    }
+
+    // 2. Clean Slate
+    clearAllFilters();
+    closePopover(); 
+
+    // 3. Data Safety Patch (Ensure "Not Yet" exists)
+    if (allOrdersState.records && allOrdersState.records.length > 0) {
+        let patched = false;
+        allOrdersState.records.forEach(r => {
+            const s = r.status ? String(r.status).trim() : '';
+            if (s === '') { r.status = 'Not Yet'; patched = true; }
+        });
+        if (patched) populateSmartFilters();
+    }
+
+    const cfg = preset.config;
+
+    // 4. APPLY FILTERS
+    if (cfg.filters) {
+        cfg.filters.forEach(f => {
+            // Case A: Date Preset
+            if (f.preset) {
+                applyDatePreset(f.preset, f.key);
+            } 
+            // Case B: Value List (Single or Multi)
+            else if (f.values && f.values.length > 0) {
+                const key = f.key;
+                
+                // Set First Value (Try ID first, then Class)
+                let input = document.getElementById(`ao-filter-${key}`);
+                if (!input) input = document.querySelector(`.ao-multi-input[data-key="${key}"]`);
+                
+                if (input) {
+                    input.value = f.values[0];
+                    
+                    // Add rows for additional values (if any)
+                    if (f.values.length > 1) {
+                        for (let i = 1; i < f.values.length; i++) {
+                            addFilterRow(key, `list-ao-filter-${key}`);
+                            // Find the newly added input (last one)
+                            const inputs = document.querySelectorAll(`.ao-multi-input[data-key="${key}"]`);
+                            if (inputs.length > 0) {
+                                inputs[inputs.length - 1].value = f.values[i];
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // 5. APPLY GROUPING
+    if (cfg.group) {
+        const grp = document.getElementById('ao-group-by');
+        if (grp) grp.value = cfg.group;
+    }
+
+    // 6. APPLY SORTING
+    if (cfg.sort) {
+        const sortContainer = document.getElementById('ao-sort-rules-container');
+        if (sortContainer) sortContainer.innerHTML = ''; // Wipe defaults
+        
+        cfg.sort.forEach(rule => {
+            addSortRule(rule.field, rule.dir);
+        });
+    }
+
+    // 7. UPDATE UI & FEEDBACK
+    updateSummaryBar();
+
+    const grid = document.getElementById('all-orders-data-container');
+    if (grid) {
+        grid.innerHTML = `
+            <div class="text-center p-5">
+                <div class="ao-levitate-wrapper mb-2">
+                    <i class="fas ${preset.icon} ao-levitate-icon"></i>
+                    <div class="ao-levitate-shadow"></div>
+                </div>
+                <div style="background: linear-gradient(135deg, #2D8C6C 0%, #157285 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; opacity: 0.9;">
+                    <h5 class="fw-bold mb-0">${preset.title} Applied</h5>
+                    <small class="text-muted" style="-webkit-text-fill-color: #adb5bd;">${preset.desc}</small>
+                </div>
+            </div>`;
+    }
+}
+
+// --- RESTORE DEFAULTS (Shortcut) ---
+function restoreDefaultSettings() {
+    // Uses the first preset in the config as the "Master Default"
+    if (PRESETS_CONFIG && PRESETS_CONFIG.length > 0) {
+        const masterTitle = PRESETS_CONFIG[0].title;
+        applyPreset(masterTitle);
+    } else {
+        console.error("No presets defined in PRESETS_CONFIG");
+    }
+}
+
+
+
+/* ==========================================================================
+   ALL ORDERS: ADD NEW ORDER MODULE (v23.0)
+   - Fully isolated namespace (ao_)
+   - Embedded Styling
+   - Replicates 'Sales' tab logic perfectly
+   ========================================================================== */
+
+// --- 1. LOCAL STATE & CONFIG ---
+let aoClientsList = [];
+let aoProductsList = [];
+let aoSalesRepList = [];
+let aoSelectedFiles = [];
+let aoProductRowCounter = 0;
+let aoContractMap = {}; // Stores { "Product Name": 0.10 }
+
+const AO_RETAIL_TEMPLATE = [
+    { qty: 80, product: 'ط 900' },
+    { qty: 10, product: 'ط 500' },
+    { qty: 10, product: 'اورجانو كبير' },
+    { qty: 2, product: 'تفاح 500' },
+    { qty: 2, product: 'تفاح 250' },
+    { qty: 2, product: 'طحينة نصف كيلو' },
+    { qty: 2, product: 'طحينة وسط 260' },
+    { qty: 2, product: 'طحينة صغير 140' },
+    { qty: 5, product: 'طحينة ظرف 26' },
+    { qty: 2, product: 'ماء ورد 250' },
+    { qty: 2, product: 'ماء زهر 250' }
+];
+
+// --- 2. CSS STYLES (Injected) ---
+const AO_MODAL_CSS = `
+.ao-modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.5); z-index: 9999;
+    display: none; align-items: center; justify-content: center;
+    backdrop-filter: blur(4px);
+}
+.ao-modal-overlay.active { display: flex; animation: fadeIn 0.2s ease-out; }
+.ao-modal-container {
+    background: white; width: 95%; max-width: 900px; max-height: 90vh;
+    border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    display: flex; flex-direction: column; overflow: hidden;
+}
+.ao-modal-header {
+    background: linear-gradient(135deg, #2D5787 0%, #183A69 100%);
+    color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center;
+}
+.ao-modal-header h3 { margin: 0; font-size: 1.25rem; font-weight: bold; }
+.ao-modal-close-btn { background: none; border: none; color: white; font-size: 1.2rem; cursor: pointer; opacity: 0.8; }
+.ao-modal-close-btn:hover { opacity: 1; }
+.ao-modal-body { padding: 20px; overflow-y: auto; background: #f8f9fa; }
+.ao-form-label { font-size: 0.85rem; font-weight: 600; color: #495057; margin-bottom: 4px; display: block; }
+.ao-form-label.required::after { content: " *"; color: #dc3545; }
+.ao-vat-group { display: flex; flex-wrap: wrap; gap: 5px; background: white; padding: 5px; border-radius: 6px; border: 1px solid #dee2e6; }
+.ao-vat-btn {
+    flex: 1; border: none; background: transparent; padding: 6px 10px;
+    font-size: 0.8rem; border-radius: 4px; color: #6c757d; transition: all 0.2s;
+    white-space: nowrap;
+}
+.ao-vat-btn:hover { background: #e9ecef; }
+.ao-vat-btn.active { background: #2D5787; color: white; font-weight: bold; shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.ao-suggestions-box {
+    position: absolute; top: 100%; left: 0; right: 0;
+    background: white; border: 1px solid #ddd; border-radius: 0 0 6px 6px;
+    max-height: 200px; overflow-y: auto; z-index: 1000; display: none;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+.ao-suggestions-box.active { display: block; }
+.ao-suggestion-item { padding: 8px 12px; cursor: pointer; font-size: 0.9rem; border-bottom: 1px solid #f0f0f0; }
+.ao-suggestion-item:hover { background: #f1f3f5; color: #2D5787; }
+/* Product Row Styles */
+.ao-product-row {
+    display: flex; gap: 8px; align-items: flex-end;
+    background: white; padding: 10px; border-radius: 8px; border: 1px solid #e9ecef;
+    transition: all 0.2s;
+}
+.ao-product-row:hover { border-color: #b1c2d9; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+.ao-row-indicator { width: 8px; height: 8px; border-radius: 50%; background: #dee2e6; margin-bottom: 12px; }
+.ao-row-indicator.valid { background: #198754; box-shadow: 0 0 4px #198754; }
+.ao-row-indicator.error { background: #dc3545; box-shadow: 0 0 4px #dc3545; }
+.ao-file-chip {
+    background: #e9ecef; padding: 4px 10px; border-radius: 12px;
+    font-size: 0.8rem; display: flex; align-items: center; gap: 6px;
+}
+/* NEW: Price Loading Animation (Magnifying Glass) */
+@keyframes aoPulseSearch {
+    0% { transform: scale(0.8); opacity: 0.6; }
+    50% { transform: scale(1.3); opacity: 1; }
+    100% { transform: scale(0.8); opacity: 0.6; }
+}
+.ao-price-loading {
+    height: 31px; /* Matches standard input height */
+    display: flex; 
+    align-items: center; 
+    justify-content: center;
+    background: #f8f9fa; 
+    border-radius: 4px; 
+    border: 1px solid #dee2e6;
+}
+.ao-price-loading i {
+    color: #2D5787;
+    font-size: 1rem;
+    animation: aoPulseSearch 1.2s infinite ease-in-out;
+}
+
+/* CIRCULAR EXPAND BUTTON (Dynamic Width) */
+.ao-btn-circle-expand {
+    min-width: 40px; /* Ensures the circle never shrinks */
+    height: 40px; 
+    max-width: 40px; /* Start collapsed as a perfect circle */
+    border-radius: 20px;
+    border: 1px solid #dee2e6; background: white; color: #2D5787;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    display: flex; align-items: center; overflow: hidden;
+    transition: max-width 0.5s ease, background-color 0.3s ease, border-color 0.3s ease;
+    cursor: pointer; padding: 0;
+    white-space: nowrap; /* Critical: Prevents text from breaking lines */
+}
+
+.ao-btn-circle-expand:hover { 
+    max-width: 300px; /* Large enough limit to fit any standard text */
+    background: #f8f9fa; border-color: #adb5bd;
+    padding-right: 15px; /* Adds breathing room on the right when expanded */
+}
+
+.ao-btn-circle-icon {
+    min-width: 40px; height: 40px; /* Fixed size for the icon container */
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1rem;
+}
+
+.ao-btn-circle-text {
+    opacity: 0; font-weight: 600; font-size: 0.9rem;
+    transition: opacity 0.3s 0.1s; /* Slight delay to wait for expansion */
+}
+
+.ao-btn-circle-expand:hover .ao-btn-circle-text { opacity: 1; }
+.ao-spin-hover:hover { animation: fa-spin 1s infinite linear; }
+
+/* FULL WIDTH TOGGLE BAR (Toolbar Mode) */
+.ao-toggle-full-bar {
+    width: 100%;
+    min-height: 45px; /* Increased to fit buttons */
+    background: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+    border-radius: 0 0 16px 16px;
+    display: flex; 
+    align-items: center; 
+    padding: 0 15px; /* Horizontal padding for content */
+    cursor: pointer; 
+    transition: all 0.3s ease; 
+    color: #adb5bd;
+    position: relative; /* For absolute centering of icon */
+}
+
+.ao-toggle-full-bar:hover {
+    background: #e9ecef;
+    color: #2D5787;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+}
+
+/* Centered Toggle Icon */
+.ao-toggle-icon-container {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex; align-items: center; justify-content: center;
+    width: 40px; height: 100%;
+}
+
+.ao-toggle-icon-container i {
+    font-size: 0.9rem;
+    transition: transform 0.2s ease;
+}
+
+.ao-toggle-full-bar:hover .ao-toggle-icon-container i { transform: scale(1.2); }
+
+/* Remove flat footer radius for seamless join */
+.ao-footer-flat-bottom { border-radius: 0 !important; border-bottom: none !important; }
+`;
+
+// --- 3. MODAL & FORM FUNCTIONS ---
+
+function ao_openAddOrderModal() {
+    const modal = document.getElementById('ao-modal-add-order');
+    if (!modal) return;
+    
+    modal.classList.add('active');
+    document.getElementById('ao-form-add-order').reset();
+    
+    // --- RESET COMPONENTS ---
+    
+    // 1. Clear Product Rows 
+    // (Updated ID to match the validation logic in 'ao_handleSaveOrder')
+    const prodContainer = document.getElementById('ao-product-rows-container');
+    if(prodContainer) prodContainer.innerHTML = '';
+    
+    // 2. Reset Files (If using global variable)
+    if(typeof aoSelectedFiles !== 'undefined') aoSelectedFiles = [];
+    if(typeof ao_updateFileList === 'function') ao_updateFileList();
+    
+    // 3. Reset Counter
+    if(typeof aoProductRowCounter !== 'undefined') aoProductRowCounter = 0;
+    
+    // --- SET DEFAULTS ---
+    
+    // Date: Today
+    document.getElementById('ao-new-date').valueAsDate = new Date();
+    
+    // VAT: None
+    const vatBtn = document.querySelector('.ao-vat-btn[data-value=""]');
+    if(vatBtn && typeof ao_selectVat === 'function') ao_selectVat(vatBtn, '');
+
+    // Confirmation State: Default to 'Confirmed'
+    const confirmSelect = document.getElementById('ao-new-confirm-state');
+    if(confirmSelect) confirmSelect.value = 'Confirmed';
+
+    // Order Type: Default to 'توريد'
+    const typeSelect = document.getElementById('ao-new-order-type');
+    if(typeSelect) typeSelect.value = 'توريد';
+    
+    // Add default rows (x2)
+    if(typeof ao_addProductRow === 'function') {
+        ao_addProductRow();
+        ao_addProductRow();
+    }
+    
+    // --- LOAD DATA ---
+    if(typeof ao_loadClients === 'function') ao_loadClients();
+    if(typeof ao_loadProducts === 'function') ao_loadProducts();
+    if(typeof ao_loadSalesReps === 'function') ao_loadSalesReps();
+    
+    // --- SETUP LISTENERS ---
+    
+    // 1. Client Field (FIXED ID)
+    const clientInput = document.getElementById('ao-new-client');
+    if(clientInput) {
+        clientInput.value = '';
+        
+        // Remove old listeners
+        clientInput.removeEventListener('blur', ao_checkRetailTemplate);
+        clientInput.removeEventListener('input', ao_updateClientUI);
+        
+        // Add Listeners
+        clientInput.addEventListener('blur', ao_checkRetailTemplate);
+        
+        // Trigger UI update on input (typing) and change (selection)
+        clientInput.addEventListener('input', ao_updateClientUI);
+        clientInput.addEventListener('change', () => { ao_updateClientUI(); ao_fetchContractMap(); });
+    }
+    
+    // Add Date Listener
+    document.getElementById('ao-new-date').addEventListener('change', ao_fetchContractMap);
+    
+    // Reset UI State on Open
+    document.getElementById('ao-client-strategy-label').innerHTML = '';
+    const defIcon = AO_STRATEGY_CONFIG['default'];
+    const iconEl = document.getElementById('ao-client-icon');
+    if(iconEl) {
+        iconEl.className = defIcon.icon;
+        iconEl.style.color = defIcon.color;
+    }
+}
+
+function ao_closeAddOrderModal() {
+    const modal = document.getElementById('ao-modal-add-order');
+    if(modal) modal.classList.remove('active');
+}
+
+function ao_convertNumerals(input) {
+    const map = { '٠':'0', '١':'1', '٢':'2', '٣':'3', '٤':'4', '٥':'5', '٦':'6', '٧':'7', '٨':'8', '٩':'9' };
+    input.value = input.value.replace(/[٠-٩]/g, m => map[m]);
+}
+
+function ao_selectVat(btn, value) {
+    document.querySelectorAll('.ao-vat-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('ao-new-vat').value = value;
+    // Trigger price refresh for all rows
+    document.querySelectorAll('.ao-product-row').forEach(row => {
+        ao_refreshRowPrice(row.id);
+    });
+}
+
+// --- 4. DATA LOADING ---
+
+function ao_loadClients() {
+    // 1. Render Function
+    const renderClients = () => {
+        const dl = document.getElementById('ao-client-list'); 
+        if(dl && aoClientsList.length > 0) {
+            // Determine if data is Object (New) or String (Old Cache)
+            const isObject = typeof aoClientsList[0] === 'object';
+            
+            dl.innerHTML = aoClientsList.map(c => {
+                const name = isObject ? c.name : c;
+                if(isObject) aoClientDataMap[name] = c.strategy; // Map name to strategy
+                return `<option value="${name}">`;
+            }).join('');
+        }
+    };
+
+    // 2. Check Cache
+    if(aoClientsList.length > 0) {
+        renderClients();
+        return;
+    }
+
+    // 3. Fetch
+    google.script.run.withSuccessHandler(res => {
+        if(res.success) {
+            aoClientsList = res.clients;
+            renderClients();
+        }
+    }).getClientsList();
+}
+
+function ao_updateClientUI() {
+    const input = document.getElementById('ao-new-client');
+    const iconEl = document.getElementById('ao-client-icon');
+    const labelEl = document.getElementById('ao-client-strategy-label');
+    
+    if(!input || !iconEl || !labelEl) return;
+    
+    const name = input.value.trim();
+    const strategy = aoClientDataMap[name]; 
+    
+    // Check if we have a valid strategy config, otherwise use default
+    const config = AO_STRATEGY_CONFIG[strategy] || AO_STRATEGY_CONFIG['default'];
+    
+    if (name && strategy) {
+        // Update Icon (Using your specific classes)
+        iconEl.className = config.icon; 
+        iconEl.style.color = config.color;
+        
+        // Update Text
+        labelEl.innerHTML = `سياسة التسعير: <span style="color:${config.color}; font-weight:bold;">${strategy}</span>`;
+    } else {
+        // Reset to Default User Icon
+        iconEl.className = AO_STRATEGY_CONFIG['default'].icon;
+        iconEl.style.color = AO_STRATEGY_CONFIG['default'].color;
+        labelEl.innerHTML = '';
+    }
+    // Fetch contract discounts whenever client changes
+    ao_fetchContractMap();
+}
+
+function ao_fetchContractMap() {
+    const client = document.getElementById('ao-new-client').value;
+    const date = document.getElementById('ao-new-date').value;
+    if(!client || !date) { aoContractMap = {}; return; }
+    
+    google.script.run.withSuccessHandler(map => {
+        aoContractMap = map || {};
+        // Trigger recalc for all rows
+        document.querySelectorAll('.ao-product-row').forEach(row => ao_refreshRowPrice(row.id));
+    }).getInvoiceDiscounts(client, date);
+}
+
+function ao_loadProducts() {
+    if(aoProductsList.length > 0) {
+        ao_refreshProductDropdowns();
+        return;
+    }
+
+    google.script.run.withSuccessHandler(res => {
+        if(res.success) {
+            aoProductsList = res.products;
+            ao_refreshProductDropdowns(); // Populate datalist
+            ao_loadProductWeights(); 
+        }
+    }).getProductsList();
+}
+
+// Optimized: Updates the global datalist (Safe to call multiple times)
+function ao_refreshProductDropdowns() {
+    if (aoProductsList.length === 0) return;
+
+    const dl = document.getElementById('ao-list-products');
+    if(dl) {
+        dl.innerHTML = aoProductsList.map(p => {
+            // Handle both object structure or simple string
+            const name = p.fullName || p.name || p; 
+            return `<option value="${name}">`;
+        }).join('');
+    }
+}
+
+function ao_loadProductWeights() {
+    aoProductsList.forEach(p => {
+        google.script.run.withSuccessHandler(w => {
+            const prod = aoProductsList.find(x => x.fullName === p.fullName);
+            if(prod) prod.weight = w;
+        }).getProductWeight(p.fullName);
+    });
+}
+
+function ao_loadSalesReps() {
+    // 1. Define Rendering Logic
+    const renderReps = () => {
+        const select = document.getElementById('ao-new-sales-rep');
+        if(select && aoSalesRepList.length > 0) {
+            // Keep the default option + add reps
+            select.innerHTML = '<option value="">-- Select --</option>' + 
+                aoSalesRepList.map(r => `<option value="${r}">${r}</option>`).join('');
+        }
+    };
+
+    // 2. Check Cache
+    if(aoSalesRepList.length > 0) {
+        renderReps();
+        return;
+    }
+
+    // 3. Fetch
+    google.script.run.withSuccessHandler(res => {
+        if(res.success) {
+            aoSalesRepList = res.salesReps;
+            renderReps();
+        }
+    }).getSalesRepList();
+}
+
+// --- 5. CLIENT HANDLING ---
+
+function ao_filterClients() {
+    const input = document.getElementById('ao-new-client');
+    const box = document.getElementById('ao-client-suggestions');
+    const val = input.value.toLowerCase().trim();
+    
+    if(val === '') { box.classList.remove('active'); return; }
+    
+    const matches = aoClientsList.filter(c => c.toLowerCase().includes(val));
+    if(matches.length > 0) {
+        box.innerHTML = matches.map(c => 
+            `<div class="ao-suggestion-item" onclick="ao_selectClient('${c.replace(/'/g, "\\'")}')">${c}</div>`
+        ).join('');
+        box.classList.add('active');
+    } else {
+        box.classList.remove('active');
+    }
+}
+
+function ao_selectClient(name) {
+    document.getElementById('ao-new-client').value = name;
+    document.getElementById('ao-client-suggestions').classList.remove('active');
+    ao_checkRetailTemplate();
+}
+
+function ao_checkRetailTemplate() {
+    const name = document.getElementById('ao-new-client').value;
+    if(name.includes('تجزئة')) {
+        // CHANGED: select -> input
+        const currentProds = Array.from(document.querySelectorAll('[data-field="product"] input')).map(s => s.value);
+        const isLoaded = currentProds.length === AO_RETAIL_TEMPLATE.length && currentProds[0] === AO_RETAIL_TEMPLATE[0].product;
+        
+        if(!isLoaded) {
+            const container = document.getElementById('ao-new-products-container');
+            container.innerHTML = '';
+            aoProductRowCounter = 0;
+            
+            AO_RETAIL_TEMPLATE.forEach(item => {
+                ao_addProductRow(item.product, item.qty);
+            });
+            console.log("Retail template applied");
+        }
+    }
+}
+
+// --- 6. PRODUCT GRID LOGIC ---
+
+function ao_addProductRow(preSelectProd = '', preQty = '') {
+    const container = document.getElementById('ao-new-products-container');
+    aoProductRowCounter++;
+    const rowId = `ao-row-${aoProductRowCounter}`;
+    
+    const row = document.createElement('div');
+    row.className = 'ao-product-row animate__animated animate__fadeIn';
+    row.id = rowId;
+    
+    // Note: We no longer build options here; the global datalist handles it.
+
+    row.innerHTML = `
+        <div class="ao-row-indicator" id="ind-${rowId}"></div>
+        
+        <div style="flex: 1; min-width: 80px;" data-field="qty">
+            <label class="small text-muted mb-1">Qty</label>
+            <input type="text" class="form-control form-control-sm" value="${preQty}" placeholder="0" 
+                   oninput="ao_convertNumerals(this); ao_validateRow('${rowId}')">
+        </div>
+        
+        <div style="flex: 1; min-width: 80px;" data-field="bonus">
+            <label class="small text-muted mb-1">Bonus</label>
+            <input type="text" class="form-control form-control-sm" placeholder="0" 
+                   oninput="ao_convertNumerals(this); ao_validateRow('${rowId}')">
+        </div>
+        
+        <div style="flex: 3; min-width: 200px;" data-field="product" class="position-relative">
+            <label class="small text-muted mb-1">Product</label>
+            <input type="text" class="form-control form-control-sm" 
+                   placeholder="Search..."
+                   value="${preSelectProd}"
+                   oninput="ao_showSuggestions(this, 'products')" 
+                   onfocus="ao_showSuggestions(this, 'products')" 
+                   onblur="setTimeout(() => this.nextElementSibling.style.display='none', 200)"
+                   onchange="ao_handleProductSelect(this, '${rowId}')"> <div class="ao-suggestions-box"></div>
+        </div>
+        
+        <div style="flex: 1.5; min-width: 100px;" data-field="price">
+            <label class="small text-muted mb-1">Price</label>
+            <div class="ao-price-wrapper">
+                <input type="text" class="form-control form-control-sm bg-light" readonly>
+            </div>
+        </div>
+
+        <div style="flex: 1.2; min-width: 90px;" data-field="invoiceDisc">
+            <label class="small text-muted mb-1">Inv. Disc</label>
+            <input type="text" class="form-control form-control-sm bg-light text-success fw-bold" readonly placeholder="0" value="0 (0%)">
+            <input type="hidden" class="ao-inv-disc-amount" value="0">
+        </div>
+        
+        <div style="flex: 1; min-width: 80px;" data-field="discount">
+            <label class="small text-muted mb-1">Disc.</label>
+            <input type="text" class="form-control form-control-sm" value="0" 
+                   oninput="ao_convertNumerals(this)">
+        </div>
+        
+        <button type="button" class="btn btn-light border btn-sm text-secondary" onclick="ao_refreshRowPrice('${rowId}')" title="Refresh Price">
+            <i class="fas fa-sync-alt"></i>
+        </button>
+        
+        <button type="button" class="btn btn-light border btn-sm text-danger" onclick="this.closest('.ao-product-row').remove(); ao_checkSaveButton();">
+            <i class="fas fa-trash"></i>
+        </button>
+    `;
+    
+    container.appendChild(row);
+    if(preSelectProd) ao_refreshRowPrice(rowId);
+    ao_validateRow(rowId);
+}
+
+function ao_validateRow(rowId) {
+    const row = document.getElementById(rowId);
+    if(!row) return;
+    
+    const qty = row.querySelector('[data-field="qty"] input').value.trim();
+    const bonus = row.querySelector('[data-field="bonus"] input').value.trim();
+    // CHANGED: select -> input
+    const prod = row.querySelector('[data-field="product"] input').value.trim();
+    const ind = document.getElementById(`ind-${rowId}`);
+    
+    ind.className = 'ao-row-indicator';
+    if(prod && (qty || bonus)) ind.classList.add('valid');
+    else if(prod || qty || bonus) ind.classList.add('error');
+    
+    ao_checkSaveButton();
+}
+
+function ao_handleProductSelect(select, rowId) {
+    const val = select.value;
+    
+    if(val) {
+        // Count how many times this value appears in the grid
+        const count = Array.from(document.querySelectorAll('[data-field="product"] input')) // Changed select -> input
+                            .filter(s => s.value === val).length;
+        
+        if(count > 1) {
+            showToast("Duplicate product detected", "warning");
+            select.value = ""; // Clear the duplicate
+            select.focus();    // Refocus
+        } else {
+            ao_refreshRowPrice(rowId);
+        }
+    }
+    
+    ao_validateRow(rowId);
+}
+
+function ao_refreshRowPrice(rowId) {
+    const row = document.getElementById(rowId);
+    if(!row) return;
+    
+    // CHANGED: select -> input
+    const prod = row.querySelector('[data-field="product"] input').value;
+    const client = document.getElementById('ao-new-client').value;
+    const date = document.getElementById('ao-new-date').value;
+    const vat = document.getElementById('ao-new-vat').value;
+    
+    const priceWrapper = row.querySelector('[data-field="price"]');
+    
+    if(!prod || !client || !date) {
+        priceWrapper.innerHTML = `<input type="text" class="form-control form-control-sm bg-light" readonly value="">`;
+        return;
+    }
+    
+    priceWrapper.innerHTML = `<div class="ao-price-loading"><i class="fas fa-search"></i></div>`;
+    
+    google.script.run.withSuccessHandler(res => {
+        const val = res.success ? res.price : 0;
+        priceWrapper.innerHTML = `<input type="text" class="form-control form-control-sm bg-light" readonly value="${val}">`;
+        
+        // --- Calculate Invoice Discount ---
+        const discField = row.querySelector('[data-field="invoiceDisc"]');
+        if(discField) {
+            const displayInput = discField.querySelector('input[type="text"]');
+            const hiddenInput = discField.querySelector('.ao-inv-disc-amount');
+            
+            // Get rate from global map
+            const rate = aoContractMap[prod] || 0; 
+            const amount = val * rate;
+            
+            if(displayInput) displayInput.value = `${amount.toFixed(2)} (${(rate*100).toFixed(0)}%)`;
+            if(hiddenInput) hiddenInput.value = amount;
+        }
+    }).withFailureHandler(() => {
+        priceWrapper.innerHTML = `<input type="text" class="form-control form-control-sm bg-light" readonly value="Err">`;
+    }).getProductPrice(prod, client, date, vat);
+}
+function ao_checkSaveButton() {
+    const rows = document.querySelectorAll('.ao-product-row');
+    let valid = false;
+    let invalid = false;
+    
+    rows.forEach(r => {
+        const q = r.querySelector('[data-field="qty"] input').value;
+        const b = r.querySelector('[data-field="bonus"] input').value;
+        // CHANGED: select -> input
+        const p = r.querySelector('[data-field="product"] input').value;
+        
+        if(p && (q || b)) valid = true;
+        else if(p || q || b) invalid = true;
+    });
+    
+    const type = document.getElementById('ao-new-order-type').value;
+    const allowNoProd = type === 'تحصيل' || type === 'اداري';
+    
+    const btn = document.getElementById('ao-btn-save-order');
+    if(btn) btn.disabled = !((valid && !invalid) || (allowNoProd && !invalid));
+}
+
+// --- 7. FILE HANDLING ---
+
+// Triggered by the HTML onchange="ao_handleFileSelect(event)"
+function ao_handleFileSelect(event) {
+    const input = event.target;
+    if (!input.files || input.files.length === 0) return;
+
+    // 1. Add new files to our global array
+    Array.from(input.files).forEach(file => {
+        // Prevent duplicates (optional)
+        if (!aoPendingFiles.some(f => f.name === file.name && f.size === file.size)) {
+            aoPendingFiles.push(file);
+        }
+    });
+
+    // 2. Clear the input so user can select more files if needed
+    input.value = ''; 
+
+    // 3. Update the UI List
+    ao_renderFileList();
+}
+
+function ao_renderFileList() {
+    const container = document.getElementById('ao-file-list');
+    if (!container) return;
+
+    container.innerHTML = ''; // Clear current display
+
+    aoPendingFiles.forEach((file, index) => {
+        const chip = document.createElement('div');
+        chip.className = 'badge bg-light text-dark border d-flex align-items-center gap-2 p-2';
+        chip.innerHTML = `
+            <i class="fas fa-file-pdf text-danger"></i>
+            <span>${file.name}</span>
+            <span class="text-muted small">(${(file.size/1024).toFixed(0)}KB)</span>
+            <i class="fas fa-times text-secondary cursor-pointer" onclick="ao_removeFile(${index})" style="cursor:pointer"></i>
+        `;
+        container.appendChild(chip);
+    });
+}
+
+function ao_removeFile(index) {
+    aoPendingFiles.splice(index, 1);
+    ao_renderFileList();
+}
+
+function ao_updateFileList() {
+    const div = document.getElementById('ao-file-list');
+    div.innerHTML = aoSelectedFiles.map((f, i) => `
+        <div class="ao-file-chip">
+            <i class="fas fa-file"></i> ${f.name.substring(0, 15)}...
+            <i class="fas fa-times cursor-pointer text-danger ms-1" onclick="aoSelectedFiles.splice(${i},1); ao_updateFileList()"></i>
+        </div>
+    `).join('');
+}
+
+// --- 8. SAVE LOGIC ---
+
+// --- HELPER: Generate Summary (Identical to Sales Module) ---
+function ao_generateOrderSummary(products) {
+    const lines = [];
+    
+    products.forEach(product => {
+        // 1. Calculate Total (Qty + Bonus)
+        const total = product.qty + product.bonus;
+        
+        // 2. Find Short Name (Lookup in global list)
+        const productInfo = aoProductsList.find(p => p.fullName === product.productName);
+        // Fallback to fullName if shortName is undefined/null
+        const nameToUse = productInfo ? (productInfo.shortName || productInfo.fullName) : product.productName;
+        
+        // 3. Construct Line
+        let line = `${total} ${nameToUse}`;
+        
+        // 4. Append Bonus (Specific Arabic Format)
+        if (product.bonus > 0) {
+            line += ` [${product.bonus} بونص]`;
+        }
+        
+        lines.push(line);
+    });
+    
+    return lines.join('\n');
+}
+
+// --- HANDLE SAVE ORDER (Robust Refactor with User Email Fix) ---
+function ao_handleSaveOrder(e) {
+    if(e) e.preventDefault();
+
+    // --- STEP 0: AUTHENTICATION CHECK (New) ---
+    // Retrieve the logged-in user's email from LocalStorage
+    const userEmail = localStorage.getItem('userEmail');
+    
+    if (!userEmail) {
+        showToast("Session Expired: Please reload the page or login again.", "error");
+        return;
+    }
+
+    // --- STEP 1: READ ALL DOM VALUES IMMEDIATELY (Synchronous) ---
+    // We capture everything here to avoid any async/Promise confusion later.
+
+    // Helper: Safely get value or return empty string (Prevents "null" crashes)
+    const getVal = (id) => {
+        const el = document.getElementById(id);
+        return el ? el.value : '';
+    };
+
+    // 1. Basic Fields
+    const clientInput = document.getElementById('ao-new-client');
+    const clientName = clientInput ? clientInput.value.trim() : '';
+    const dateVal = getVal('ao-new-date');
+    const orderType = getVal('ao-new-order-type');
+    // 2. FIXED: Read from the hidden input updated by the buttons
+    const vatValue = document.getElementById('ao-new-vat').value;
+    // 3. New & Existing Meta Fields (The safe 'getVal' prevents crashes here)
+    const valPoTawoos = getVal('ao-new-po-tawoos');
+    const valPoPrivate = getVal('ao-new-po-pl'); // Fixed ID
+    const valInternal = getVal('ao-new-internal-notes');
+    const valExternal = getVal('ao-new-external-notes');
+    
+    // 4. Confirmation State (Default to 'Confirmed' if missing/null)
+    const rawConfirm = getVal('ao-new-confirm-state');
+    const valConfirmState = rawConfirm || 'Confirmed';
+    
+    const valSalesRep = getVal('ao-new-sales-rep');
+
+    // --- STEP 2: VALIDATIONS ---
+    
+    // Client Validation
+    const clientListOpts = document.getElementById('ao-client-list')?.options || [];
+    let clientExists = false;
+    for (let i = 0; i < clientListOpts.length; i++) {
+        if (clientListOpts[i].value === clientName) {
+            clientExists = true;
+            break;
+        }
+    }
+
+    if (!clientName) { showToast("Please select a client", "error"); return; }
+    if (!clientExists) { showToast("Invalid Client: Please select a client from the list", "error"); return; }
+
+    // Date Validation
+    if (!dateVal) { showToast("Please select a date", "error"); return; }
+
+    // Product Validation
+    // --- CORRECTED PRODUCT VALIDATION ---
+    // Target the specific class created by ao_addProductRow
+    const productRows = document.querySelectorAll('.ao-product-row'); 
+    let products = [];
+    let totalWeight = 0;
+    let hasPriceError = false;
+
+    productRows.forEach((row, index) => {
+        // 1. SELECTORS MATCHING YOUR "ao_addProductRow" HTML
+        const pInput = row.querySelector('[data-field="product"] input');
+        const qInput = row.querySelector('[data-field="qty"] input');
+        const bInput = row.querySelector('[data-field="bonus"] input');
+        const priceInput = row.querySelector('[data-field="price"] input'); 
+        const dInput = row.querySelector('[data-field="discount"] input');
+        
+        // Safety check: if for some reason a row is malformed
+        if(!pInput || !qInput || !bInput || !priceInput || !dInput) return;
+
+        const pName = pInput.value.trim();
+        
+        // Skip rows where no product is selected
+        if (!pName) return; 
+
+        // 2. PARSE VALUES
+        const qty = parseFloat(qInput.value) || 0;
+        const bonus = parseFloat(bInput.value) || 0;
+        const discount = parseFloat(dInput.value) || 0;
+        
+        const priceRaw = priceInput.value;
+        const price = parseFloat(priceRaw);
+        
+        // Extract Invoice Discount Amount
+        const invDiscInput = row.querySelector('[data-field="invoiceDisc"] .ao-inv-disc-amount');
+        const invoiceDisc = invDiscInput ? (parseFloat(invDiscInput.value) || 0) : 0;
+
+        // 3. STRICT PRICE CHECK
+        if (priceRaw === '' || isNaN(price)) {
+            // Highlight the specific input with error
+            priceInput.classList.add('is-invalid'); // BS5 error class
+            priceInput.style.border = "2px solid red";
+            hasPriceError = true;
+        } else {
+            priceInput.classList.remove('is-invalid');
+            priceInput.style.border = "";
+            
+            // 4. VALID ROW LOGIC (Qty OR Bonus > 0)
+            if (qty > 0 || bonus > 0) {
+                // Extract calculated Invoice Disc amount
+                const invDiscInput = row.querySelector('.ao-inv-disc-amount');
+                const invoiceDisc = invDiscInput ? (parseFloat(invDiscInput.value) || 0) : 0;
+
+                products.push({
+                    productName: pName,
+                    qty: qty,
+                    bonus: bonus,
+                    price: price,
+                    discount: discount,
+                    invoiceDisc: invoiceDisc // Pass to backend
+                });
+
+                // --- WEIGHT CALCULATION (FIXED) ---
+                // 1. Find the product info in the global list
+                // We check 'fullName' or 'name' to be safe
+                const productInfo = aoProductsList.find(p => p.fullName === pName || p.name === pName);
+                
+                // 2. Get Unit Weight (Default to 0 if not loaded yet)
+                const unitWeight = productInfo ? (parseFloat(productInfo.weight) || 0) : 0;
+                
+                // 3. Calculate: (Qty + Bonus) * Unit Weight
+                // Note: We include Bonus in weight calculation as it is physical stock being moved
+                totalWeight += ((qty + bonus) * unitWeight); 
+            }
+        }
+    });
+
+    // BLOCK IF PRICE ERROR
+    if (hasPriceError) {
+        showToast("CRITICAL: One or more products have invalid prices.", "error");
+        return;
+    }
+
+    // BLOCK IF NO PRODUCTS (Unless special type)
+    const allowedEmptyTypes = ['تحصيل', 'اداري'];
+    if (!allowedEmptyTypes.includes(orderType) && products.length === 0) {
+        showToast("Please add at least one product (Qty or Bonus required)", "error");
+        return;
+    }
+
+    // --- STEP 3: PREPARE FILES (Async) ---
+    const saveBtn = document.getElementById('ao-btn-save-order'); 
+    
+    // Safety check in case ID is wrong, fallback to querySelector or create dummy
+    if (!saveBtn) {
+        console.error("Save button not found! Check HTML ID 'ao-btn-save-order'");
+        return;
+    }
+
+    // --- CRITICAL FIX: READ FROM GLOBAL ARRAY ---
+    // Ensure the global array exists (safety check)
+    if (typeof aoPendingFiles === 'undefined') {
+        console.warn("Global aoPendingFiles not found. Defaulting to empty.");
+        window.aoPendingFiles = [];
+    }
+
+    const originalBtnText = saveBtn.innerHTML;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing ' + aoPendingFiles.length + ' files...';
+    saveBtn.disabled = true;
+
+    console.log("Files pending upload:", aoPendingFiles.length);
+
+    let filePromises = [];
+    
+    if (aoPendingFiles.length > 0) {
+        aoPendingFiles.forEach(file => {
+            filePromises.push(new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => resolve({
+                    name: file.name,
+                    mimeType: file.type,
+                    data: e.target.result.split(',')[1] // Base64 part only
+                });
+                reader.onerror = error => reject(error);
+                reader.readAsDataURL(file);
+            }));
+        });
+    }
+
+    // --- STEP 4: RESOLVE PROMISE & SEND ---
+    Promise.all(filePromises).then(files => {
+        // We use the variables captured in Step 1 (No DOM access here)
+        const formData = {
+            invoiceDate: dateVal,
+            clientName: clientName,
+            vat: vatValue,
+            poTawoos: valPoTawoos,
+            poPrivateLabel: valPoPrivate,
+            internalComments: valInternal,
+            externalComments: valExternal,
+            orderType: orderType,
+            confirmationState: valConfirmState,
+            salesRep: valSalesRep,
+            products: products,
+            totalWeight: totalWeight,
+            // Use the dedicated helper function to format with Short Names & Bonus info
+            orderSummary: (typeof ao_generateOrderSummary === 'function') 
+                          ? ao_generateOrderSummary(products) 
+                          : products.map(p => `${p.productName}: ${p.qty}`).join(', '),
+            files: files // SEND THE FILES READ FROM GLOBAL ARRAY
+        };
+
+        google.script.run
+            .withSuccessHandler((res) => {
+                saveBtn.innerHTML = originalBtnText;
+                saveBtn.disabled = false;
+                if(res && res.success) {
+                    showToast(res.message, "success"); // Displays backend success + debug msg
+                    
+                    // --- SUCCESS CLEANUP ---
+                    // Clear global files logic
+                    aoPendingFiles = []; 
+                    if(typeof ao_renderFileList === 'function') ao_renderFileList();
+
+                    ao_closeAddOrderModal();
+                    refreshAllOrdersData(); 
+                } else {
+                    showToast("Error: " + (res.message || "Unknown error"), "error");
+                }
+            })
+            .withFailureHandler((err) => {
+                saveBtn.innerHTML = originalBtnText;
+                saveBtn.disabled = false;
+                showToast("System Error: " + err.message, "error");
+            })
+            // --- FINAL FIX: Passing the actual userEmail here ---
+            .saveNewOrder(formData, userEmail); 
+    }).catch(err => {
+        console.error("File Read Error:", err);
+        saveBtn.innerHTML = originalBtnText;
+        saveBtn.disabled = false;
+        showToast("Failed to read files: " + err.message, "error");
+    });
+}
+// --- UNIFIED SUGGESTIONS HELPER (Updated: Shows on Click) ---
+function ao_showSuggestions(input, listType) {
+    const val = input.value.toLowerCase().trim();
+    const box = input.nextElementSibling; // The .ao-suggestions-box div
+    
+    // 1. Select Source List
+    let source = (listType === 'clients') ? aoClientsList : aoProductsList;
+    
+    // 2. Filter Data (Show ALL if input is empty)
+    const matches = source.filter(item => {
+        if (!val) return true; // Show everything if empty
+        
+        // Handle both Objects (Products) and Strings (Clients)
+        const txt = (item.fullName || item.name || item).toString();
+        return txt.toLowerCase().includes(val);
+    });
+
+    // 3. Render Results (Cap at 100 to prevent freezing)
+    if (matches.length > 0) {
+        // Limit display to 100 items for performance
+        const displayMatches = matches.slice(0, 100); 
+        
+        box.innerHTML = displayMatches.map(item => {
+            const txt = (item.fullName || item.name || item).toString();
+            // Escape quotes for safety
+            const safeTxt = txt.replace(/'/g, "\\'"); 
+            // Use onmousedown to trigger before onblur
+            return `<div class="ao-suggestion-item" onmousedown="ao_acceptSuggestion(this, '${safeTxt}')">${txt}</div>`;
+        }).join('');
+        
+        box.style.display = 'block';
+    } else {
+        box.style.display = 'none';
+    }
+}
+
+function ao_acceptSuggestion(el, value) {
+    const box = el.parentElement;
+    const input = box.previousElementSibling;
+    
+    // Set Value
+    input.value = value;
+    box.style.display = 'none';
+    
+    // Trigger Change Event (Crucial for Product Pricing)
+    input.dispatchEvent(new Event('change'));
+    
+    // Special: If Client field, trigger template check
+    if(input.id === 'ao-new-client') {
+        ao_checkRetailTemplate();
+    }
+}
+</script>
+
+<style>
+/* --- UTILS & VARIABLES --- */
+:root { --ao-primary-gradient: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%); --ao-card-shadow: 0 10px 20px rgba(0,0,0,0.08); }
+.cursor-pointer, .ao-badge, .ao-badge-icon, .ao-data-chip, .ao-chip { cursor: pointer; }
+.transition-icon { transition: transform 0.3s ease; }
+.font-monospace { font-family: 'Consolas', 'Monaco', monospace; letter-spacing: -0.5px; }
+.section-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: #6c757d; }
+
+/* --- CONTAINERS & CARDS --- */
+.ao-main-card { border-radius: 16px; border: 2px solid transparent; box-shadow: 0 .125rem .25rem rgba(0,0,0,.075); background: #fff; position: relative; z-index: 1; transition: all 0.4s ease; }
+.ao-row-card { transition: transform 0.1s, box-shadow 0.1s; }
+.ao-row-card:hover { transform: translateY(-1px); box-shadow: 0 4px 8px rgba(0,0,0,0.08) !important; background-color: #f8f9fa; }
+.doc-card { transition: transform 0.1s ease, box-shadow 0.1s ease; border: 1px solid #dee2e6; }
+.doc-card:hover { transform: translateY(-1px); box-shadow: 0 4px 6px rgba(0,0,0,0.05) !important; background-color: #fff; border-color: #ced4da; }
+.border-end-custom { border-right: 1px solid #dee2e6; }
+[dir="rtl"] .border-end-custom { border-right: none; border-left: 1px solid #dee2e6; }
+
+/* --- COMPACT GENERATOR CARDS --- */
+.ao-nav-pills { background: #f1f3f5; padding: 0.5rem; border-radius: 12px; display: flex; gap: 0.5rem; }
+ul.ao-nav-pills .nav-link { border-radius: 8px; color: #6c757d; font-weight: 600; transition: all 0.3s ease; border: 1px solid transparent; padding: 0.5rem 1rem; }
+ul.ao-nav-pills .nav-link:hover { background: rgba(13, 110, 253, 0.05); color: #0d6efd; }
+ul.ao-nav-pills .nav-link.active { background: white; color: #0d6efd; box-shadow: 0 2px 8px rgba(0,0,0,0.05); border-color: #e9ecef; }
+
+.ao-cat-card { border: 1px solid #f1f3f5; border-radius: 12px; background: white; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); box-shadow: 0 2px 5px rgba(0,0,0,0.05); position: relative; z-index: 10; min-height: 100%; display: flex; flex-direction: column; }
+.ao-cat-header { background: #f8f9fa; padding: 0.75rem 1rem; border-bottom: 1px solid #f1f3f5; border-radius: 12px; font-size: 0.75rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #6c757d; transition: all 0.3s; }
+.ao-card-body-content { max-height: 0; opacity: 0; overflow: hidden; padding: 0 1rem; transition: all 0.4s ease-in-out; }
+/* Expand Animation */
+.ao-cat-card:hover, .ao-cat-card:focus-within { transform: translateY(-5px) scale(1.02); box-shadow: 0 15px 30px rgba(0,0,0,0.15); border-color: #dee2e6; z-index: 100; }
+.ao-cat-card:hover .ao-cat-header, .ao-cat-card:focus-within .ao-cat-header { border-radius: 12px 12px 0 0; background: white; color: #0d6efd; border-bottom-color: transparent; }
+.ao-cat-card:hover .ao-card-body-content, .ao-cat-card:focus-within .ao-card-body-content { max-height: 600px; opacity: 1; padding: 1rem 1rem 1.5rem 1rem; }
+
+/* --- INPUTS & ICONS --- */
+.ao-form-label { font-size: 0.7rem; font-weight: 700; color: #6c757d; margin-bottom: 4px; display: block; }
+.ao-input { background-color: #f8f9fa; border: 1px solid transparent; border-radius: 8px; font-size: 0.9rem; padding: 0.5rem 0.75rem; transition: all 0.2s; width: 100%; }
+.ao-input:focus { background-color: #ffffff; border-color: #86b7fe; box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.1); outline: none; }
+.ao-cat-icon { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; margin-right: 8px; }
+.ao-icon-basics { background: #e0cffc; color: #6610f2; } .ao-icon-client { background: #cfe2ff; color: #0d6efd; }
+.ao-icon-finance { background: #d1e7dd; color: #198754; } .ao-icon-logistics { background: #fff3cd; color: #ffc107; }
+.ao-icon-metadata { background: #f8d7da; color: #dc3545; }
+
+/* --- BADGES & CHIPS --- */
+.ao-badge { padding: 6px 12px; border-radius: 20px; display: flex; align-items: center; gap: 8px; font-size: 0.9rem; transition: all 0.2s ease; user-select: none; white-space: nowrap; }
+.ao-badge:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+.ao-badge-icon { padding: 8px; font-size: 1.2rem; border-radius: 50%; } .ao-badge-icon:hover { background-color: rgba(0,0,0,0.05); transform: scale(1.1); }
+
+.ao-data-chip { gap: 8px; padding: 6px 12px; background-color: #fff; border: 1px solid #dee2e6; border-radius: 50px; color: #212529; font-size: 0.9rem; transition: all 0.2s ease; white-space: nowrap; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.ao-data-chip:hover { background-color: #f8f9fa; border-color: #adb5bd; transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,0.08); }
+
+.ao-chip { gap: 6px; padding: 4px 10px; font-size: 0.8rem; font-weight: 500; border-radius: 20px; border: 1px solid #dee2e6; transition: transform 0.1s; }
+.ao-chip:hover { transform: scale(1.05); border: 2px solid #d3d6d8;}
+.ao-chip-success { background: #d1e7dd; color: #0f5132; border-color: #badbcc; } .ao-chip-warning { background: #fff3cd; color: #664d03; border-color: #ffecb5; }
+.ao-chip-info { background: #e3f2fd; color: #0d47a1; border-color: #bbdefb; } .ao-chip-secondary { background: #e2e3e5; color: #41464b; border-color: #d3d6d8; }
+.ao-chip-info:hover { background-color: #bbdefb; }
+
+/* Finance & Delivery Specifics */
+.ao-chip-finance { font-size: 0.75rem; padding: 4px 8px; border-radius: 6px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; border: 1px solid transparent; }
+.ao-vat-incl { background: #d1e7dd; color: #0f5132; border-color: #badbcc; } .ao-vat-excl { background: #fff3cd; color: #664d03; border-color: #ffecb5; }
+.ao-einv-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.ao-einv-ok { background: #198754; box-shadow: 0 0 4px #198754; } .ao-einv-err { background: #dc3545; box-shadow: 0 0 4px #dc3545; }
+
+.ao-chip-delivery { font-size: 0.75rem; padding: 4px 8px; border-radius: 6px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; color: white; }
+.ao-del-dismissed { background: linear-gradient(135deg, #198754 0%, #20c997 100%); box-shadow: 0 2px 4px rgba(25, 135, 84, 0.2); }
+.ao-del-pending { background: linear-gradient(135deg, #dc3545 0%, #e55353 100%); box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2); }
+.ao-del-unknown { background: #e9ecef; color: #6c757d; border: 1px solid #dee2e6; }
+
+.vat-badge { display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; line-height: 1; white-space: nowrap; height: 20px; margin-right: 6px; }
+[dir="rtl"] .vat-badge { margin-right: 0; margin-left: 6px; }
+.vat-badge.success { background: #d1e7dd; color: #0f5132; border: 1px solid #badbcc; }
+.vat-badge.disabled { background: #e9ecef; color: #6c757d; border: 1px solid #dee2e6; font-weight: 600; }
+
+/* --- SUMMARY BAR & POPOVERS --- */
+.ao-summary-container { background: #f8f9fa; border: 1px dashed #dee2e6; border-radius: 8px; padding: 10px; margin-bottom: 15px; display: none; }
+.ao-summary-bucket { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #e9ecef; }
+.ao-summary-bucket:last-child { border: none; margin: 0; padding: 0; }
+.ao-bucket-label { font-size: 0.75rem; font-weight: 800; text-transform: uppercase; color: #adb5bd; margin-right: 8px; }
+.ao-chip-remove { margin-left: 8px; cursor: pointer; color: #dc3545; opacity: 0.6; } .ao-chip-remove:hover { opacity: 1; }
+.hover-bg-light:hover { background-color: #f8f9fa !important; }
+.hover-effect-clip:hover { background-color: rgba(13, 110, 253, 0.1); }
+.hover-text-primary:hover { color: #0d6efd !important; }
+
+/* Speech Bubble Logic */
+.speech-bubble { border-radius: 2rem !important; border: 1px solid #dee2e6; }
+.speech-bubble::before, .speech-bubble::after { content: ''; position: absolute; border-style: solid; left: 50%; transform: translateX(-50%); width: 0; height: 0; }
+#ao-popover.speech-bubble:not(.popover-flipped)::before { top: -10px; border-width: 0 10px 10px 10px; border-color: transparent transparent #dee2e6 transparent; }
+#ao-popover.speech-bubble:not(.popover-flipped)::after { top: -9px; border-width: 0 9px 9px 9px; border-color: transparent transparent #fff transparent; }
+#ao-popover.speech-bubble.popover-flipped::before { bottom: -10px; border-width: 10px 10px 0 10px; border-color: #dee2e6 transparent transparent transparent; }
+#ao-popover.speech-bubble.popover-flipped::after { bottom: -9px; border-width: 9px 9px 0 9px; border-color: #fff transparent transparent transparent; }
+#ao-file-popover { animation: fadeInPop 0.7s ease-out; }
+@keyframes fadeInPop { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* --- THEMES (FILTER / SEARCH / VIEW) --- */
+.ao-theme-filter { border-color: #20c997; background: linear-gradient(to bottom, #ffffff 0%, #f2fcf9 100%); }
+.ao-theme-search { border-color: #0d6efd; background: linear-gradient(to bottom, #ffffff 0%, #f0f7ff 100%); }
+.ao-theme-view   { border-color: #ffc107; background: linear-gradient(to bottom, #ffffff 0%, #fffbf0 100%); }
+
+/* Theme Badge Shared Structure */
+.ao-badge-filter, .ao-badge-search, .ao-badge-view { padding: 6px 15px; border-radius: 30px; font-size: 0.85rem; font-weight: 700; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+.ao-badge-filter { color: #0f5132; background: #d1e7dd; border: 1px solid #badbcc; }
+.ao-badge-search { color: #084298; background: #cfe2ff; border: 1px solid #b6d4fe; }
+.ao-badge-view   { color: #664d03; background: #fff3cd; border: 1px solid #ffecb5; }
+
+/* --- RESPONSIVE & LOADERS --- */
+@media (max-width: 768px) {
+    .border-end-custom { border: none !important; border-bottom: 1px solid #dee2e6; padding-bottom: 1rem; }
+    .form-control-sm, .form-select-sm { font-size: 16px !important; padding: 8px 12px !important; height: auto !important; }
+    .accordion-button { padding: 1rem !important; }
+}
+.accordion-button:not(.collapsed) { color: #0d6efd; background-color: #f8f9fa; box-shadow: inset 0 -1px 0 rgba(0,0,0,.125); }
+.accordion-button:focus { box-shadow: none; border-color: rgba(0,0,0,.125); }
+
+/* Sonar Loader */
+.sonar-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3rem; }
+.sonar-emitter { position: relative; width: 50px; height: 50px; border-radius: 50%; background: #0d6efd; animation: bounce 2s infinite ease-in-out; }
+.sonar-wave { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: 50%; border: 2px solid #0d6efd; opacity: 0; z-index: -1; animation: sonar-ripple 1.5s infinite ease-out; }
+.sonar-wave:nth-child(2) { animation-delay: 0.5s; } .sonar-wave:nth-child(3) { animation-delay: 1.0s; }
+.loading-text { margin-top: 2rem; font-weight: 700; color: #6c757d; letter-spacing: 1px; text-transform: uppercase; font-size: 0.85rem; animation: fadeText 1.5s infinite; }
+@keyframes sonar-ripple { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(3); opacity: 0; } }
+@keyframes bounce { 0%, 100% { transform: scale(0.9); } 50% { transform: scale(1); } }
+@keyframes fadeText { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+
+/* --- LEVITATION ANIMATION --- */
+.ao-levitate-wrapper {
+    position: relative;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 120px; /* Space for movement */
+}
+
+/* The Floating Icon */
+.ao-levitate-icon {
+    font-size: 4rem; /* Large size */
+    background: linear-gradient(135deg, #2D8C6C 0%, #157285 100%); /* Teal Gradient */
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    z-index: 2;
+    animation: ao-float 5s ease-in-out infinite;
+}
+
+/* The Shadow beneath */
+.ao-levitate-shadow {
+    width: 50px;
+    height: 12px;
+    background: radial-gradient(ellipse at center, rgba(21, 114, 133, 0.3) 0%, rgba(255,255,255,0) 70%);
+    border-radius: 50%;
+    margin-top: 5px;
+    z-index: 1;
+    animation: ao-shadow 5s ease-in-out infinite;
+}
+
+/* Keyframes: Move Up/Down */
+@keyframes ao-float {
+    0%, 100% { transform: translateY(0); } /* Low */
+    50% { transform: translateY(-15px); }  /* High */
+}
+
+/* Keyframes: Shadow shrinks when object goes up */
+@keyframes ao-shadow {
+    0%, 100% { opacity: 0.7; transform: scale(1.8); }    /* Object Low = Shadow Dark/Big */
+    50% { opacity: 0.3; transform: scale(0.9); }       /* Object High = Shadow Faint/Small */
+}
+
+/* --- ORBITAL LOADER ANIMATION --- */
+.ao-loader-wrapper {
+    position: relative;
+    width: 80px;
+    height: 80px;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* The Spinning Ring */
+.ao-loader-ring {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    border: 4px solid transparent;
+    /* The visible part of the ring (Teal Gradient colors) */
+    border-top-color: #2D8C6C; 
+    border-left-color: #157285;
+    filter: drop-shadow(0 0 4px rgba(45, 140, 108, 0.3));
+    animation: ao-spin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+
+/* The Inner Icon (Pulsing) */
+.ao-loader-core {
+    font-size: 1.8rem;
+    background: linear-gradient(135deg, #2D8C6C 0%, #157285 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: ao-pulse-fade 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes ao-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes ao-pulse-fade {
+    0% { opacity: 0.3; transform: scale(0.8); }
+    100% { opacity: 1; transform: scale(1.1); }
+}
+
+/* --- CLEAN STATE ANIMATION --- */
+.ao-clean-wrapper {
+    position: relative;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 100px;
+    height: 80px;
+}
+
+/* The Eraser (Scrubbing Motion) */
+.ao-clean-icon {
+    font-size: 3.5rem;
+    background: linear-gradient(135deg, #adb5bd 0%, #ced4da 100%); /* Silver Gradient */
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    z-index: 2;
+    transform-origin: bottom left;
+    animation: ao-scrub 0.6s ease-in-out infinite alternate;
+}
+
+/* The Sparkles (Popping up) */
+.ao-clean-sparkle {
+    position: absolute;
+    color: #ffc107; /* Gold sparkles */
+    opacity: 0;
+    font-size: 1rem;
+    animation: ao-twinkle 2s infinite;
+}
+.ao-clean-sparkle:nth-child(1) { top: 0; right: 10px; animation-delay: 0s; }
+.ao-clean-sparkle:nth-child(2) { top: 20px; left: 0px; animation-delay: 0.7s; font-size: 0.8rem; }
+.ao-clean-sparkle:nth-child(3) { bottom: 10px; right: 0px; animation-delay: 1.4s; font-size: 1.2rem; }
+
+@keyframes ao-scrub {
+    0% { transform: rotate(-20deg) translateX(-5px); }
+    100% { transform: rotate(0deg) translateX(5px); }
+}
+
+@keyframes ao-twinkle {
+    0% { transform: scale(0); opacity: 0; }
+    50% { transform: scale(1.2); opacity: 1; }
+    100% { transform: scale(0); opacity: 0; }
+}
+
+/* --- SORT BUILDER STYLES (v14.0) --- */
+.ao-sort-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    background: #f8f9fa;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+    margin-bottom: 8px;
+    transition: all 0.2s;
+    animation: slideInRight 0.3s ease-out;
+}
+
+.ao-sort-row:hover {
+    background: #fff;
+    border-color: #dee2e6;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.ao-sort-num {
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: #adb5bd;
+    width: 20px;
+    text-align: center;
+}
+
+.ao-dir-btn {
+    border: 1px solid #dee2e6;
+    background: white;
+    color: #6c757d;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 80px; /* Fixed width for text stability */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Ascending State */
+.ao-dir-btn[data-dir="asc"] {
+    background: #e3f2fd;
+    color: #0d6efd;
+    border-color: #bbdefb;
+}
+.ao-dir-btn[data-dir="asc"]::after { content: '\f160'; font-family: "Font Awesome 5 Free"; font-weight: 900; } /* Sort Alpha Up */
+
+/* Descending State */
+.ao-dir-btn[data-dir="desc"] {
+    background: #f8d7da;
+    color: #dc3545;
+    border-color: #f5c2c7;
+}
+.ao-dir-btn[data-dir="desc"]::after { content: '\f161'; font-family: "Font Awesome 5 Free"; font-weight: 900; } /* Sort Alpha Down */
+
+@keyframes slideInRight {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+/* --- RICH EXPORT MODAL STYLES --- */
+.ao-export-section {
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    overflow: hidden;
+    transition: all 0.2s ease;
+}
+
+.ao-export-section:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    border-color: #cbd3da;
+}
+
+.ao-export-header {
+    background: #f8f9fa;
+    padding: 10px 16px;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.ao-export-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #495057;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ao-export-body {
+    padding: 12px 16px;
+}
+
+/* Individual Item Styling */
+.ao-export-item {
+    padding: 6px 8px;
+    border-radius: 6px;
+    transition: background 0.15s;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ao-export-item:hover {
+    background-color: #e9ecef;
+}
+
+.ao-export-item input {
+    cursor: pointer;
+}
+
+.ao-export-item label {
+    font-size: 0.85rem;
+    color: #212529;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-grow: 1;
+}
+
+/* --- EXPANDING BUTTONS (v19.1 - Fixed Centering) --- */
+.ao-btn-expand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px; 
+    height: 40px;
+    border-radius: 50px; 
+    overflow: hidden;
+    transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+    white-space: nowrap;
+    position: relative;
+    padding: 0 !important; /* Force zero padding to let Flexbox center perfectly */
+    line-height: 1; /* Prevents vertical offset */
+}
+
+/* Hover State: Expand */
+.ao-btn-expand:hover {
+    width: 140px; 
+    padding-left: 1.5rem !important; /* Re-apply padding only when expanded */
+    padding-right: 1.5rem !important;
+}
+
+/* The Text Label */
+.ao-btn-label {
+    opacity: 0;
+    max-width: 0;
+    margin-left: 0; /* FIX: No margin when collapsed */
+    transform: translateX(10px);
+    transition: all 0.3s ease;
+    display: inline-block;
+}
+
+/* Hover State: Show Label & Add Margin */
+.ao-btn-expand:hover .ao-btn-label {
+    opacity: 1;
+    max-width: 100px;
+    transform: translateX(0);
+    margin-left: 8px; /* FIX: Margin adds ONLY when expanded */
+}
+
+/* --- FOOTER TRANSITIONS --- */
+.ao-footer-transition {
+    transition: all 0.4s ease;
+    padding: 1rem !important;
+}
+
+/* Compact State (Collapsed) */
+.ao-footer-compact {
+    padding: 0.5rem 1rem !important; /* Slimmer padding */
+    background-color: #f8f9fa !important;
+    border-top: 1px solid #dee2e6;
+}
+
+/* Adjust Summary Bar in Compact Mode */
+.ao-footer-compact .ao-summary-container {
+    margin-bottom: 0 !important;
+    padding: 4px 8px !important;
+    border: none;
+    background: transparent;
+}
+.ao-footer-compact .ao-chip {
+    padding: 2px 8px !important;
+    font-size: 0.75rem !important;
+}
+
+/* --- MULTI-FILTER STYLES (v20.0) --- */
+.ao-filter-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.ao-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    animation: fadeInRow 0.2s ease-out;
+}
+
+@keyframes fadeInRow {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.ao-btn-icon-small {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    border: 1px solid #dee2e6;
+    background: white;
+    color: #6c757d;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.ao-btn-icon-small:hover {
+    background-color: #f8f9fa;
+    border-color: #adb5bd;
+}
+
+.ao-btn-add { color: #198754; }
+.ao-btn-add:hover { background-color: #d1e7dd; border-color: #badbcc; }
+
+.ao-btn-remove { color: #dc3545; }
+.ao-btn-remove:hover { background-color: #f8d7da; border-color: #f5c2c7; }
+
+/* GENERATE BUTTON SHINE ANIMATION (Persistent & Slow) */
+@keyframes aoGlassShine {
+    0% { transform: translateX(-250%) skewX(-25deg); }
+    100% { transform: translateX(250%) skewX(-25deg); }
+}
+
+.ao-btn-shine {
+    position: relative;
+    overflow: hidden;
+}
+
+.ao-btn-shine::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 50%; height: 100%;
+    background: linear-gradient(
+        90deg, 
+        rgba(255, 255, 255, 0) 0%, 
+        rgba(255, 255, 255, 0.3) 50%, 
+        rgba(255, 255, 255, 0) 100%
+    );
+    transform: translateX(-250%) skewX(-25deg);
+    /* Changed to 5s duration and 'linear' for a smooth, non-stop flow */
+    animation: aoGlassShine 5s infinite linear; 
+    pointer-events: none;
+}
+
+/* Stop animation when expanded/hovered */
+.ao-btn-shine:hover::after {
+    display: none;
+}
+</style>
