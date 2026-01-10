@@ -1,0 +1,419 @@
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=Poppins:wght@300;400;500;600&display=swap');
+
+  :root {
+    /* --- COLOR PALETTE --- */
+    --petroleum-dark: #264653;
+    --petroleum-light: #2a9d8f;
+    --blue-dark: #1d3557;
+    --gray-text: #455a64;
+    --border-color: #e0e0e0;
+    
+    /* --- GRADIENTS (Icons Only) --- */
+    --grad-success: linear-gradient(145deg, #2e7d32, #388e3c); 
+    --grad-warning: linear-gradient(145deg, #ef6c00, #f57c00);
+    --grad-danger:  linear-gradient(145deg, #c62828, #d32f2f);
+    --grad-petrol:  linear-gradient(145deg, #264653, #2c5161);
+    
+    --shadow-card: 0 2px 8px rgba(0,0,0,0.06);
+    --radius: 10px;
+  }
+
+  body { font-family: 'Poppins', sans-serif; background-color: #eceff1; }
+
+  /* --- CONTAINER --- */
+  .eta-dashboard-container {
+    padding: 20px;
+    background-color: #eceff1;
+    min-height: 85vh;
+  }
+
+  /* --- CARD STYLES --- */
+  .eta-table-card {
+    background: white;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+  }
+
+  .eta-header-card {
+    background: white;
+    padding: 15px 20px;
+    border-radius: var(--radius);
+    margin-bottom: 20px;
+    display: flex; justify-content: space-between; align-items: center;
+    box-shadow: var(--shadow-card);
+    border-left: 5px solid var(--petroleum-dark);
+  }
+  
+  .eta-title {
+    font-size: 1.1rem; font-weight: 600; color: var(--petroleum-dark);
+    display: flex; align-items: center; gap: 10px;
+  }
+
+  /* --- TABLE HEADER --- */
+  .reconcile-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+  
+  .reconcile-table thead th {
+    background: var(--petroleum-dark);
+    color: white;
+    font-weight: 500;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 12px 15px;
+    position: sticky; top: 0; z-index: 10;
+  }
+
+  /* --- ROW GROUPS --- */
+  .reconcile-group {
+    border-bottom: 1px solid #cfd8dc;
+  }
+  .reconcile-group:hover {
+    background-color: #fff;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    transform: translateY(-1px);
+    z-index: 5; position: relative;
+    transition: all 0.2s ease;
+  }
+
+  /* --- CELLS --- */
+  .cell-common {
+    vertical-align: middle;
+    border-right: 1px solid #eceff1;
+    background: white; 
+  }
+
+  /* --- DATA CHIPS (New Styling) --- */
+  .data-chip {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 16px; /* Pill Shape */
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: all 0.2s;
+    border: 1px solid transparent;
+  }
+  .data-chip:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+  }
+
+  /* Serial Chip */
+  .chip-serial {
+    background: #e3f2fd; color: #1565c0; border-color: #bbdefb;
+    font-family: 'Consolas', monospace; font-size: 0.95rem;
+  }
+  
+  /* Date Chip */
+  .chip-date {
+    background: #f5f5f5; color: #546e7a; border-color: #eceff1;
+    font-size: 0.8rem;
+  }
+
+  /* Money Chip */
+  .chip-money {
+    background: #e8f5e9; color: #2e7d32; border-color: #c8e6c9;
+    font-family: 'Consolas', monospace;
+  }
+  .chip-money-err {
+    background: #ffebee; color: #c62828; border-color: #ffcdd2;
+  }
+  .chip-money-dark {
+     background: #eceff1; color: var(--blue-dark); border-color: #cfd8dc;
+  }
+
+
+  /* Order Summary (Reduced Width) */
+  .col-summary-rtl {
+    direction: rtl; text-align: right;
+    font-family: 'Cairo', sans-serif;
+    font-size: 0.85rem; line-height: 1.5;
+    color: var(--gray-text);
+    white-space: pre-line;
+    max-width: 180px; /* Reduced from ~250px */
+  }
+
+  /* --- ROW COLORING --- */
+  .row-internal td {
+    padding: 10px 12px;
+    border-top: 1px solid #f0f0f0;
+    background-color: #f4f6f8; 
+    color: var(--blue-dark);
+  }
+  .row-eta td {
+    padding: 10px 12px;
+    background-color: #ffffff;
+    color: #2e7d32;
+  }
+
+  /* --- BADGES & ICONS --- */
+  .src-badge {
+    font-size: 0.65rem; font-weight: 700; padding: 4px 8px; border-radius: 4px;
+    margin-right: 8px; display: inline-block; color: white;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+  .bg-int { background: var(--grad-petrol); }
+  .bg-eta { background: var(--grad-success); }
+
+  .status-icon-box {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto;
+    color: white;
+    font-size: 0.9rem;
+    box-shadow: 0 3px 6px rgba(0,0,0,0.15);
+  }
+  .icon-match { background: var(--grad-success); }
+  .icon-missing { background: var(--grad-warning); }
+  .icon-diff { background: var(--grad-danger); }
+
+  /* --- FILE ICONS (Enhanced) --- */
+  .btn-icon-link {
+    width: 36px; height: 36px; /* Larger */
+    border-radius: 50%;
+    background: white;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* Bouncy transition */
+    text-decoration: none;
+    font-size: 1.2rem;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    border: 1px solid #eee;
+  }
+  .btn-icon-link:hover { 
+    transform: translateY(-3px) scale(1.1); 
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+  }
+  .link-disabled { color: #cfd8dc; cursor: default; background: transparent; border: none; box-shadow: none; }
+
+  /* --- BUTTONS --- */
+  .btn-sync {
+    background: var(--petroleum-dark);
+    color: white; border: none;
+    padding: 8px 20px; border-radius: 6px;
+    font-size: 0.9rem; cursor: pointer;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  }
+  .btn-sync:hover { background: #1d3842; }
+
+  /* --- VERSION BADGES --- */
+/* --- VERSION BADGES --- */
+.badge-ver {
+  font-size: 0.65rem; 
+  font-weight: 600; 
+  padding: 2px 6px;       /* Smaller padding */
+  border-radius: 4px;
+  margin-right: 8px; 
+  display: inline-block;
+  vertical-align: middle;
+  transition: all 0.2s;
+}
+
+/* Normal / Standard Badge (Subtle) */
+.badge-ver-std {
+  background: #f1f3f4;    /* Very light gray */
+  color: #78909c;         /* Muted blue-gray text */
+  border: 1px solid #e0e0e0;
+  font-size: 0.6rem;      /* Even smaller font */
+  opacity: 0.8;
+}
+
+/* Warning Badge (Flagged) */
+.badge-ver-warn {
+  background: var(--grad-danger);
+  color: white;
+  border: 1px solid #c62828;
+  box-shadow: 0 2px 4px rgba(211, 47, 47, 0.2);
+}
+</style>
+
+<script>
+function loadEtaReconciliation() {
+    const table = document.getElementById('main-reconcile-table');
+    const loading = document.getElementById('eta-loading-state');
+    
+    // Clear old data rows (keep thead)
+    while (table.tBodies.length > 0) {
+        table.removeChild(table.tBodies[0]);
+    }
+    
+    // Show loading
+    loading.style.display = 'block';
+    loading.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Analyzing Data...';
+
+    google.script.run
+      .withSuccessHandler(renderStackedRows)
+      .withFailureHandler(err => {
+         loading.innerHTML = `<span class="text-danger">Error: ${err}</span>`;
+      })
+      .getReconciliationDashboardData();
+}
+
+function renderStackedRows(jsonStr) {
+    const table = document.getElementById('main-reconcile-table');
+    const loading = document.getElementById('eta-loading-state');
+    
+    // Clear old rows
+    while (table.tBodies.length > 0) { table.removeChild(table.tBodies[0]); }
+    loading.style.display = 'none';
+
+    if (!jsonStr) return;
+    let response;
+    try { response = JSON.parse(jsonStr); } catch(e) { console.error(e); return; }
+
+    const data = response.data || [];
+    if (data.length === 0) {
+       loading.style.display = 'block'; loading.innerHTML = 'No records found.'; return;
+    }
+
+    if(document.getElementById('stat-summary-text')) {
+       document.getElementById('stat-summary-text').innerText = `${data.length} Records processed`;
+    }
+
+    // Helper
+    const fmtDate = (dStr) => {
+        if (!dStr) return '-';
+        const d = new Date(dStr);
+        if (isNaN(d.getTime())) return dStr;
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    };
+
+    data.forEach(item => {
+        const int = item.internal || {};
+        const eta = item.eta || {};
+        const status = item.status;
+
+        // 1. ICONS
+        let iconHtml = '';
+        if (status === 'MATCHED') {
+           iconHtml = `<div class="status-icon-box icon-match" title="Matched"><i class="fas fa-check"></i></div>`;
+        } else if (status === 'MISSING_ON_ETA') {
+           iconHtml = `<div class="status-icon-box icon-missing" title="Missing on Portal"><i class="fas fa-question"></i></div>`;
+        } else if (status.includes('MISMATCH')) {
+           iconHtml = `<div class="status-icon-box icon-diff" title="Mismatch"><i class="fas fa-exclamation"></i></div>`;
+        } else {
+           iconHtml = `<div class="status-icon-box icon-missing" style="filter:grayscale(100%)" title="Missing Internal"><i class="fas fa-times"></i></div>`;
+        }
+
+        // 2. DATA PREP
+        const summary = int.summary || '<span class="text-muted small">-</span>';
+        const serial = int.serial || eta.key || '-'; 
+        let fullClientHtml = '';
+        if (int.fullName) {
+            fullClientHtml = `<span style="font-weight:400; font-size:0.85rem; color:#90a4ae; margin-left:6px;">(${int.fullName})</span>`;
+        }
+        const dateInt = fmtDate(int.date);
+        const dateEta = eta.issueDate ? fmtDate(eta.issueDate) : '-';
+        
+        const totalInt = int.total ? Number(int.total).toLocaleString('en-EG', {minimumFractionDigits: 2}) : '0.00';
+        const totalEta = eta.total ? Number(eta.total).toLocaleString('en-EG', {minimumFractionDigits: 2}) : '-';
+
+        // 3. VERSION LOGIC (UPDATED)
+        let verBadgeHtml = '';
+        if (eta.versionName) {
+           const ver = String(eta.versionName).trim();
+           
+           // Check if version is standard (1 or 1.0)
+           const isStandard = (ver === '1.0' || ver === '1');
+           
+           const verClass = isStandard ? 'badge-ver-std' : 'badge-ver-warn';
+           
+           // Only show 'v' prefix if it's just a number
+           const label = ver.toLowerCase().startsWith('v') ? ver : `v${ver}`;
+           
+           verBadgeHtml = `<span class="badge-ver ${verClass}" title="Invoice Type Version">${label}</span>`;
+        }
+
+        // 4. FILE ICONS
+        const linkInt = int.link 
+          ? `<a href="${int.link}" target="_blank" class="btn-icon-link" title="Open Internal Doc"><i class="fas fa-file-alt text-primary"></i></a>`
+          : `<span class="btn-icon-link link-disabled"><i class="fas fa-file-alt"></i></span>`;
+
+        const linkEta = eta.pdf 
+          ? `<a href="${eta.pdf}" target="_blank" class="btn-icon-link" title="Open ETA PDF"><i class="fas fa-file-pdf text-success"></i></a>`
+          : `<span class="btn-icon-link link-disabled"><i class="fas fa-file-pdf"></i></span>`;
+
+        // 5. BUILD GROUP
+        const group = document.createElement('tbody');
+        group.className = 'reconcile-group';
+
+        group.innerHTML = `
+          <tr class="row-internal">
+            <td rowspan="2" class="cell-common text-center">${iconHtml}</td>
+            
+            <td rowspan="2" class="cell-common text-center">
+              <span class="data-chip chip-serial">#${serial}</span>
+              <div style="font-size:0.7rem; color:#90a4ae; margin-top:4px;">v${int.version||1}</div>
+            </td>
+
+            <td rowspan="2" class="cell-common col-summary-rtl">${summary}</td>
+            
+            <td>
+               <span class="src-badge bg-int">INT</span>
+               <span style="font-weight:600;">${int.client || 'Unknown Client'}</span>
+               ${fullClientHtml}
+            </td>
+            
+            <td class="text-center"><span class="data-chip chip-date">${dateInt}</span></td>
+            
+            <td class="text-end">
+                <span class="data-chip chip-money chip-money-dark">${totalInt}</span>
+            </td>
+            
+            <td class="text-center">${linkInt}</td>
+          </tr>
+
+          <tr class="row-eta">
+             <td>
+               <span class="src-badge bg-eta" title="Official Portal Data" style="padding: 4px 7px;"><i class="fas fa-globe"></i></span>
+               ${verBadgeHtml}
+               ${eta.client 
+                  ? `<span style="font-weight:500;">${eta.client}</span>` 
+                  : '<span class="text-danger small fst-italic">Not found</span>'}
+             </td>
+             <td class="text-center"><span class="data-chip chip-date">${dateEta}</span></td>
+             <td class="text-end">
+                <span class="data-chip chip-money ${status.includes('MISMATCH') ? 'chip-money-err' : ''}">
+                    ${totalEta}
+                </span>
+             </td>
+             <td class="text-center">${linkEta}</td>
+          </tr>
+        `;
+
+        table.appendChild(group);
+    });
+}
+
+function refreshEtaData() {
+    const btn = document.getElementById('btn-eta-sync');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Syncing...';
+    
+    google.script.run
+      .withSuccessHandler((res) => {
+         btn.disabled = false;
+         btn.innerHTML = originalText;
+         if(res.success) {
+            loadEtaReconciliation(); // Refresh table
+         } else {
+            alert(res.message);
+         }
+      })
+      .withFailureHandler((e) => {
+         btn.disabled = false;
+         btn.innerHTML = originalText;
+         alert("Error: " + e);
+      })
+      .refreshEtaCache();
+}
+
+function formatMoney(n) {
+    return n ? Number(n).toLocaleString('en-EG', {minimumFractionDigits: 2}) : '0.00';
+}
+
+</script>
