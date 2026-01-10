@@ -1,0 +1,1642 @@
+<script>
+// =============================================================================
+// RETURN STOCK MODULE - SECURE FRONTEND
+// =============================================================================
+
+let returnData = {
+    records: [],
+    userRole: 'viewer' // Default to safest role
+};
+
+function initializeReturnModule() {
+    console.log('Initializing Return Module...');
+    injectReturnStyles();
+    loadReturnRecords();
+}
+
+// --- DATA LOADING ---
+
+function loadReturnRecords() {
+    const container = document.getElementById('subtab-return');
+    
+    // Find or create cards container (preserve filter bar)
+    let cardsContainer = container.querySelector('#return-cards-container');
+    if (!cardsContainer) {
+        cardsContainer = document.createElement('div');
+        cardsContainer.id = 'return-cards-container';
+        container.appendChild(cardsContainer);
+    }
+    
+    cardsContainer.innerHTML = `
+        <div class="warehouse-loading" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:50px; color:#666;">
+            <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+            <span style="margin-top:15px; font-weight:bold; font-family:'Tajawal', sans-serif;">جاري التحقق من الصلاحيات وتحميل البيانات...</span>
+        </div>
+    `;
+
+    // Get logged-in user email from localStorage
+    const userEmail = localStorage.getItem('userEmail');
+    if (!userEmail) {
+        container.innerHTML = `<div class="alert alert-danger" style="margin:20px; text-align:center;">يرجى تسجيل الدخول أولاً</div>`;
+        return;
+    }
+
+    google.script.run
+        .withSuccessHandler(rawResponse => {
+            let response;
+            try {
+                response = (typeof rawResponse === 'object' && rawResponse !== null) ? rawResponse : JSON.parse(rawResponse);
+            } catch (e) {
+                console.error("JSON Error", e);
+                container.innerHTML = `<div class="alert alert-danger">خطأ في قراءة البيانات</div>`;
+                return;
+            }
+            
+            // SECURITY HANDSHAKE:
+            // Store the role provided by the server.
+            console.log("Server assigned role:", response.role);
+            returnData.userRole = response.role || 'viewer';
+            
+            renderReturnUI(response);
+        })
+        .withFailureHandler(error => {
+            container.innerHTML = `<div class="alert alert-danger" style="margin:20px; text-align:center;">${error.message}</div>`;
+        })
+        .getReturnStockRecords(userEmail);
+}
+
+function renderReturnUI(response) {
+    const container = document.getElementById('subtab-return');
+    
+    // Find or create cards container (preserve filter bar)
+    let cardsContainer = container.querySelector('#return-cards-container');
+    if (!cardsContainer) {
+        cardsContainer = document.createElement('div');
+        cardsContainer.id = 'return-cards-container';
+        container.appendChild(cardsContainer);
+    }
+    
+    cardsContainer.innerHTML = ''; 
+    
+    if (!response || !response.success || response.records.length === 0) {
+        cardsContainer.innerHTML = `
+            <div class="warehouse-no-records" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:50px; color:#999;">
+                <i class="fas fa-undo fa-3x" style="margin-bottom:15px;"></i>
+                <p>لا توجد طلبات ارتجاع متاحة حالياً</p>
+            </div>`;
+        return;
+    }
+
+    returnData.records = response.records;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'return-cards-container';
+    wrapper.dir = 'rtl';
+    
+    response.records.forEach(record => {
+        wrapper.appendChild(createReturnCard(record));
+    });
+    cardsContainer.appendChild(wrapper);
+    
+    // Initialize filter system
+    initializeReturnFilters(response.records);
+}
+
+// --- CARD CREATION ---
+
+function createReturnCard(record) {
+    // USE THE SECURE ROLE
+    const userRole = returnData.userRole; 
+    
+    const isCompleted = (record.status === true || record.status === 'true');
+    
+    // Check if record has been saved
+    const isSaved = (record.status !== null && record.status !== "" && record.status !== undefined);
+    
+    // VISUAL LOCKING LOGIC:
+    // Viewer: Always locked
+    // Editor: Locked if already saved
+    // Admin: Never locked (can edit everything)
+    const isLocked = (userRole === 'viewer') || (userRole === 'editor' && isSaved);
+    const cardClass = isLocked ? 'return-card card-locked' : 'return-card card-active';
+
+    const card = document.createElement('div');
+    card.className = cardClass;
+    card.id = `return-card-${record.dismissNumber}`;
+    
+    card.innerHTML = `
+        <div class="card-loading-overlay" id="overlay-${record.dismissNumber}" style="display:none;">
+            <div class="spinner-border text-primary"></div>
+        </div>
+
+        <div class="return-card-header" onclick="toggleReturnCard('${record.dismissNumber}')">
+            <div class="header-meta-row">
+                <span class="meta-pill return-number-pill">
+                    <i class="fas fa-undo"></i> إذن ارتجاع رقم: <strong>${record.returnNumber}</strong>
+                    ${record.returnNoteUrl ? `<a href="${record.returnNoteUrl}" target="_blank" class="return-note-icon" onclick="event.stopPropagation()"><i class="fas fa-file-pdf"></i></a>` : ''}
+                </span>
+                <span class="meta-pill"><i class="far fa-calendar-alt"></i> ${record.loadingDate || '-'}</span>
+                ${record.returnNumber ? `
+                ` : ''}
+            </div>
+            <div class="header-main-row">
+                <div class="dismiss-info">
+                    <span class="dismiss-label">إذن صرف رقم:</span>
+                    <span class="dismiss-value">${record.dismissNumber}</span>
+                      <a href="${record.pdfUrl}" target="_blank" class="action-icon-btn-inline" onclick="event.stopPropagation()" title="إذن الصرف">
+                          <i class="fas fa-file-invoice"></i>
+                      </a>
+                    <span class="truck-pill"><i class="fas fa-truck"></i> ${record.delivery.truck} | ${record.delivery.driver}</span>
+                </div>
+                <div class="header-actions">
+                    ${getStatusBadge(record.status)}
+                    <i class="fas fa-chevron-down toggle-icon"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="return-card-body" id="return-body-${record.dismissNumber}" style="display:none;">
+            
+            <fieldset id="fs-grid-${record.dismissNumber}" class="return-fieldset" ${isLocked ? 'disabled' : ''}>
+                <div class="products-grid-wrapper">
+                    <div class="products-grid-header">
+                        <div class="col-name">المنتج</div>
+                        <div class="col-note">ملاحظات</div>
+                        <div class="col-input">الكمية المستلمة</div>
+                    </div>
+                    ${record.products.map(p => {
+                        const savedNote = extractNoteFromSummary(record.summary, p.name);
+                        return createReturnProductRow(p, record.dismissNumber, isCompleted, savedNote);
+                    }).join('')}
+                </div>
+            </fieldset>
+            
+            <div class="card-footer-area">
+                
+                <div class="footer-right-group">
+                    <fieldset id="fs-date-${record.dismissNumber}" class="return-fieldset" ${isLocked ? 'disabled' : ''}>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <label>تاريخ الدخول:</label>
+                            <input type="date" id="date-${record.dismissNumber}" class="footer-date-input" 
+                                   value="${record.returnDate || ''}">
+                        </div>
+                    </fieldset>
+                </div>
+                
+                <div class="footer-left-group">
+                    ${renderFooterButton(record.dismissNumber, isCompleted, userRole)}
+                </div>
+            </div>
+
+        </div>
+    `;
+    return card;
+}
+
+/**
+ * Determines button state based on SECURE role
+ */
+function renderFooterButton(id, isCompleted, role) {
+    // Check if record has been saved (status is not blank/null)
+    const record = returnData.records.find(r => r.dismissNumber == id);
+    const isSaved = (record && record.status !== null && record.status !== "" && record.status !== undefined);
+    
+    if (!isSaved) {
+        // Not saved yet - Pending Card
+        if (role === 'viewer') {
+            return `<button class="btn-locked-view" disabled><i class="fas fa-eye"></i> للمشاهدة فقط</button>`;
+        } else {
+            // Editor or Admin can save
+            return `<button class="btn-save-return" id="btn-${id}" onclick="saveReturnCard('${id}')"><i class="fas fa-save"></i> حفظ الارتجاع</button>`;
+        }
+    } else {
+        // Already saved - Show Edit button
+        if (role === 'viewer') {
+            return `<button class="btn-locked-view" disabled><i class="fas fa-lock"></i> تم الحفظ</button>`;
+        } else if (role === 'editor') {
+            // Editor cannot edit after save
+            return `<button class="btn-locked-view" disabled onclick="showPermissionToast()"><i class="fas fa-check-circle"></i> مكتمل</button>`;
+        } else {
+            // Admin can edit saved records
+            return `<button class="btn-edit-mode" id="btn-${id}" onclick="enableEditMode('${id}')"><i class="fas fa-pencil-alt"></i> تعديل</button>`;
+        }
+    }
+}
+
+function createReturnProductRow(product, dismissId, isCompleted, savedNote) {
+    const client = product.details?.client || 0;
+    const extras = product.details?.extras || 0;
+    
+    let breakdownHtml = '';
+    if (client > 0 && extras > 0) breakdownHtml = `<span class="breakdown-text">عميل: ${client} | زيادات: ${extras}</span>`;
+    
+    const inputValue = (product.actualQty !== null && product.actualQty !== undefined) ? product.actualQty : '';
+    const noteValue = savedNote || '';
+    
+    // Check if saved value doesn't match expected (round to 1 decimal like sheet formula)
+    const isSaved = (inputValue !== '' && inputValue !== null && inputValue !== undefined);
+    const roundedInput = isSaved ? Math.round(parseFloat(inputValue) * 10) / 10 : null;
+    const roundedExpected = Math.round(product.expectedQty * 10) / 10;
+    const isMismatch = isSaved && roundedInput !== roundedExpected;
+    
+    // For saved mismatched values, show both saved and expected
+    let placeholderText = '';
+    let expectedWarning = '';
+    
+    if (isMismatch) {
+        // Show expected alongside saved value
+        placeholderText = `متوقع: ${product.expectedQty}`;
+        expectedWarning = `<span class="expected-warning"><i class="fas fa-exclamation-triangle"></i> متوقع: ${product.expectedQty}</span>`;
+    } else {
+        // Normal placeholder
+        placeholderText = `${product.expectedQty}${client > 0 && extras > 0 ? ' ('+client+'+'+extras+')' : ''}`;
+        expectedWarning = '';
+    }
+    
+    return `
+        <div class="return-product-row">
+            <div class="prod-name-col">
+                <strong>${product.name}</strong>
+                ${breakdownHtml}
+            </div>
+            <div class="prod-note-col">
+                <input type="text" 
+                       class="return-note-input" 
+                       id="note-${dismissId}-${product.blockIndex}" 
+                       placeholder="ملاحظات..."
+                       value="${noteValue}">
+            </div>
+            <div class="prod-input-col">
+                ${expectedWarning}
+                <input type="number" 
+                       class="return-qty-input ${isMismatch ? 'invalid' : ''}" 
+                       id="input-${dismissId}-${product.blockIndex}" 
+                       placeholder="${placeholderText}"
+                       value="${inputValue}"
+                       data-expected="${product.expectedQty}"
+                       oninput="validateReturnInput(this)"
+                       step="1">
+            </div>
+        </div>
+    `;
+}
+// --- ACTIONS ---
+
+function enableEditMode(id) {
+    // Security check
+    if (returnData.userRole !== 'admin') {
+        safeToast('التعديل متاح للإداريين فقط', 'error');
+        return;
+    }
+    
+    const card = document.getElementById(`return-card-${id}`);
+    const fsGrid = document.getElementById(`fs-grid-${id}`);
+    const fsDate = document.getElementById(`fs-date-${id}`);
+    const btn = document.getElementById(`btn-${id}`);
+    
+    // Unlock Visuals
+    card.classList.remove('card-locked');
+    card.classList.add('card-active');
+    
+    // Unlock Inputs
+    if(fsGrid) fsGrid.disabled = false;
+    if(fsDate) fsDate.disabled = false;
+    
+    // Update Button - Change to Save
+    btn.innerHTML = '<i class="fas fa-save"></i> حفظ التغييرات';
+    btn.className = 'btn-save-return';
+    btn.onclick = () => saveReturnCard(id);
+}
+
+function showPermissionToast() {
+    safeToast('ليس لديك صلاحية للتعديل', 'error');
+}
+
+function saveReturnCard(id) {
+    const overlay = document.getElementById(`overlay-${id}`);
+    const fsGrid = document.getElementById(`fs-grid-${id}`);
+    const fsDate = document.getElementById(`fs-date-${id}`);
+    const btn = document.getElementById(`btn-${id}`);
+    const dateInput = document.getElementById(`date-${id}`);
+    const record = returnData.records.find(r => r.dismissNumber == id);
+    const userEmail = localStorage.getItem('userEmail');
+    if (!userEmail) { safeToast('يرجى تسجيل الدخول', 'error'); return; }
+
+    // Permission Check
+    if (returnData.userRole === 'viewer') { safeToast('ليس لديك صلاحية', 'error'); return; }
+
+    if (!dateInput.value) { 
+        safeToast('يرجى اختيار تاريخ الدخول أولاً', 'warning'); 
+        return; 
+    }
+    
+    // Check if past date - require confirmation
+    if (dateInput.value < getLocalTodayDate()) {
+        showCustomConfirm(
+            'تأكيد التاريخ',
+            `التاريخ المحدد (${dateInput.value}) في الماضي.\nهل تريد المتابعة بهذا التاريخ؟`,
+            true,
+            () => {
+                // Confirmed - proceed with save
+                proceedWithSavereturn(id, overlay, fsGrid, fsDate, btn, dateInput, record, userEmail);
+            },
+            () => {
+                // Cancelled - unlock UI
+                overlay.style.display = 'none';
+                if(fsGrid) fsGrid.disabled = false;
+                if(fsDate) fsDate.disabled = false;
+                btn.disabled = false;
+                safeToast('تم الإلغاء', 'info');
+            }
+        );
+        return;
+    }
+    
+    // Date is valid - proceed directly
+    proceedWithSavereturn(id, overlay, fsGrid, fsDate, btn, dateInput, record, userEmail);
+}
+
+function proceedWithSavereturn(id, overlay, fsGrid, fsDate, btn, dateInput, record, userEmail) {
+
+    // Lock UI
+    overlay.style.display = 'flex';
+    if(fsGrid) fsGrid.disabled = true;
+    if(fsDate) fsDate.disabled = true;
+    btn.disabled = true;
+
+    let processedProducts = [];
+    let summaryParts = [];
+    let hasMismatch = false;
+
+    record.products.forEach(p => {
+        const qtyEl = document.getElementById(`input-${id}-${p.blockIndex}`);
+        const noteEl = document.getElementById(`note-${id}-${p.blockIndex}`);
+        
+        const received = parseFloat(qtyEl.value) || 0;
+        const note = noteEl.value.trim();
+        const expected = p.expectedQty;
+
+        processedProducts.push({
+            name: p.name, blockIndex: p.blockIndex, receivedQty: received, note: note, expectedQty: expected
+        });
+
+        // Round to 1 decimal for comparison (matching sheet formula)
+        const roundedReceived = Math.round(received * 10) / 10;
+        const roundedExpected = Math.round(expected * 10) / 10;
+        
+        let part = '';
+        if (roundedReceived === roundedExpected) {
+            part = `✓ ${roundedReceived} ${p.name}`;
+        } else {
+            hasMismatch = true;
+            part = `✘ ${roundedReceived} ${p.name} (متوقع ${roundedExpected})`;
+        }
+        if (note) part += ` [ ${note} ]`;
+        summaryParts.push(part);
+    });
+
+    const saveData = {
+        dismissNumber: id,
+        returnDate: dateInput.value,
+        products: processedProducts,
+        summary: summaryParts.join('\n'),
+        userEmail: userEmail
+    };
+    
+    if (hasMismatch) {
+        showCustomConfirm(
+            'تأكيد الحفظ',
+            'توجد فروقات بين الكميات المستلمة والمتوقعة.\nهل تريد الحفظ والمتابعة؟',
+            true,
+            () => {
+                // Confirmed - continue with save
+                performSaveOperation(id, overlay, fsGrid, fsDate, btn, saveData, record);
+            },
+            () => {
+                // Cancelled
+                overlay.style.display = 'none';
+                if(fsGrid) fsGrid.disabled = false;
+                if(fsDate) fsDate.disabled = false;
+                btn.disabled = false;
+            }
+        );
+        return;
+    }
+    
+    // No mismatch - proceed directly
+    performSaveOperation(id, overlay, fsGrid, fsDate, btn, saveData, record);
+}
+
+function performSaveOperation(id, overlay, fsGrid, fsDate, btn, saveData, record) {
+    google.script.run
+        .withSuccessHandler(res => {
+            if (res.success) {
+                // PASS saveData to the generator so it shows the new numbers
+                generateReturnNoteImage(id, saveData, record, () => {
+                    overlay.style.display = 'none';
+                    safeToast('تم الحفظ بنجاح', 'success');
+                    
+                    // Update local record status
+                    const recordIndex = returnData.records.findIndex(r => r.dismissNumber == id);
+                    if (recordIndex !== -1) {
+                        returnData.records[recordIndex].status = true;
+                        // Update local record with new data for future viewings
+                        returnData.records[recordIndex].returnDate = saveData.returnDate;
+                        // We don't deeply update products array here as it's complex, 
+                        // but the printout is already handled via saveData.
+                    }
+                    
+                    // Re-lock UI
+                    const card = document.getElementById(`return-card-${id}`);
+                    card.classList.remove('card-active');
+                    card.classList.add('card-locked');
+                    if(fsGrid) fsGrid.disabled = true;
+                    if(fsDate) fsDate.disabled = true;
+                    
+                    if (returnData.userRole === 'admin') {
+                        btn.innerHTML = '<i class="fas fa-pencil-alt"></i> تعديل';
+                        btn.className = 'btn-edit-mode';
+                        btn.onclick = () => enableEditMode(id);
+                        btn.disabled = false;
+                    } else {
+                        btn.innerHTML = '<i class="fas fa-check-circle"></i> محفوظ';
+                        btn.className = 'btn-locked-view';
+                        btn.disabled = true;
+                    }
+                });
+            } else {
+                overlay.style.display = 'none';
+                if(fsGrid) fsGrid.disabled = false;
+                if(fsDate) fsDate.disabled = false;
+                btn.disabled = false;
+                safeToast('خطأ: ' + res.message, 'error');
+            }
+        })
+        .withFailureHandler(err => {
+            overlay.style.display = 'none';
+            if(fsGrid) fsGrid.disabled = false;
+            if(fsDate) fsDate.disabled = false;
+            btn.disabled = false;
+            safeToast('خطأ في الاتصال', 'error');
+        })
+        .saveReturnTransaction(saveData);
+}
+
+// --- UTILS ---
+
+// =============================================================================
+// MODERN RETURN PRINT GENERATION
+// =============================================================================
+
+// =============================================================================
+// MODERN RETURN PRINT & SAVE
+// =============================================================================
+
+// =============================================================================
+// MODERN RETURN PRINT & SAVE (FIXED)
+// =============================================================================
+
+// =============================================================================
+// MODERN RETURN PRINT & SAVE (UPDATED LAYOUT)
+// =============================================================================
+
+function generateReturnNoteImage(id, saveData, originalRecord, callback) {
+    safeToast('جاري تحضير المستند...', 'info');
+
+    const containerId = 'return-print-container';
+    let container = document.getElementById(containerId);
+    if (container) document.body.removeChild(container);
+    
+    container = document.createElement('div');
+    container.id = containerId;
+    container.style.position = 'fixed';
+    container.style.top = '0';
+    container.style.left = '-9999px';
+    container.style.zIndex = '99999';
+    document.body.appendChild(container);
+
+    // 1. Render HTML
+    renderModernReturnHtml(originalRecord, container, saveData);
+
+    // 2. Render QR Codes (After HTML is in DOM)
+    setTimeout(() => {
+        renderReturnQRCodes(container);
+        
+        // 3. Wait slightly for QR to paint, then Capture
+        setTimeout(() => {
+             if (typeof html2canvas === 'function') {
+                html2canvas(container.querySelector('.modern-print-wrapper'), {
+                    scale: 2,
+                    useCORS: true,
+                    logging: false
+                }).then(canvas => {
+                    const imgData = canvas.toDataURL('image/png').split(',')[1];
+                    const userEmail = localStorage.getItem('userEmail');
+
+                    safeToast('جاري حفظ الصورة...', 'info');
+                    google.script.run
+                        .withSuccessHandler((res) => {
+                            if (res && !res.success) safeToast('تنبيه: ' + res.message, 'warning');
+                            else {
+                                const rec = returnData.records.find(r => r.dismissNumber == id);
+                                if (rec && res.url) rec.pdfUrl = res.url;
+                            }
+                            printReturnContainer(container.innerHTML);
+                            if (callback) callback();
+                        })
+                        .withFailureHandler(err => {
+                            safeToast('فشل الحفظ: ' + err, 'error');
+                            printReturnContainer(container.innerHTML);
+                            if (callback) callback();
+                        })
+                        .saveReturnNoteImage(id, imgData, userEmail);
+                }).catch(err => {
+                    console.error(err);
+                    safeToast('فشل إنشاء الصورة', 'error');
+                    if (callback) callback();
+                });
+            } else {
+                safeToast('مكتبة الصور غير متوفرة', 'error');
+                if (callback) callback();
+            }
+        }, 300); // Delay for QR
+    }, 100); // Delay for DOM
+}
+
+function renderReturnQRCodes(container) {
+    const qrs = container.querySelectorAll('.local-qr-target');
+    qrs.forEach(el => {
+        const url = el.dataset.url;
+        if (url && typeof QRCode !== 'undefined') {
+            el.innerHTML = '';
+            new QRCode(el, {
+                text: url,
+                width: 90,
+                height: 90,
+                colorDark : "#000000",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.L
+            });
+        }
+    });
+}
+
+function renderModernReturnHtml(r, container, saveData) {
+    // --- DATA PREP ---
+    const isImmediateSave = !!saveData;
+    const returnDate = isImmediateSave ? saveData.returnDate : r.returnDate;
+    
+    // Map User Inputs
+    const newQtyMap = {};
+    const newNoteMap = {};
+    if (isImmediateSave && saveData.products) {
+        saveData.products.forEach(p => {
+            newQtyMap[p.blockIndex] = p.receivedQty;
+            newNoteMap[p.blockIndex] = p.note;
+        });
+    }
+
+    const returnNumStr = String(r.returnNumber || '00');
+    const loadOrderNum = returnNumStr.length >= 2 ? returnNumStr.slice(-2) : returnNumStr;
+    const isCompleted = (r.status === true || r.status === 'true') || isImmediateSave;
+    const timestamp = new Date().toLocaleString('ar-EG');
+    const user = localStorage.getItem('userEmail') || 'System';
+    
+    // Check Landscape
+    const isLandscape = r.products.length > 8; 
+
+    // Calculate Column Width
+    const prodWidth = 85 / r.products.length;
+
+    // Helper: Round to 1 decimal place
+    const round1 = (num) => Math.round((parseFloat(num) || 0) * 10) / 10;
+
+    // --- SVG HELPER ---
+    // Returns inline SVG strings to ensure reliable rendering in html2canvas
+    const getIcon = (name, color = 'currentColor', size = '14px') => {
+        const paths = {
+            calendar: 'M152 64H296V24C296 10.7 306.7 0 320 0C333.3 0 344 10.7 344 24V64H384C419.3 64 448 92.7 448 128V448C448 483.3 419.3 512 384 512H64C28.7 512 0 483.3 0 448V128C0 92.7 28.7 64 64 64H104V24C104 10.7 114.7 0 128 0C141.3 0 152 10.7 152 24V64zM48 448C48 456.8 55.2 464 64 464H384C392.8 464 400 456.8 400 448V192H48V448z',
+            truck: 'M48 0C21.5 0 0 21.5 0 48V368c0 26.5 21.5 48 48 48H64c0 53 43 96 96 96s96-43 96-96H384c0 53 43 96 96 96s96-43 96-96h32c17.7 0 32-14.3 32-32s-14.3-32-32-32V288 256 237.3c0-17-6.7-33.3-18.7-45.3L512 114.7c-12-12-28.3-18.7-45.3-18.7H416V48c0-26.5-21.5-48-48-48H48z',
+            undo: 'M48.5 224H40c-13.3 0-24-10.7-24-24V72c0-9.7 5.8-18.5 14.8-22.2s19.3-1.7 26.2 5.2L98.6 96.6c87.6-86.5 228.7-86.2 315.8 1c87.5 87.5 87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3c-62.2-62.2-162.7-62.5-225.3-1L185 183c6.9 6.9 8.9 17.2 5.2 26.2s-12.5 14.8-22.2 14.8H48.5z',
+            check: 'M438.6 105.4c12.5 12.5 12.5 32.8 0 45.3l-256 256c-12.5 12.5-32.8 12.5-45.3 0l-128-128c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0L160 338.7 393.4 105.4c12.5-12.5 32.8-12.5 45.3 0z',
+            timesCircle: 'M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM175 175c9.4-9.4 24.6-9.4 33.9 0l47 47 47-47c9.4-9.4 24.6-9.4 33.9 0s9.4 24.6 0 33.9l-47 47 47 47c9.4 9.4 9.4 24.6 0 33.9s-24.6 9.4-33.9 0l-47-47-47 47c-9.4 9.4-24.6 9.4-33.9 0s-9.4-24.6 0-33.9l47-47-47-47c-9.4-9.4-9.4-24.6 0-33.9z',
+            minus: 'M432 256c0 17.7-14.3 32-32 32L48 288c-17.7 0-32-14.3-32-32s14.3-32 32-32l352 0c17.7 0 32 14.3 32 32z'
+        };
+        const viewBox = (name === 'check' || name === 'minus' || name === 'calendar') ? '0 0 448 512' : '0 0 512 512';
+        
+        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" style="width:${size}; height:${size}; fill:${color}; vertical-align:middle;">
+            <path d="${paths[name] || ''}"/>
+        </svg>`;
+    };
+
+    // --- CSS ---
+    const styleBlock = `<style>
+        .modern-print-wrapper { 
+            padding: 10mm; font-family: "Tajawal", sans-serif; direction: rtl; 
+            color: #000; background: #fff; 
+            width: ${isLandscape ? '297mm' : '210mm'}; 
+            min-height: ${isLandscape ? '210mm' : '297mm'}; 
+            box-sizing: border-box; position: relative; 
+        }
+        
+        /* HEADER */
+        .mp-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #000; padding-bottom: 12px; margin-bottom: 15px; }
+        .mp-header-right { display: flex; gap: 15px; align-items: center; }
+        .mp-qr-box { width: 90px; height: 90px; border: 1px solid #ddd; padding: 2px; border-radius: 8px; }
+        .mp-meta { display: flex; flex-direction: column; font-size: 11px; font-weight: 700; gap: 5px; }
+        
+        .mp-header-left { text-align: left; display: flex; flex-direction: column; align-items: flex-end; }
+        .mp-title { font-size: 24px; font-weight: 900; margin: 0; line-height: 1.2; }
+        .mp-badge { border: 2px solid #000; padding: 2px 12px; border-radius: 6px; font-weight: 800; font-family: 'Oswald'; display: inline-block; margin-top: 5px; font-size: 16px; }
+        
+        .mp-circle-num {
+            width: 50px; height: 50px; border-radius: 50%; border: 3px solid #000;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 24px; font-weight: 900; font-family: 'Oswald';
+            margin-right: 10px;
+        }
+
+        /* CLIENT ORDERS GRID */
+        .mp-section-title { font-size: 12px; font-weight: 800; border-bottom: 1px solid #000; margin-bottom: 8px; padding-bottom: 2px; display:inline-block;}
+        .mp-orders-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); 
+            gap: 10px; margin-bottom: 20px; 
+        }
+        .mp-order-card { 
+            background: #f9f9f9; padding: 6px; border: 1px solid #ccc; font-size: 10px; 
+            border-radius: 8px; 
+        }
+        .mp-order-client { font-weight: 800; color: #000; margin-bottom: 3px; border-bottom: 1px dotted #ccc; padding-bottom: 2px; }
+        .mp-order-summary { color: #555; line-height: 1.3; white-space: pre-wrap; }
+
+        /* TABLES COMMON */
+        .mp-table { 
+            width: 100%; border-collapse: separate; border-spacing: 0; 
+            margin-bottom: 15px; font-size: 11px; 
+            border: 1px solid #000; border-radius: 8px; overflow: hidden;
+            table-layout: fixed; 
+        }
+        .mp-table th, .mp-table td { border-left: 1px solid #ccc; border-bottom: 1px solid #ccc; padding: 5px; text-align: center; vertical-align: middle; }
+        .mp-table tr:last-child td { border-bottom: none; }
+        .mp-table td:first-child, .mp-table th:first-child { border-left: 2px solid #000; }
+        
+        .col-row-header { width: 15%; background: #eee; font-weight: 800; text-align: right; padding-right: 10px; border-left: none !important; }
+        .col-product { background: #333; color: white; font-weight: 700; border-color: #555; }
+        
+        .mp-table-prominent { border: 2px solid #000; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .mp-table-prominent .col-row-header { background: #e0e0e0; font-size: 12px; }
+        .mp-table-prominent td { font-weight: bold; font-size: 12px; }
+
+        .virtual-row td { border-bottom: none !important; border-top: 1px solid #000; background: #fff; padding-top: 8px; }
+        .virtual-row .col-row-header { background: #fff; border-bottom: none !important; border-top: 1px solid #000;}
+
+        .val-cell { font-family: 'Oswald'; font-weight: 600; }
+        .val-returned { font-size: 14px; font-weight: 900; }
+        .mismatch { background-color: #ffebee !important; color: #c62828; }
+        
+        .mp-footer { margin-top: 20px; border-top: 2px solid #000; padding-top: 5px; display: flex; justify-content: space-between; font-size: 10px; font-weight: 600; }
+    </style>`;
+
+    let html = `<div class="modern-print-wrapper">${styleBlock}`;
+
+    // --- 1. HEADER ---
+    html += `
+    <div class="mp-header">
+        <div class="mp-header-right">
+            <div class="mp-qr-box local-qr-target" data-url="${r.pdfUrl || ''}"></div>
+            <div class="mp-circle-num">${loadOrderNum}</div>
+            
+            <div class="mp-meta">
+                <span>${getIcon('calendar', '#000', '12px')} تاريخ التحميل: ${r.loadingDate || '-'}</span>
+                <span>${getIcon('undo', '#000', '12px')} تاريخ الارتجاع: ${returnDate || '-'}</span>
+                <span>${getIcon('truck', '#000', '12px')} ${r.delivery.truck || '-'} | ${r.delivery.driver || '-'}</span>
+            </div>
+        </div>
+        <div class="mp-header-left">
+            <h1 class="mp-title">إذن ارتجاع مخزني</h1>
+            <div class="mp-badge"># ${r.returnNumber || '---'}</div>
+            <div style="font-size:11px; margin-top:4px; font-weight:bold;">إذن صرف رقم: ${r.dismissNumber}</div>
+        </div>
+    </div>`;
+
+    // --- 2. CLIENT ORDERS ---
+    if (r.linkedOrders && r.linkedOrders.length > 0) {
+        html += `<div class="mp-section-title">تفاصيل طلبات العملاء</div>`;
+        html += `<div class="mp-orders-grid">`;
+        r.linkedOrders.forEach(o => {
+            html += `
+            <div class="mp-order-card">
+                <div class="mp-order-client">${o.client || 'غير معروف'} <span style="font-weight:400">(${o.type || '-'})</span></div>
+                <div class="mp-order-summary">${o.summary || '-'}</div>
+            </div>`;
+        });
+        html += `</div>`;
+    }
+
+    // --- HELPER: Get Data ---
+    const getData = (p, key, isInput) => {
+        if (isInput && isImmediateSave) {
+            const val = newQtyMap[p.blockIndex];
+            return (val !== undefined && val !== '') ? parseFloat(val) : '-';
+        }
+        if (p.matrix && p.matrix[key] !== undefined && p.matrix[key] !== null) {
+            return p.matrix[key];
+        }
+        if (key === 'actualRet') return p.actualQty;
+        if (key === 'expectedRet') return p.expectedQty;
+        if (key === 'extras') return p.details?.extras;
+        if (key === 'clientRet') return p.details?.client;
+        return 0;
+    };
+
+    let showReturnReqRow = false;
+    r.products.forEach(p => { if (getData(p, 'clientRet') > 0) showReturnReqRow = true; });
+
+    // --- TABLE 1: SUPPLY ---
+    html += `<table class="mp-table">`;
+    html += `<thead><tr><th class="col-row-header">البيان</th>`;
+    r.products.forEach(p => html += `<th class="col-product" style="width:${prodWidth}%">${p.name}</th>`);
+    html += `</tr></thead><tbody>`;
+    
+    html += `<tr><td class="col-row-header">مطلوب توريد</td>`;
+    r.products.forEach(p => html += `<td class="val-cell">${getData(p, 'supply') || '-'}</td>`);
+    html += `</tr>`;
+
+    if (showReturnReqRow) {
+        html += `<tr><td class="col-row-header">مطلوب إرجاع</td>`;
+        r.products.forEach(p => {
+            const val = getData(p, 'clientRet');
+            html += `<td class="val-cell">${val > 0 ? val : '-'}</td>`;
+        });
+        html += `</tr>`;
+    }
+    html += `</tbody></table>`;
+
+    // --- TABLE 2: LOADING ---
+    html += `<table class="mp-table"><tbody>`;
+    html += `<tr><td class="col-row-header">إجمالي التحميل</td>`;
+    r.products.forEach(p => html += `<td class="val-cell">${getData(p, 'loaded') || '-'}</td>`);
+    html += `</tr>`;
+    
+    html += `<tr><td class="col-row-header">الزيادات</td>`;
+    r.products.forEach(p => {
+        const val = getData(p, 'extras');
+        html += `<td class="val-cell">${val > 0 ? val : '-'}</td>`;
+    });
+    html += `</tr>`;
+    html += `</tbody></table>`;
+
+    // --- TABLE 3: RETURNS (PROMINENT) ---
+    html += `<table class="mp-table mp-table-prominent"><tbody>`;
+    
+    html += `<tr><td class="col-row-header">متوقع ارتجاع</td>`;
+    r.products.forEach(p => html += `<td class="val-cell">${getData(p, 'expectedRet') || '-'}</td>`);
+    html += `</tr>`;
+    
+    html += `<tr><td class="col-row-header">المرتجع الفعلي</td>`;
+    r.products.forEach(p => {
+        const val = getData(p, 'actualRet', true);
+        const exp = getData(p, 'expectedRet');
+        
+        let style = '';
+        if (val !== '-') {
+            if (round1(val) !== round1(exp)) style = 'mismatch';
+        }
+        
+        html += `<td class="val-cell val-returned ${style}">${val}</td>`;
+    });
+    html += `</tr>`;
+
+    html += `<tr><td class="col-row-header">ملاحظات</td>`;
+    r.products.forEach(p => {
+        let note = '';
+        if (isImmediateSave) note = newNoteMap[p.blockIndex] || '';
+        else note = p.note || '';
+        html += `<td style="font-size:10px; color:#555;">${note}</td>`;
+    });
+    html += `</tr>`;
+
+    // VIRTUAL BORDER ROW (Icons)
+    html += `<tr class="virtual-row"><td class="col-row-header"></td>`;
+    r.products.forEach(p => {
+        const act = getData(p, 'actualRet', true);
+        const exp = getData(p, 'expectedRet');
+        let icon = '';
+        
+        if (act !== '-') {
+            // Compare rounded values
+            if (round1(act) === round1(exp)) {
+                // Check mark (No Circle) - Green
+                icon = getIcon('check', 'green', '16px');
+            } else {
+                // False mark (Encircled) - Red
+                icon = getIcon('timesCircle', 'red', '16px');
+            }
+        } else {
+            // Minus (No Data) - Gray
+            icon = getIcon('minus', '#ddd', '14px');
+        }
+        html += `<td>${icon}</td>`;
+    });
+    html += `</tr>`;
+
+    html += `</tbody></table>`;
+
+    // --- 4. FOOTER ---
+    html += `
+    <div class="mp-footer">
+        <div>مستخدم: ${user}</div>
+        <div>تاريخ الطباعة: ${timestamp}</div>
+        <div>${isCompleted ? 'الحالة: <span style="color:green">مكتمل</span>' : 'الحالة: <span style="color:red">معلق</span>'}</div>
+    </div>`;
+
+    html += `</div>`;
+    container.innerHTML = html;
+}
+
+function printReturnContainer(htmlContent) {
+    const printWindow = window.open('', '_blank');
+    
+    const doc = `<!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head>
+        <meta charset="UTF-8">
+        <title>إذن ارتجاع</title>
+        <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@700&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+        <style>
+            body { margin: 0; padding: 0; background: #fff; }
+            @media print {
+                @page { margin: 0; size: A4; }
+                body { margin: 0; }
+                .print-guide { display: none; }
+            }
+            .print-guide {
+                background: #333; color: #fff; padding: 10px; text-align: center; font-family: 'Tajawal'; font-size: 14px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="print-guide">اضغط Ctrl+P للطباعة (تأكد من تفعيل "Background Graphics" في الإعدادات)</div>
+        ${htmlContent}
+    </body>
+    </html>`;
+
+    printWindow.document.write(doc);
+    printWindow.document.close();
+
+    printWindow.onload = function() {
+        setTimeout(() => {
+            printWindow.print();
+        }, 500);
+    };
+}
+
+function getSvg(icon) {
+    const icons = {
+        truck: '<svg class="svg-icon" viewBox="0 0 512 512"><path fill="currentColor" d="M48 0C21.5 0 0 21.5 0 48V368c0 26.5 21.5 48 48 48H64c0 53 43 96 96 96s96-43 96-96H384c0 53 43 96 96 96s96-43 96-96h32c17.7 0 32-14.3 32-32s-14.3-32-32-32V288 256 237.3c0-17-6.7-33.3-18.7-45.3L512 114.7c-12-12-28.3-18.7-45.3-18.7H416V48c0-26.5-21.5-48-48-48H48z"/></svg>',
+        user: '<svg class="svg-icon" viewBox="0 0 448 512"><path fill="currentColor" d="M224 256c70.7 0 128-57.3 128-128S294.7 0 224 0 96 57.3 96 128s57.3 128 128 128zm-45.7 48C79.8 304 0 383.8 0 482.3 0 498.7 13.3 512 29.7 512h388.6c16.4 0 29.7-13.3 29.7-29.7 0-98.5-79.8-178.3-178.3-178.3h-91.4z"/></svg>',
+        check: '<svg class="svg-icon" viewBox="0 0 512 512"><path fill="currentColor" d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM369 209L241 337c-9.4 9.4-24.6 9.4-33.9 0l-64-64c-9.4-9.4-9.4-24.6 0-33.9s24.6-9.4 33.9 0l47 47L335 175c9.4-9.4 24.6-9.4 33.9 0s9.4 24.6 0 33.9z"/></svg>',
+        clock: '<svg class="svg-icon" viewBox="0 0 512 512"><path fill="currentColor" d="M256 0a256 256 0 1 1 0 512A256 256 0 1 1 256 0zM232 120V256c0 8 4 15.5 10.7 20l96 64c11 7.4 25.9 4.4 33.3-6.7s4.4-25.9-6.7-33.3L280 243.2V120c0-13.3-10.7-24-24-24s-24 10.7-24 24z"/></svg>'
+    };
+    return icons[icon] || '';
+}
+
+function extractNoteFromSummary(summary, productName) {
+    if (!summary) return "";
+    const lines = summary.split('\n');
+    const regex = new RegExp(productName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ".*?\\[\\s*(.*?)\\s*\\]$", "i");
+    for (let line of lines) {
+        const match = line.match(regex);
+        if (match) return match[1].trim();
+    }
+    return "";
+}
+
+function getStatusBadge(status) {
+    if (status === true || status === 'true') return `<span class="return-badge badge-completed"><i class="fas fa-check"></i> مكتمل</span>`;
+    if (status === false || status === 'false') return `<span class="return-badge badge-incomplete"><i class="fas fa-times-circle"></i> غير مكتمل</span>`;
+    return `<span class="return-badge badge-pending"><i class="fas fa-hourglass-half"></i> معلق</span>`;
+}
+
+function toggleReturnCard(id) {
+    const body = document.getElementById(`return-body-${id}`);
+    const card = document.getElementById(`return-card-${id}`);
+    const icon = card.querySelector('.toggle-icon');
+    if (body.style.display === 'block') { body.style.display = 'none'; card.classList.remove('expanded'); if(icon) icon.style.transform = 'rotate(0deg)'; } 
+    else { body.style.display = 'block'; card.classList.add('expanded'); if(icon) icon.style.transform = 'rotate(180deg)'; }
+}
+
+function validateReturnInput(input) {
+    const expected = parseFloat(input.getAttribute('data-expected'));
+    const val = parseFloat(input.value);
+    if (!input.value) { input.classList.remove('valid', 'invalid'); return; }
+    
+    // Round both to 1 decimal point for comparison (matching sheet formula)
+    const roundedVal = Math.round(val * 10) / 10;
+    const roundedExpected = Math.round(expected * 10) / 10;
+    
+    if (roundedVal !== roundedExpected) { 
+        input.classList.add('invalid'); 
+        input.classList.remove('valid'); 
+    } else { 
+        input.classList.add('valid'); 
+        input.classList.remove('invalid'); 
+    }
+}
+
+function getLocalTodayDate() {
+    const now = new Date();
+    const offset = now.getTimezoneOffset();
+    const local = new Date(now.getTime() - (offset * 60 * 1000)); 
+    return local.toISOString().split('T')[0];
+}
+
+function safeToast(msg, type) {
+    if (typeof showToast === 'function') { showToast(msg, type); } 
+    else { alert(msg); }
+}
+
+function injectReturnStyles() {
+    if (document.getElementById('return-module-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'return-module-styles';
+    style.innerHTML = `
+        .return-cards-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 15px; padding: 15px; font-family: 'Tajawal', sans-serif; }
+        .return-fieldset { border: none; padding: 0; margin: 0; min-width: 0; }
+        .return-fieldset[disabled] { opacity: 0.8; pointer-events: none; }
+        .return-card { border-radius: 10px; position: relative; overflow: hidden; transition: all 0.3s ease; }
+        .card-active { background: white; border-top: 4px solid #4a90e2; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .card-locked { background: #f8f9fa; border: 1px solid #e0e0e0; opacity: 0.95; }
+        .card-loading-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 100; display: flex; align-items: center; justify-content: center; }
+        .return-card-header { padding: 12px 15px; cursor: pointer; }
+        .header-meta-row { display: flex; gap: 8px; margin-bottom: 8px; font-size: 11px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+        .meta-pill { background: #f1f3f5; padding: 3px 8px; border-radius: 10px; align-items: center; font-size: 14px; }
+        .truck-pill { background: #e3f2fd; color: #1976d2; border-radius: 6px; margin-right: 12px; font-size: 14px; padding: 3px 6px;}
+        .return-number-pill { background: #f1f3f5; font-size: 14px; padding: 3px 6px; display: flex; align-items: center; gap: 5px; border-radius: 10px; }
+        .return-note-icon { color: #d32f2f; margin-right: 3px; font-size: 14px; }
+        .return-note-icon:hover { color: #b71c1c; font-size: 16px; }
+        .action-icon-btn-inline { color: #1976d2; margin-right: 5px; font-size: 14px; opacity: 0.8; }
+        .action-icon-btn-inline:hover { color: #0d47a1; opacity: 1; font-size: 18px;}
+        .header-main-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .dismiss-info { font-size: 12px; font-weight: 700; color: #333; }
+        .header-actions { display: flex; align-items: center; gap: 10px; }
+        .return-badge { font-size: 11px; padding: 4px 8px; border-radius: 12px; }
+        .badge-completed { background: #e8f5e9; color: #2e7d32; }
+        .badge-incomplete { background: #ffebee; color: #c62828; }
+        .badge-pending { background: #fff3e0; color: #ef6c00; }
+        .return-card-body { border-top: 1px solid #f0f0f0; background: #fafafa; padding: 15px; }
+        .products-grid-wrapper { background: white; border: 1px solid #eee; border-radius: 8px; overflow: hidden; }
+        .products-grid-header { display: flex; background: #f8f9fa; padding: 8px 12px; font-size: 11px; font-weight: bold; border-bottom: 1px solid #eee; }
+        .col-name { flex: 4; } .col-note { flex: 3; } .col-input { flex: 2; text-align: center; }
+        .return-product-row { display: flex; align-items: center; padding: 10px 12px; border-bottom: 1px solid #f5f5f5; gap: 10px; }
+        .prod-name-col { flex: 4; } .prod-note-col { flex: 3; } .prod-input-col { flex: 2; display: flex; flex-direction: column; align-items: center; }
+        .breakdown-text { display: block; font-size: 10px; color: #888; margin-top: 2px; }
+        .expected-warning { font-size: 10px; color: #dc3545; font-weight: bold; margin-bottom: 2px; }
+        .return-qty-input, .return-note-input { width: 100%; padding: 4px 8px; font-size: 13px; border: 1px solid #ddd; border-radius: 4px; }
+        .return-qty-input.valid { border-color: #28a745; background: #f8fff9; }
+        .return-qty-input.invalid { border-color: #dc3545; background: #fff8f8; }
+        .card-footer-area { display: flex; justify-content: space-between; align-items: center; margin-top: 15px; background: #fcfcfc; padding: 10px; border-radius: 8px; border: 1px solid #eee; }
+        .footer-date-input { border: 1px solid #ddd; border-radius: 4px; font-size: 12px; padding: 4px; }
+        .card-action-bar { padding: 10px; display: flex; justify-content: flex-end; background: #fff; border: 1px solid #eee; border-top: none; border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; }
+        .btn-save-return { background: #4a90e2; color: white; border: none; padding: 8px 15px; border-radius: 5px; font-weight: bold; cursor: pointer; }
+        .btn-edit-mode { background: #ffc107; color: #000; border: none; padding: 8px 15px; border-radius: 5px; font-weight: bold; cursor: pointer; }
+        .btn-locked-view { background: #e9ecef; color: #6c757d; border: 1px solid #dee2e6; padding: 8px 15px; border-radius: 5px; cursor: not-allowed; }
+    `;
+    document.head.appendChild(style);
+}
+
+// =============================================================================
+// FILTER BAR FUNCTIONS - ADD TO EXISTING script-return.txt
+// =============================================================================
+
+// --- FILTER DATA STRUCTURE ---
+let returnFilterData = {
+    allRecords: [],      // Full dataset from server
+    filteredRecords: [], // After filter applied
+    masterProducts: []   // Product list for multi-select
+};
+
+// --- FILTER INITIALIZATION (Called after data loads) ---
+
+function initializeReturnFilters(records) {
+    console.log('Initializing return filters...');
+    
+    // Store all records
+    returnFilterData.allRecords = records;
+    
+    // Extract unique products from all records
+    const productSet = new Set();
+    records.forEach(record => {
+        record.products.forEach(p => {
+            if (p.name) productSet.add(p.name);
+        });
+    });
+    returnFilterData.masterProducts = Array.from(productSet).sort();
+    
+    // Populate filter dropdowns
+    populateReturnFilterDropdowns();
+    
+    // Apply default filter
+    applyDefaultReturnFilter();
+    
+    // Attach date input listeners
+    attachReturnDateListeners();
+}
+
+// --- POPULATE FILTER DROPDOWNS ---
+
+function populateReturnFilterDropdowns() {
+    // Populate Trucks
+    const trucks = [...new Set(returnFilterData.allRecords.map(r => {
+        const parts = (r.delivery?.truck || '').split('-');
+        return parts[0]?.trim();
+    }).filter(Boolean))];
+    
+    const truckSelect = document.getElementById('return-filter-truck');
+    if (truckSelect) {
+        truckSelect.innerHTML = '<option value="">السيارة - الكل</option>';
+        trucks.forEach(t => truckSelect.innerHTML += `<option value="${t}">${t}</option>`);
+    }
+    
+    // Populate Drivers
+    const drivers = [...new Set(returnFilterData.allRecords.map(r => {
+        const parts = (r.delivery?.driver || '').split('-');
+        return parts[0]?.trim();
+    }).filter(Boolean))];
+    
+    const driverSelect = document.getElementById('return-filter-driver');
+    if (driverSelect) {
+        driverSelect.innerHTML = '<option value="">السائق - الكل</option>';
+        drivers.forEach(d => driverSelect.innerHTML += `<option value="${d}">${d}</option>`);
+    }
+    
+    // Populate Products
+    const productSelect = document.getElementById('return-filter-products');
+    if (productSelect) {
+        productSelect.innerHTML = '';
+        returnFilterData.masterProducts.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p;
+            opt.text = p;
+            productSelect.appendChild(opt);
+        });
+    }
+}
+
+// --- DEFAULT FILTER ---
+
+function applyDefaultReturnFilter() {
+    const today = getLocalTodayDate();
+    
+    // Filter: (Loading Date = Today OR Return Date = Today) OR (Status != TRUE)
+    returnFilterData.filteredRecords = returnFilterData.allRecords.filter(record => {
+        const loadingToday = record.loadingDate === today;
+        const returnToday = record.returnDate === today;
+        const notComplete = record.status !== true;
+        
+        return (loadingToday || returnToday) || notComplete;
+    });
+    
+    // Sort: Today's returns first, then DESC by return date
+    sortReturnByDate();
+    
+    updateReturnFilterDescription('عرض سجلات اليوم (تحميل أو إرجاع) أو غير المكتملة');
+    
+    console.log(`Default filter: ${returnFilterData.filteredRecords.length} records`);
+}
+
+function sortReturnByDate() {
+    const today = getLocalTodayDate();
+    
+    returnFilterData.filteredRecords.sort((a, b) => {
+        const aIsToday = a.returnDate === today;
+        const bIsToday = b.returnDate === today;
+        
+        if (aIsToday && !bIsToday) return -1;
+        if (!aIsToday && bIsToday) return 1;
+        
+        const dateA = a.returnDate ? new Date(a.returnDate) : new Date(0);
+        const dateB = b.returnDate ? new Date(b.returnDate) : new Date(0);
+        return dateB - dateA;
+    });
+}
+
+// --- DATE INPUT MONITORING ---
+
+function attachReturnDateListeners() {
+    setTimeout(() => {
+        const elements = [
+            'return-quick-preset',
+            'return-filter-single-date',
+            'return-filter-date-start',
+            'return-filter-date-end'
+        ];
+        
+        elements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', onReturnDateInputChange);
+        });
+    }, 500);
+}
+
+function onReturnDateInputChange() {
+    const quickPreset = document.getElementById('return-quick-preset')?.value || '';
+    const singleDate = document.getElementById('return-filter-single-date')?.value || '';
+    const dateStart = document.getElementById('return-filter-date-start')?.value || '';
+    const dateEnd = document.getElementById('return-filter-date-end')?.value || '';
+    
+    const hasDateFilter = quickPreset || singleDate || dateStart || dateEnd;
+    
+    if (hasDateFilter) {
+        disableReturnNonDateFilters(true);
+        const warning = document.getElementById('return-filter-warning');
+        if (warning) warning.style.display = 'flex';
+    } else {
+        disableReturnNonDateFilters(false);
+        const warning = document.getElementById('return-filter-warning');
+        if (warning) warning.style.display = 'none';
+    }
+}
+
+function disableReturnNonDateFilters(disable) {
+    const ids = [
+        'return-filter-return-number',
+        'return-filter-dismiss-number',
+        'return-filter-order',
+        'return-filter-products',
+        'return-filter-truck',
+        'return-filter-driver',
+        'return-filter-save-status',
+        'return-filter-completion',
+        'btn-apply-return-filters'
+    ];
+    
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = disable;
+    });
+    
+    // Visual feedback
+    const opacity = disable ? '0.5' : '1';
+    document.querySelectorAll('#return-filter-panel .filter-col:not(:first-child)').forEach(col => {
+        col.style.opacity = opacity;
+    });
+}
+
+// --- DATE PRESET HANDLER ---
+
+function setReturnDatePreset(preset) {
+    const startInput = document.getElementById('return-filter-date-start');
+    const endInput = document.getElementById('return-filter-date-end');
+    const singleInput = document.getElementById('return-filter-single-date');
+    
+    if (!startInput || !endInput || !singleInput) return;
+    
+    const today = new Date();
+    let start = null;
+    let end = null;
+    
+    if (preset === 'today') {
+        start = end = getLocalTodayDate();
+    } else if (preset === 'yesterday') {
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        start = end = yesterday.toISOString().split('T')[0];
+    } else if (preset === 'last7') {
+        const sevenDaysAgo = new Date(today);
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        start = sevenDaysAgo.toISOString().split('T')[0];
+        end = getLocalTodayDate();
+    } else if (preset === 'thisMonth') {
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+        start = firstDay.toISOString().split('T')[0];
+        end = getLocalTodayDate();
+    } else if (preset === 'all') {
+        start = '2020-01-01';
+        end = getLocalTodayDate();
+    }
+    
+    startInput.value = start || '';
+    endInput.value = end || '';
+    singleInput.value = '';
+    
+    onReturnDateInputChange();
+}
+
+// --- SERVER LOAD ---
+
+function loadReturnHistory() {
+    const quickPreset = document.getElementById('return-quick-preset')?.value || '';
+    const singleDate = document.getElementById('return-filter-single-date')?.value || '';
+    const dateStart = document.getElementById('return-filter-date-start')?.value || '';
+    const dateEnd = document.getElementById('return-filter-date-end')?.value || '';
+    
+    let startToLoad = null;
+    let endToLoad = null;
+    
+    // Priority 1: Quick Preset
+    if (quickPreset) {
+        const range = calculateReturnPresetRange(quickPreset);
+        startToLoad = range.start;
+        endToLoad = range.end;
+    }
+    // Priority 2: Date Range
+    else if (dateStart || dateEnd) {
+        startToLoad = dateStart || '2020-01-01';
+        endToLoad = dateEnd || getLocalTodayDate();
+    }
+    // Priority 3: Single Date
+    else if (singleDate) {
+        startToLoad = singleDate;
+        endToLoad = singleDate;
+    }
+    
+    if (!startToLoad && !endToLoad) {
+        safeToast('يرجى تحديد تاريخ أو فترة للتحميل من السيرفر', 'warning');
+        return;
+    }
+    
+    showReturnLoadingOverlay(true);
+    safeToast('جاري التحميل من السيرفر...', 'info');
+    
+    const userEmail = localStorage.getItem('userEmail');
+    if (!userEmail) {
+        safeToast('يرجى تسجيل الدخول', 'error');
+        showReturnLoadingOverlay(false);
+        return;
+    }
+    
+    google.script.run
+    .withSuccessHandler(function(rawResponse) {
+        try {
+            const response = (typeof rawResponse === 'object') ? rawResponse : JSON.parse(rawResponse);
+            
+            if (response.success) {
+                // Merge new records with existing (avoid duplicates)
+                const existingIds = new Set(returnFilterData.allRecords.map(r => r.dismissNumber));
+                
+                response.records.forEach(record => {
+                    if (!existingIds.has(record.dismissNumber)) {
+                        returnFilterData.allRecords.push(record);
+                    }
+                });
+                
+                // Re-populate dropdowns with updated data
+                populateReturnFilterDropdowns();
+                
+                // Re-enable filters
+                disableReturnNonDateFilters(false);
+                const warning = document.getElementById('return-filter-warning');
+                if (warning) warning.style.display = 'none';
+                
+                // Auto-apply filters
+                applyReturnFilters();
+                
+                safeToast(`تم تحميل ${response.records.length} سجل`, 'success');
+            } else {
+                safeToast(response.message || 'فشل التحميل', 'error');
+            }
+        } catch (e) {
+            console.error('Parse error:', e);
+            safeToast('خطأ في قراءة البيانات', 'error');
+        }
+        
+        showReturnLoadingOverlay(false);
+    })
+    .withFailureHandler(function(error) {
+        safeToast('خطأ في الاتصال: ' + error.message, 'error');
+        showReturnLoadingOverlay(false);
+    })
+    .getReturnStockRecords(userEmail, startToLoad, endToLoad);  // ✅ ADD DATE PARAMETERS
+}
+
+function calculateReturnPresetRange(preset) {
+    const today = new Date();
+    let start, end;
+    
+    if (preset === 'today') {
+        start = end = getLocalTodayDate();
+    } else if (preset === 'yesterday') {
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        start = end = yesterday.toISOString().split('T')[0];
+    } else if (preset === 'last7') {
+        const sevenDaysAgo = new Date(today);
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        start = sevenDaysAgo.toISOString().split('T')[0];
+        end = getLocalTodayDate();
+    } else if (preset === 'thisMonth') {
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+        start = firstDay.toISOString().split('T')[0];
+        end = getLocalTodayDate();
+    } else if (preset === 'all') {
+        start = '2020-01-01';
+        end = getLocalTodayDate();
+    }
+    
+    return { start, end };
+}
+
+function showReturnLoadingOverlay(show) {
+    const overlay = document.getElementById('return-loading-overlay');
+    if (overlay) {
+        overlay.style.display = show ? 'flex' : 'none';
+    }
+}
+
+// --- APPLY FILTERS ---
+
+function applyReturnFilters() {
+    const returnNumber = document.getElementById('return-filter-return-number')?.value.trim() || '';
+    const dismissNumber = document.getElementById('return-filter-dismiss-number')?.value.trim() || '';
+    const orderVal = document.getElementById('return-filter-order')?.value.trim() || '';
+    const truckVal = document.getElementById('return-filter-truck')?.value || '';
+    const driverVal = document.getElementById('return-filter-driver')?.value || '';
+    const saveStatus = document.getElementById('return-filter-save-status')?.value || '';
+    const completion = document.getElementById('return-filter-completion')?.value || '';
+    
+    const dateField = document.getElementById('return-filter-date-field')?.value || 'loading';
+    const dateStart = document.getElementById('return-filter-date-start')?.value || '';
+    const dateEnd = document.getElementById('return-filter-date-end')?.value || '';
+    const singleDate = document.getElementById('return-filter-single-date')?.value || '';
+    
+    const productSelect = document.getElementById('return-filter-products');
+    const selectedProducts = productSelect ? Array.from(productSelect.selectedOptions).map(opt => opt.value) : [];
+    const productLogicEl = document.querySelector('input[name="returnProductLogic"]:checked');
+    const productLogic = productLogicEl ? productLogicEl.value : 'OR';
+    const productType = document.getElementById('return-filter-product-type')?.value || '';
+
+    console.log('Applying return filters...');
+
+    returnFilterData.filteredRecords = returnFilterData.allRecords.filter(record => {
+        let matches = true;
+        
+        // Identifiers
+        // 1. Return Number - Convert to UPPERCASE
+        if (returnNumber) {
+            const searchUpper = returnNumber.toUpperCase();
+            const recordValue = (record.returnNumber || '').toUpperCase();
+            if (!recordValue.includes(searchUpper)) matches = false;
+        }
+
+        // 2. Dismiss Number - Handle string vs number
+        if (matches && dismissNumber) {
+            const searchStr = String(dismissNumber).trim();
+            const recordStr = String(record.dismissNumber || '').trim();
+            if (!recordStr.includes(searchStr)) matches = false;
+        }
+
+        // 3. Order Number - Convert to 4-digit format and search
+        if (matches && orderVal) {
+            // Convert input to string and pad to 4 digits (e.g., "5" → "0005")
+            const searchOrder = String(orderVal).trim().padStart(4, '0');
+            // Convert orderIds to string (handles null/undefined)
+            const recordOrders = String(record.orderIds || '');
+            
+            console.log('Searching for order:', searchOrder, 'in:', recordOrders); // Debug
+            
+            if (!recordOrders.includes(searchOrder)) matches = false;
+        }
+        
+        // Logistics
+        if (matches && truckVal && record.delivery?.truck !== truckVal) matches = false;
+        if (matches && driverVal && record.delivery?.driver !== driverVal) matches = false;
+        
+        // Date Filter
+        if (matches && (dateStart || dateEnd || singleDate)) {
+            const start = singleDate || dateStart || '2020-01-01';
+            const end = singleDate || dateEnd || getLocalTodayDate();
+            
+            if (dateField === 'loading') {
+                if (record.loadingDate < start || record.loadingDate > end) matches = false;
+            } else if (dateField === 'return') {
+                if (!record.returnDate || record.returnDate < start || record.returnDate > end) matches = false;
+            } else if (dateField === 'both') {
+                const loadingMatch = record.loadingDate >= start && record.loadingDate <= end;
+                const returnMatch = record.returnDate && record.returnDate >= start && record.returnDate <= end;
+                if (!loadingMatch && !returnMatch) matches = false;
+            }
+        }
+        
+        // Save Status
+        if (matches && saveStatus) {
+            const isSaved = record.returnNoteUrl && record.returnNoteUrl.length > 5;
+            if (saveStatus === 'draft' && isSaved) matches = false;
+            if (saveStatus === 'saved' && !isSaved) matches = false;
+        }
+        
+        // Completion
+        if (matches && completion) {
+            if (completion === 'complete' && record.status !== true) matches = false;
+            if (completion === 'incomplete' && record.status !== false) matches = false;
+            if (completion === 'pending' && (record.status !== null && record.status !== '' && record.status !== undefined)) matches = false;
+        }
+        
+        // Products Filter
+        if (matches && selectedProducts.length > 0) {
+            let productMatches = record.products.filter(p => {
+                if (!selectedProducts.includes(p.name)) return false;
+                
+                if (productType === 'expected') {
+                    return (p.expectedQty || 0) > 0;
+                } else if (productType === 'returned') {
+                    return (p.actualQty || 0) > 0;
+                }
+                return true;
+            });
+            
+            if (productLogic === 'AND') {
+                if (productMatches.length < selectedProducts.length) matches = false;
+            } else {
+                if (productMatches.length === 0) matches = false;
+            }
+        }
+        
+        return matches;
+    });
+
+    sortReturnByDate();
+    
+    const desc = buildReturnFilterDescription({
+        returnNumber, dismissNumber, dateField, dateStart, dateEnd, singleDate,
+        selectedProducts, productLogic, productType, saveStatus, completion
+    });
+    updateReturnFilterDescription(desc);
+    
+    // Re-render cards with filtered data
+    renderFilteredReturnCards();
+    
+    console.log(`Filtered: ${returnFilterData.filteredRecords.length} / ${returnFilterData.allRecords.length}`);
+}
+
+function buildReturnFilterDescription(f) {
+    let parts = [];
+    
+    if (f.returnNumber) parts.push(`رقم الإرجاع: ${f.returnNumber}`);
+    if (f.dismissNumber) parts.push(`رقم الصرف: ${f.dismissNumber}`);
+    
+    if (f.singleDate) {
+        const field = f.dateField === 'loading' ? 'التحميل' : f.dateField === 'return' ? 'الإرجاع' : 'كلاهما';
+        parts.push(`${field}: ${f.singleDate}`);
+    } else if (f.dateStart || f.dateEnd) {
+        const field = f.dateField === 'loading' ? 'التحميل' : f.dateField === 'return' ? 'الإرجاع' : 'كلاهما';
+        parts.push(`${field}: ${f.dateStart || '..'} إلى ${f.dateEnd || '..'}`);
+    }
+    
+    if (f.selectedProducts.length > 0) {
+        const logic = f.productLogic === 'AND' ? 'كل' : 'أي';
+        const type = f.productType === 'expected' ? 'متوقع' : f.productType === 'returned' ? 'مُرجع' : '';
+        parts.push(`منتجات (${logic}) ${type} (${f.selectedProducts.length})`);
+    }
+    
+    if (f.saveStatus === 'saved') parts.push('محفوظة');
+    if (f.saveStatus === 'draft') parts.push('مسودات');
+    if (f.completion) {
+    if (f.completion === 'complete') parts.push('مكتمل');
+    else if (f.completion === 'incomplete') parts.push('غير مكتمل');
+    else if (f.completion === 'pending') parts.push('معلق');
+}
+    
+    return parts.length > 0 ? `تصفية: ${parts.join(' | ')}` : 'عرض جميع السجلات المحملة';
+}
+
+// --- RESET FILTERS ---
+
+function resetReturnFilters() {
+    // Clear all inputs
+    const inputs = [
+        'return-filter-return-number',
+        'return-filter-dismiss-number',
+        'return-filter-order',
+        'return-quick-preset',
+        'return-filter-single-date',
+        'return-filter-date-start',
+        'return-filter-date-end'
+    ];
+    
+    inputs.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    
+    // Reset selects
+    const selects = [
+        'return-filter-date-field',
+        'return-filter-truck',
+        'return-filter-driver',
+        'return-filter-save-status',
+        'return-filter-completion',
+        'return-filter-product-type'
+    ];
+    
+    selects.forEach(id => {
+        const el = document.getElementById(id);
+        if (el && id !== 'return-filter-date-field') el.value = '';
+    });
+    
+    // Reset date field to default
+    const dateFieldEl = document.getElementById('return-filter-date-field');
+    if (dateFieldEl) dateFieldEl.value = 'loading';
+    
+    // Clear product selection
+    const productSelect = document.getElementById('return-filter-products');
+    if (productSelect) {
+        Array.from(productSelect.options).forEach(opt => opt.selected = false);
+    }
+    updateReturnProductSummary();
+    
+    // Reset radio buttons
+    const orRadio = document.querySelector('input[name="returnProductLogic"][value="OR"]');
+    if (orRadio) orRadio.checked = true;
+    
+    // Re-enable all filters
+    disableReturnNonDateFilters(false);
+    const warning = document.getElementById('return-filter-warning');
+    if (warning) warning.style.display = 'none';
+    
+    // Apply default filter
+    applyDefaultReturnFilter();
+    renderFilteredReturnCards();
+}
+
+// --- UI HELPERS ---
+
+function updateReturnFilterDescription(text) {
+    const filterText = document.getElementById('return-filter-text');
+    if (filterText) {
+        filterText.textContent = text;
+    }
+}
+
+function updateReturnProductSummary() {
+    const select = document.getElementById('return-filter-products');
+    const summaryDiv = document.getElementById('return-product-selection-summary');
+    
+    if (!select || !summaryDiv) return;
+    
+    const selectedOptions = Array.from(select.selectedOptions);
+    if (selectedOptions.length > 0) {
+        const names = selectedOptions.map(opt => opt.text).join('، ');
+        summaryDiv.textContent = `تم تحديد (${selectedOptions.length}): ${names}`;
+        summaryDiv.style.display = 'block';
+    } else {
+        summaryDiv.textContent = '';
+        summaryDiv.style.display = 'none';
+    }
+}
+
+function toggleReturnFilterBar() {
+    const panel = document.getElementById('return-filter-panel');
+    const icon = document.getElementById('return-filter-toggle-icon');
+    
+    if (!panel || !icon) return;
+    
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        icon.style.transform = 'rotate(180deg)';
+    } else {
+        panel.style.display = 'none';
+        icon.style.transform = 'rotate(0deg)';
+    }
+}
+
+// --- RENDER FILTERED CARDS ---
+
+function renderFilteredReturnCards() {
+    // Update returnData.records to use filtered records
+    returnData.records = returnFilterData.filteredRecords;
+    
+    // Get cards container (NOT main container)
+    const cardsContainer = document.getElementById('return-cards-container');
+    if (!cardsContainer) {
+        console.error('Cards container not found');
+        return;
+    }
+    
+    // CLEAR existing content
+    cardsContainer.innerHTML = '';
+    
+    // Render filtered cards
+    if (returnFilterData.filteredRecords.length === 0) {
+        cardsContainer.innerHTML = `
+            <div class="warehouse-no-records" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:50px; color:#999;">
+                <i class="fas fa-filter fa-3x" style="margin-bottom:15px;"></i>
+                <p>لا توجد سجلات تطابق الفلاتر المحددة</p>
+            </div>
+        `;
+        return;
+    }
+    
+    const wrapper = document.createElement('div');
+    wrapper.className = 'return-cards-container';
+    wrapper.dir = 'rtl';
+    
+    returnFilterData.filteredRecords.forEach(record => {
+        wrapper.appendChild(createReturnCard(record));
+    });
+    
+    // Add wrapper to cards container (NOT main container)
+    cardsContainer.appendChild(wrapper);
+}
+
+</script>
