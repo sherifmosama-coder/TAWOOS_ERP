@@ -1,0 +1,1520 @@
+
+<style>
+/* --- GLOBAL TOAST NOTIFICATIONS (v2.0) --- */
+.toast-container {
+    position: fixed; top: 20px; right: 20px; z-index: 10000;
+    display: flex; flex-direction: column; gap: 10px; pointer-events: none;
+}
+
+.custom-toast {
+    pointer-events: auto; min-width: 300px; background: rgba(255, 255, 255, 0.95);
+    border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+    padding: 16px; display: flex; align-items: flex-start; gap: 15px;
+    position: relative; overflow: hidden;
+    backdrop-filter: blur(5px); border: 1px solid rgba(255,255,255,0.5);
+    border-left: 6px solid #ccc;
+    animation: toastSlideIn 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+    transition: all 0.3s ease;
+}
+
+.custom-toast.hiding { animation: toastSlideOut 0.4s forwards; }
+
+.toast-content { display: flex; align-items: center; width: 100%; gap: 15px; }
+.toast-message { flex-grow: 1; font-size: 0.95rem; color: #333; line-height: 1.4; font-weight: 500; font-family: 'Segoe UI', sans-serif; }
+.toast-close { background: none; border: none; color: #aaa; cursor: pointer; padding: 0; font-size: 1.1rem; transition: color 0.2s; }
+.toast-close:hover { color: #333; transform: scale(1.1); }
+.toast-icon { font-size: 1.6rem; }
+
+/* TYPES & ANIMATIONS */
+.custom-toast.success { border-left-color: #28a745; }
+.custom-toast.success .toast-icon { color: #28a745; animation: iconBounce 0.6s ease-out 0.2s both; }
+
+.custom-toast.error { border-left-color: #dc3545; }
+.custom-toast.error .toast-icon { color: #dc3545; animation: iconShake 0.5s ease-in-out 0.2s both; }
+
+.custom-toast.warning { border-left-color: #ffc107; }
+.custom-toast.warning .toast-icon { color: #ffc107; animation: iconPulse 1s infinite; }
+
+.custom-toast.info { border-left-color: #17a2b8; }
+.custom-toast.info .toast-icon { color: #17a2b8; animation: iconRotate 0.6s ease-out 0.2s both; }
+
+/* KEYFRAMES */
+@keyframes toastSlideIn { from { transform: translateX(100%) scale(0.8); opacity: 0; } to { transform: translateX(0) scale(1); opacity: 1; } }
+@keyframes toastSlideOut { from { transform: translateX(0) scale(1); opacity: 1; } to { transform: translateX(100%) scale(0.8); opacity: 0; } }
+@keyframes iconBounce { 0% { transform: scale(0); } 50% { transform: scale(1.2); } 100% { transform: scale(1); } }
+@keyframes iconShake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-4px); } 40%, 80% { transform: translateX(4px); } }
+@keyframes iconPulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.1); opacity: 0.8; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes iconRotate { 0% { transform: rotate(-180deg) scale(0.5); opacity: 0; } 100% { transform: rotate(0) scale(1); opacity: 1; } }
+</style>
+
+<script>
+    // --- ADVANCED TOAST NOTIFICATIONS (Global) ---
+    function showToast(message, type = 'info', duration = 3000) {
+        let container = document.querySelector('.toast-container');
+        
+        // Create container if missing (safety check)
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'toast-container';
+            document.body.appendChild(container);
+        }
+
+        const icons = {
+            success: 'fa-check-circle',
+            error: 'fa-bug', // Using 'bug' or 'times-circle'
+            info: 'fa-info-circle',
+            warning: 'fa-exclamation-triangle'
+        };
+
+        const toast = document.createElement('div');
+        toast.className = `custom-toast ${type}`;
+        
+        toast.innerHTML = `
+            <div class="toast-content">
+                <i class="fas ${icons[type] || 'fa-info-circle'} toast-icon"></i>
+                <div class="toast-message">${message}</div>
+                <button class="toast-close" title="Close">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        `;
+
+        // Manual Close Event
+        const closeBtn = toast.querySelector('.toast-close');
+        closeBtn.addEventListener('click', () => closeToast(toast));
+
+        container.appendChild(toast);
+
+        // Auto Close Timer
+        if (duration > 0) {
+            const timer = setTimeout(() => {
+                closeToast(toast);
+            }, duration);
+            
+            // UX: Pause auto-close on hover
+            toast.onmouseenter = () => clearTimeout(timer);
+            toast.onmouseleave = () => setTimeout(() => closeToast(toast), 1000);
+        }
+    }
+
+    function closeToast(buttonOrToast) {
+        // Handle both button element and toast element
+        const toast = buttonOrToast.classList?.contains('custom-toast') 
+            ? buttonOrToast 
+            : buttonOrToast.closest('.custom-toast');
+        
+        if (!toast || toast.classList.contains('hiding')) return;
+        
+        // Trigger Exit Animation
+        toast.classList.add('hiding');
+        
+        // Wait for animation (400ms matches CSS) then remove
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.remove();
+            }
+        }, 400);
+    }
+/**
+ * =========================================================================================================
+ * =========================================================================================================
+ */
+
+
+    // Translations
+    const translations = {
+        en: {
+            headerTitle: 'Welcome to AL Tawoos',
+            emailLabel: 'Email',
+            passwordLabel: 'Password',
+            btnText: 'Login',
+            errorInvalid: 'Invalid email or password',
+            errorEmpty: 'Please fill in all fields',
+            welcomeTitle: 'Welcome Back!',
+            welcomeText: 'Choose an action below to get started',
+            successMsg: 'Operation completed successfully!',
+            errorMsg: 'An error occurred!',
+            infoMsg: 'This is an informational message',
+            warningMsg: 'Warning: Please review this action',
+            loginSuccess: 'Login successful!',
+            tooltipHome: 'Home',
+            tooltipRefresh: 'Refresh',
+            tooltipLogout: 'Logout',
+            salesModuleCard: 'Sales Module',
+            salesModuleDesc: 'Manage orders, clients, and products',
+            salesModuleTitle: 'Sales Module',
+            ordersTabLabel: 'Orders',
+            loadingText: 'Loading orders...',
+            loadingPermissions: 'Loading permissions...',
+            status: 'Status',
+            orderId: 'Order ID',
+            invoiceDate: 'Invoice Date',
+            clientName: 'Client Name',
+            vat: 'VAT',
+            orderType: 'Order Type',
+            loadingOrder: 'Loading Order',
+            truck: 'Truck',
+            driver: 'Driver',
+            deliveryRep: 'Delivery Rep',
+            loadingDate: 'Loading Date',
+            poTawoos: 'PO Tawoos',
+            poPrivateLabel: 'PO Private Label',
+            salesRep: 'Sales Rep',
+            internalComments: 'Internal Comments',
+            externalComments: 'External Comments',
+            orderSummary: 'Order Summary',
+            noOrders: 'No orders found',
+            noOrdersDesc: 'No orders match the current criteria',
+            internal: 'Internal',
+            external: 'External',
+            summary: 'Summary',
+            prepare: 'Prepare',
+            shipped: 'Shipped',
+            delivered: 'Delivered',
+            paid: 'Paid',
+            notyet: 'Not Yet',
+            addOrderBtnText: 'Add New Order',
+            modalTitle: 'Add New Order',
+            labelInvoiceDate: 'Invoice Date',
+            labelClientName: 'Client Name',
+            labelVat: 'VAT',
+            labelPoTawoos: 'PO Tawoos',
+            labelPoPrivateLabel: 'PO Private Label',
+            labelOrderType: 'Order Type',
+            labelInternalComments: 'Internal Comments',
+            labelExternalComments: 'External Comments',
+            productsWarning: 'Products section will be added in next phase. Save button is disabled until products are added.',
+            btnCancel: 'Cancel',
+            btnSave: 'Save Order',
+            selectClient: '-- Select Client --',
+            selectVat: '-- Select VAT Type --',
+            newClientConfirm: 'Client name is not in the list. Is this a new client? (Confirm this is not a typo)',
+            confirmYes: 'Yes, New Client',
+            confirmNo: 'No, Let Me Fix',
+            productsTitle: 'Products',
+            addProductBtn: 'Add Product',
+            productsInfoText: 'Click "Add Product" to add products to this order',
+            qtyLabel: 'Qty',
+            bonusLabel: 'Bonus',
+            productLabel: 'Product',
+            priceLabel: 'Price',
+            discountLabel: 'Discount',
+            selectProduct: '-- Select Product --',
+            duplicateProduct: 'This product is already added to the order',
+            selectProductFirst: 'Please select a product first',
+            pageRefreshed: 'Page refreshed',
+            retailTemplateLoaded: 'Retail template loaded',
+            loadingPrice: 'Loading...',
+            currentOrdersSubtab: 'Current Orders',
+            distributionPlanSubtab: 'Distribution Plan',
+            accountingSubtab: 'Invoice Documents',
+            // Accounting Module
+            ordersToPrepare: 'Orders to Prepare',
+            invoicesNeeded: 'Invoices Needed',
+            saveInvoice: 'Save', // Fallback
+            taxSequenceLabel: 'Taxable Sequence',
+            noteSequenceLabel: 'Delivery Note #',
+            firstSerialPh: 'First #',
+            lastSerialLabel: 'LAST',
+            nextSerialLabel: 'NEXT',
+            missingSerialsLabel: 'Missing Serials',
+            generateBtn: 'Generate',
+            viewBtn: 'View',
+            gapTooltip: 'Missing serial',
+            serialLowTooltip: 'Serial below start',
+            dupTooltip: 'Invalid Duplicate',
+            splitTooltip: 'Split Load',
+            tawoosLabel: 'Tawoos Inv.',
+            plLabel: 'PL Inv.',
+            dnLabel: 'Delivery Note',
+            alreadySaved: 'Already Saved',
+            editTitle: 'Edit Saved Invoice',
+            editMsg: 'This invoice is already saved.\nDo you want to edit it?',
+            warehouseSubtab: 'Release Stock', 
+            returnStockSubtab: 'Return Stock',
+            allOrdersSubtab: 'All Orders',
+            underDevelopment: 'Under Development',
+            underDevelopmentDesc: 'This feature is currently under development and will be available soon.',
+            noPermissionTitle: 'No Permission',
+            noPermissionMessage: 'You don\'t have permissions for this feature. Please contact your administrator.',
+            // Distribution Planning
+            ordersPanelTitle: 'Available Orders',
+            planPanelTitle: 'Distribution Plan',
+            toggleGroupingText: 'Group by Region',
+            clearPlanText: 'Clear All',
+            labelPlanLoadingDate: 'Loading Date',
+            lastLoadingOrderText: 'Last Used Loading Order',
+            proposedPlanBtnText: 'Generate Proposed Plan',
+            proposedPlanTitle: 'Proposed Distribution Plan',
+            applyPlanText: 'Apply Plan',
+            savePlanText: 'Save Plan',
+            emptyOrdersTitle: 'No Orders Available',
+            emptyOrdersDesc: 'Select a loading date to view available orders for planning',
+            emptyPlanTitle: 'No Loading Orders Yet',
+            emptyPlanDesc: 'Select a loading date to start planning distribution',
+            // Operations Module
+            operationsModuleCard: 'Operations Module',
+            operationsModuleDesc: 'Manage purchases, materials, and production',
+            operationsModuleTitle: 'Operations Module',
+            purchasesTabLabel: 'Purchases',
+            materialsTabLabel: 'Materials',
+            productionTabLabel: 'Production'
+            },
+        ar: {
+            headerTitle: 'مرحباً بك في الطاووس',
+            emailLabel: 'البريد الإلكتروني',
+            passwordLabel: 'كلمة المرور',
+            btnText: 'تسجيل الدخول',
+            errorInvalid: 'البريد الإلكتروني أو كلمة المرور غير صحيحة',
+            errorEmpty: 'الرجاء ملء جميع الحقول',
+            welcomeTitle: 'مرحباً بعودتك!',
+            welcomeText: 'اختر إجراءً من الأسفل للبدء',
+            successMsg: 'تمت العملية بنجاح!',
+            errorMsg: 'حدث خطأ!',
+            infoMsg: 'هذه رسالة معلوماتية',
+            warningMsg: 'تحذير: يرجى مراجعة هذا الإجراء',
+            loginSuccess: 'تم تسجيل الدخول بنجاح!',
+            tooltipHome: 'الرئيسية',
+            tooltipRefresh: 'تحديث',
+            tooltipLogout: 'تسجيل خروج',
+            salesModuleCard: 'وحدة المبيعات',
+            salesModuleDesc: 'إدارة الطلبات والعملاء والمنتجات',
+            salesModuleTitle: 'وحدة المبيعات',
+            ordersTabLabel: 'الطلبات',
+            loadingText: 'جاري تحميل الطلبات...',
+            loadingPermissions: 'جاري تحميل الصلاحيات...',
+            status: 'الحالة',
+            orderId: 'رقم الأوردر',
+            invoiceDate: 'تاريخ الفاتورة',
+            clientName: 'اسم العميل',
+            vat: 'الضريبة',
+            orderType: 'نوع الأوردر',
+            loadingOrder: 'ترتيب التحميل',
+            truck: 'سيارة',
+            driver: 'سائق',
+            deliveryRep: 'مندوب تسليم',
+            loadingDate: 'تاريخ التحميل',
+            poTawoos: 'رقم أمر التوريد (الطاووس)',
+            poPrivateLabel: 'رقم أمر التوريد (برايفت ليبل)',
+            salesRep: 'مندوب مبيعات',
+            internalComments: 'ملاحظات داخلية',
+            externalComments: 'ملاحظات خارجية',
+            orderSummary: 'ملخص المطلوب',
+            noOrders: 'لا توجد طلبات',
+            noOrdersDesc: 'لا توجد طلبات تطابق المعايير الحالية',
+            internal: 'داخلي',
+            external: 'خارجي',
+            summary: 'ملخص',
+            prepare: 'تجهيز',
+            shipped: 'تم الشحن',
+            delivered: 'تم التسليم',
+            paid: 'مدفوع',
+            notyet: 'ليس بعد',
+            addOrderBtnText: 'إضافة أوردر جديد',
+            modalTitle: 'إضافة أوردر جديد',
+            labelInvoiceDate: 'تاريخ الفاتورة',
+            labelClientName: 'اسم العميل',
+            labelVat: 'الضريبة',
+            labelPoTawoos: 'رقم أمر التوريد (الطاووس)',
+            labelPoPrivateLabel: 'رقم أمر التوريد (برايفت ليبل)',
+            labelOrderType: 'نوع الأوردر',
+            labelInternalComments: 'ملاحظات داخلية',
+            labelExternalComments: 'ملاحظات خارجية',
+            productsWarning: 'سيتم إضافة قسم المنتجات في المرحلة التالية. زر الحفظ معطل حتى يتم إضافة المنتجات.',
+            btnCancel: 'إلغاء',
+            btnSave: 'حفظ الأوردر',
+            selectClient: '-- اختر العميل --',
+            selectVat: '-- اختر نوع الضريبة --',
+            newClientConfirm: 'اسم العميل غير موجود في القائمة. هل هذا عميل جديد؟ (تأكد من أنه ليس خطأ إملائي)',
+            confirmYes: 'نعم، عميل جديد',
+            confirmNo: 'لا، دعني أصحح',
+            productsTitle: 'المنتجات',
+            addProductBtn: 'إضافة منتج',
+            productsInfoText: 'اضغط "إضافة منتج" لإضافة منتجات لهذا الأوردر',
+            qtyLabel: 'الكمية',
+            bonusLabel: 'بونص',
+            productLabel: 'المنتج',
+            priceLabel: 'السعر',
+            discountLabel: 'الخصم',
+            selectProduct: '-- اختر المنتج --',
+            duplicateProduct: 'هذا المنتج مضاف بالفعل للأوردر',
+            selectProductFirst: 'الرجاء اختيار منتج أولاً',
+            pageRefreshed: 'تم تحديث الصفحة',
+            retailTemplateLoaded: 'تم تحميل منتجات التجزئة',
+            loadingPrice: 'جاري التحميل...',
+            currentOrdersSubtab: 'الطلبات الحالية',
+            distributionPlanSubtab: 'خطة التحميل',
+            accountingSubtab: 'فواتير',
+            // Accounting Module
+            ordersToPrepare: 'طلبات للتجهيز',
+            invoicesNeeded: 'فواتير مطلوبة',
+            saveInvoice: 'حفظ', // Fallback
+            taxSequenceLabel: 'مسلسل ضريبي',
+            noteSequenceLabel: 'اذن تسليم رقم',
+            firstSerialPh: 'أول رقم',
+            lastSerialLabel: 'سابق',
+            nextSerialLabel: 'تالي',
+            missingSerialsLabel: 'أرقام مفقودة',
+            serialLowTooltip: 'الرقم أقل من البداية',
+            generateBtn: 'إعداد',
+            viewBtn: 'عرض',
+            gapTooltip: 'مسلسل مفقود',
+            dupTooltip: 'تكرار غير صالح',
+            splitTooltip: 'تحميل مقسم',
+            tawoosLabel: 'فاتورة طاووس',
+            plLabel: 'فاتورة برايفت',
+            dnLabel: 'إذن تسليم',
+            alreadySaved: 'تم الحفظ مسبقاً',
+            editTitle: 'تعديل فاتورة محفوظة',
+            editMsg: 'هذه الفاتورة محفوظة مسبقاً.\nهل تريد تعديلها؟',
+            warehouseSubtab: 'صرف بضاعة',
+            returnStockSubtab: 'ارتجاع بضاعة',
+            allOrdersSubtab: 'كل الاوردرات',
+            underDevelopment: 'قيد التطوير',
+            underDevelopmentDesc: 'هذه الميزة قيد التطوير حالياً وستكون متاحة قريباً.',
+            noPermissionTitle: 'لا توجد صلاحية',
+            noPermissionMessage: 'ليس لديك صلاحيات لهذه الميزة. يرجى الاتصال بالمسؤول.',
+            // Distribution Planning
+            ordersPanelTitle: 'الطلبات المتاحة',
+            planPanelTitle: 'خطة التحميل',
+            toggleGroupingText: 'تجميع حسب المنطقة',
+            clearPlanText: 'مسح الكل',
+            labelPlanLoadingDate: 'تاريخ التحميل',
+            lastLoadingOrderText: 'آخر رقم تحميل مستخدم',
+            proposedPlanBtnText: 'إنشاء خطة مقترحة',
+            proposedPlanTitle: 'خطة التحميل المقترحة',
+            applyPlanText: 'تطبيق الخطة',
+            savePlanText: 'حفظ الخطة',
+            emptyOrdersTitle: 'لا توجد طلبات متاحة',
+            emptyOrdersDesc: 'اختر تاريخ التحميل لعرض الطلبات المتاحة للتخطيط',
+            emptyPlanTitle: 'لا توجد أوامر تحميل بعد',
+            emptyPlanDesc: 'اختر تاريخ التحميل لبدء تخطيط التوزيع',
+            // Operations Module
+            operationsModuleCard: 'وحدة التشغيل',
+            operationsModuleDesc: 'إدارة المشتريات والخامات والإنتاج',
+            operationsModuleTitle: 'وحدة التشغيل',
+            purchasesTabLabel: 'المشتريات',
+            materialsTabLabel: 'الخامات',
+            productionTabLabel: 'الإنتاج'
+            }
+    };
+
+    let currentLang = localStorage.getItem('preferredLanguage') || 'en';
+    let currentPage = 'login';
+    let userPermissions = [];
+    
+    // Page Navigation
+    function showPage(pageName) {
+        const pages = document.querySelectorAll('.page');
+        pages.forEach(page => {
+            page.classList.remove('active');
+        });
+        
+        const targetPage = document.getElementById(pageName + 'Page');
+        if (targetPage) {
+            targetPage.classList.add('active');
+            currentPage = pageName;
+            
+            if (pageName === 'home') {
+                updateHomeLanguage();
+            } else if (pageName === 'sales') {
+                updateSalesLanguage();
+            } else if (pageName === 'operations') {
+                updateOperationsLanguage();
+            }
+            
+            console.log('Switched to page:', pageName);
+        } else {
+            console.error('Page not found:', pageName);
+        }
+    }
+    
+    function goHome() {
+        showPage('home');
+        updateHomeLanguage();
+    }
+    
+function refreshPage() {
+    if (currentPage === 'home') {
+        updateHomeLanguage();
+        showToast(translations[currentLang].pageRefreshed || 'Page refreshed', 'success');
+        
+    } else if (currentPage === 'sales') {
+        updateSalesLanguage();
+        
+        // Find active subtab and reload its content
+        const activeTab = document.querySelector('.module-tab.active');
+        if (activeTab) {
+            const tabId = activeTab.id.replace('TabBtn', '');
+            
+            if (tabId === 'orders') {
+                // Check which orders subtab is active
+                const activeSubtab = document.querySelector('.orders-subtab.active');
+                if (activeSubtab) {
+                    const subtabName = activeSubtab.dataset.subtab;
+                    
+                    if (subtabName === 'current') {
+                        loadOrders();
+                    } else if (subtabName === 'accounting') {
+                        if (typeof loadAccountingData === 'function') loadAccountingData();
+                    } else if (subtabName === 'distribution') {
+                        if (typeof initializeDistributionPlanning === 'function') initializeDistributionPlanning();
+                    } else if (subtabName === 'warehouse') {
+                        if (typeof initializeWarehouseModule === 'function') initializeWarehouseModule();
+                    } else if (subtabName === 'return') {
+                        if (typeof initializeReturnModule === 'function') initializeReturnModule();
+                    } else if (subtabName === 'all-orders') {
+                        // Force Re-fetch for All Orders
+                        if (typeof allOrdersState !== 'undefined') {
+                            allOrdersState.initialized = false;
+                            allOrdersState.records = [];
+                        }
+                        if (typeof initializeAllOrdersSubtab === 'function') {
+                            initializeAllOrdersSubtab(); 
+                        }
+                    } else if (subtabName === 'eta') {
+                        if (typeof loadEtaReconciliation === 'function') {
+                            loadEtaReconciliation();
+                        }
+                    }
+                } else {
+                    loadOrders(); // Fallback
+                }
+            } else if (tabId === 'distribution') {
+                if (typeof loadDistributionData === 'function') loadDistributionData();
+            } else if (tabId === 'accounting') {
+                if (typeof loadAccountingData === 'function') loadAccountingData();
+            }
+        }
+        
+        showToast(translations[currentLang].pageRefreshed || 'Page refreshed', 'success');
+        
+    } else if (currentPage === 'operations') {
+        updateOperationsLanguage();
+        
+        const prodTab = document.getElementById('productionTabContent');
+        const matTab = document.getElementById('materialsTabContent');
+
+        // 1. Refresh Production Module
+        if (prodTab && prodTab.classList.contains('active')) {
+            if (typeof loadProductionData === 'function') {
+                loadProductionData(); 
+            }
+        } 
+        // 2. Refresh Materials Module (Updates Dashboard, Transfers & Adjustments)
+        else if (matTab && matTab.classList.contains('active')) {
+            if (typeof loadMaterialsData === 'function') {
+                // Calling this without arguments performs a full data refresh
+                // and resets the forms/filters (since preservation is not required)
+                loadMaterialsData(); 
+            }
+        }
+        
+        showToast(translations[currentLang].pageRefreshed || 'Page refreshed', 'success');
+    }
+}
+    
+    function logout() {
+        localStorage.clear();
+        currentPage = 'login';
+        showPage('login');
+        document.getElementById('email').value = '';
+        document.getElementById('password').value = '';
+        updateLoginLanguage();
+    }
+    
+    // Language Functions
+    function switchLanguage(lang) {
+        currentLang = lang;
+        localStorage.setItem('preferredLanguage', lang);
+        document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+        document.querySelectorAll('.lang-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.lang === lang);
+        });
+        updateLoginLanguage();
+        updateTooltips();
+    }
+
+    function toggleLanguage() {
+        currentLang = currentLang === 'en' ? 'ar' : 'en';
+        localStorage.setItem('preferredLanguage', currentLang);
+        document.documentElement.setAttribute('dir', currentLang === 'ar' ? 'rtl' : 'ltr');
+        
+        const navLangText = document.getElementById('navLangText');
+        if (navLangText) {
+            navLangText.textContent = currentLang === 'en' ? 'عربي' : 'English';
+        }
+        
+        const navLangTextSales = document.getElementById('navLangTextSales');
+        if (navLangTextSales) {
+            navLangTextSales.textContent = currentLang === 'en' ? 'عربي' : 'English';
+        }
+        
+        if (currentPage === 'home') {
+            updateHomeLanguage();
+        } else if (currentPage === 'sales') {
+            updateSalesLanguage();
+            loadOrders();
+        } else if (currentPage === 'operations') {
+            updateOperationsLanguage();
+        }
+        
+        showToast(translations[currentLang].infoMsg, 'info');
+    }
+    
+    function updateLoginLanguage() {
+        const elements = {
+            headerTitle: document.getElementById('headerTitle'),
+            emailLabel: document.getElementById('emailLabel'),
+            passwordLabel: document.getElementById('passwordLabel'),
+            btnText: document.getElementById('btnText')
+        };
+        
+        if (elements.headerTitle) elements.headerTitle.textContent = translations[currentLang].headerTitle;
+        if (elements.emailLabel) elements.emailLabel.textContent = translations[currentLang].emailLabel;
+        if (elements.passwordLabel) elements.passwordLabel.textContent = translations[currentLang].passwordLabel;
+        if (elements.btnText) elements.btnText.textContent = translations[currentLang].btnText;
+    }
+    
+    function updateHomeLanguage() {
+        document.documentElement.setAttribute('dir', currentLang === 'ar' ? 'rtl' : 'ltr');
+        
+        const navLangText = document.getElementById('navLangText');
+        if (navLangText) {
+            navLangText.textContent = currentLang === 'en' ? 'عربي' : 'English';
+        }
+        
+        const elements = {
+            welcomeTitle: document.getElementById('welcomeTitle'),
+            welcomeText: document.getElementById('welcomeText'),
+            salesModuleCard: document.getElementById('salesModuleCard'),
+            salesModuleDesc: document.getElementById('salesModuleDesc')
+        };
+        
+        if (elements.welcomeTitle) elements.welcomeTitle.textContent = translations[currentLang].welcomeTitle;
+        if (elements.welcomeText) elements.welcomeText.textContent = translations[currentLang].welcomeText;
+        if (elements.salesModuleCard) elements.salesModuleCard.textContent = translations[currentLang].salesModuleCard;
+        if (elements.salesModuleDesc) elements.salesModuleDesc.textContent = translations[currentLang].salesModuleDesc;
+        
+        // Operations Module
+        const opTitle = document.getElementById('operationsModuleCard');
+        const opDesc = document.getElementById('operationsModuleDesc');
+        if (opTitle) opTitle.textContent = translations[currentLang].operationsModuleCard;
+        if (opDesc) opDesc.textContent = translations[currentLang].operationsModuleDesc;
+
+        updateTooltips();
+    }
+    
+    function updateTooltips() {
+        const buttons = document.querySelectorAll('.nav-btn');
+        if (buttons.length >= 3) {
+            buttons[0].setAttribute('data-tooltip', translations[currentLang].tooltipHome);
+            buttons[1].setAttribute('data-tooltip', translations[currentLang].tooltipRefresh);
+            buttons[2].setAttribute('data-tooltip', translations[currentLang].tooltipLogout);
+        }
+    }
+    
+    function getStatusTranslation(status) {
+        if (!status || status.trim() === '') {
+            return translations[currentLang].notyet;
+        }
+        const statusKey = status.toLowerCase();
+        return translations[currentLang][statusKey] || status;
+    }
+    
+    // Authentication
+    function handleLogin(event) {
+        event.preventDefault();
+        
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+        
+        if (!email || !password) {
+            showToast(translations[currentLang].errorEmpty, 'error');
+            return;
+        }
+        
+        const loginBtn = document.getElementById('loginBtn');
+        const btnText = document.getElementById('btnText');
+        const btnSpinner = document.getElementById('btnSpinner');
+        
+        loginBtn.disabled = true;
+        btnText.style.display = 'none';
+        btnSpinner.style.display = 'inline-block';
+        
+        google.script.run
+            .withSuccessHandler(function(result) {
+                console.log('Login result:', result);
+                
+                loginBtn.disabled = false;
+                btnText.style.display = 'inline';
+                btnSpinner.style.display = 'none';
+                
+                if (result.success) {
+                    localStorage.setItem('userEmail', email);
+                    localStorage.setItem('userName', result.userName);
+                    localStorage.setItem('preferredLanguage', currentLang);
+                    
+                    const userNameElement = document.getElementById('userName');
+                    if (userNameElement) {
+                        userNameElement.textContent = result.userName;
+                    }
+                    
+                    // Show loading state on module cards
+                    setModuleCardsLoadingState(true);
+                    
+                    loadUserPermissions();
+                    
+                    console.log('Attempting to show home page...');
+                    showPage('home');
+                    updateHomeLanguage();
+                    
+                    setTimeout(() => {
+                        showToast(translations[currentLang].loginSuccess, 'success');
+                    }, 300);
+                } else {
+                    showToast(translations[currentLang].errorInvalid, 'error');
+                }
+            })
+            .withFailureHandler(function(error) {
+                console.error('Login error:', error);
+                showToast(translations[currentLang].errorInvalid, 'error');
+                loginBtn.disabled = false;
+                btnText.style.display = 'inline';
+                btnSpinner.style.display = 'none';
+            })
+            .validateLogin(email, password);
+    }
+    
+    // Permissions
+    function loadUserPermissions() {
+    const userEmail = localStorage.getItem('userEmail');
+    if (!userEmail) return;
+    
+    // Set loading state
+    window.permissionsLoaded = false;
+    
+    google.script.run
+        .withSuccessHandler(function(result) {
+            if (result.success) {
+                // Store ALL permissions globally
+                userPermissions = result.permissions;
+                
+                // Mark as loaded
+                window.permissionsLoaded = true;
+                    
+                    // Separate main tabs and subtabs
+                    window.mainTabPermissions = result.permissions.filter(p => !p.isSubtab);
+                    window.allSubtabPermissions = result.permissions.filter(p => p.isSubtab);
+                    
+                    console.log('All permissions loaded:', result.permissions);
+                    console.log('Main tabs:', window.mainTabPermissions);
+                    console.log('All subtabs:', window.allSubtabPermissions);
+                    
+                updatePermissionBadges();
+                
+                // Remove loading state from module cards
+                setModuleCardsLoadingState(false);
+            } else {
+                console.error('Failed to load permissions:', result.message);
+                setModuleCardsLoadingState(false);
+            }
+            })
+            .withFailureHandler(function(error) {
+                console.error('Permission loading error:', error);
+            })
+            .getUserPermissions(userEmail);
+    }
+
+
+function checkPermissions(userPermissions) {
+    if (!userPermissions) return;
+
+    // Helper to process permission items
+    // Expects userPermissions to be an array of objects: { tabId: 'orders.distribution', permission: 'edit' }
+    
+    // 1. Iterate through all permission-controlled elements
+    const permissionMap = {};
+    userPermissions.forEach(p => {
+        permissionMap[p.tabId] = p.permission;
+    });
+
+    // List of subtabs to check
+    const subtabs = [
+        'orders.distribution', 
+        'orders.accounting', 
+        'orders.warehouse', 
+        'orders.return', 
+        'orders.eta' // ►► NEW ETA PERMISSION ◄◄
+    ];
+
+    subtabs.forEach(tabId => {
+        // Extract the simple name (e.g., 'distribution' from 'orders.distribution')
+        const shortName = tabId.split('.')[1]; 
+        
+        const btn = document.querySelector(`.orders-subtab[data-subtab="${shortName}"]`);
+        const badge = document.getElementById(`subtab-badge-${shortName}`);
+        
+        const permission = permissionMap[tabId] || 'none'; // Default to none if not found
+
+        if (btn) {
+            if (permission === 'none') {
+                // Option A: Hide completely
+                btn.style.display = 'none';
+                
+                // Option B: Show but disable (uncomment if preferred)
+                // btn.disabled = true;
+                // btn.style.opacity = '0.5';
+            } else {
+                btn.style.display = 'inline-flex'; // or 'flex'
+                
+                // Handle Badge (The little '-' or status icon)
+                if (badge) {
+                    if (permission === 'view') {
+                        badge.innerText = 'View';
+                        badge.className = 'permission-badge view-only';
+                        badge.style.display = 'none'; // Often hidden if allowed
+                    } else if (permission === 'edit' || permission === 'admin') {
+                        badge.style.display = 'none'; // Hide badge for full access
+                    }
+                }
+            }
+        }
+    });
+
+    // 2. Specific Logic for ETA (Optional specific controls)
+    if (permissionMap['orders.eta'] === 'none') {
+        // Ensure content is hidden if somehow active
+        const etaContent = document.getElementById('subtab-eta');
+        if (etaContent) etaContent.style.display = 'none';
+    }
+}
+
+function updatePermissionBadges() {
+    console.log('Updating Badges. Permissions:', userPermissions);
+    
+    const icons = {
+        admin: 'fa-user-tie',
+        editor: 'fa-pen-to-square',
+        viewer: 'fa-eye'
+    };
+
+    // --- 1. SALES MODULE ---
+    const salesBadgesContainer = document.getElementById('salesModuleBadges');
+    if (salesBadgesContainer) {
+        // Look for 'orders' permission
+        const ordersPermission = userPermissions.find(p => p.tabId === 'orders' && !p.isSubtab);
+        
+        if (ordersPermission) {
+            const permLevel = ordersPermission.permission || 'viewer';
+            const permIcon = icons[permLevel] || icons.viewer;
+            salesBadgesContainer.innerHTML = `<i class="fas ${permIcon}"></i>`;
+        } else {
+            salesBadgesContainer.innerHTML = ''; // Clear spinner if no permission
+        }
+    }
+
+    // Sales Tab Badge
+    const ordersTabBadge = document.getElementById('ordersPermissionBadge');
+    if (ordersTabBadge) {
+        const ordersPermission = userPermissions.find(p => p.tabId === 'orders' && !p.isSubtab);
+        if (ordersPermission) {
+            const permLevel = ordersPermission.permission || 'viewer';
+            const permIcon = icons[permLevel] || icons.viewer;
+            ordersTabBadge.innerHTML = `<i class="fas ${permIcon}"></i>`;
+        }
+    }
+
+    // --- 2. OPERATIONS MODULE ---
+    
+    // Home Page Card Badge (Aggregated)
+    const opsBadgesContainer = document.getElementById('operationsModuleBadges');
+    if (opsBadgesContainer) {
+        // Check if user has permission for ANY of the operations tabs
+        const opsTabs = ['purchases', 'materials', 'production'];
+        const relevantPerms = userPermissions.filter(p => opsTabs.includes(p.tabId) && !p.isSubtab);
+        
+        if (relevantPerms.length > 0) {
+            // Pick the "highest" permission to display on the home card
+            let topPerm = 'viewer';
+            if (relevantPerms.some(p => p.permission === 'admin')) topPerm = 'admin';
+            else if (relevantPerms.some(p => p.permission === 'editor')) topPerm = 'editor';
+            
+            const permIcon = icons[topPerm];
+            opsBadgesContainer.innerHTML = `<i class="fas ${permIcon}"></i>`;
+        } else {
+            opsBadgesContainer.innerHTML = ''; // Clear spinner
+        }
+    }
+
+    // Individual Tab Badges (Inside Operations Module)
+    const opTabMap = {
+        'purchases': 'purchasesPermissionBadge',
+        'materials': 'materialsPermissionBadge',
+        'production': 'productionPermissionBadge'
+    };
+
+    for (const [tabId, badgeId] of Object.entries(opTabMap)) {
+        const badgeEl = document.getElementById(badgeId);
+        if (badgeEl) {
+            const perm = userPermissions.find(p => p.tabId === tabId && !p.isSubtab);
+            if (perm) {
+                const permLevel = perm.permission || 'viewer';
+                const permIcon = icons[permLevel] || icons.viewer;
+                badgeEl.innerHTML = `<i class="fas ${permIcon}"></i>`;
+            } else {
+                badgeEl.innerHTML = ''; // Clear default/spinner
+            }
+        }
+    }
+}
+    
+    // Show loading state on module cards
+function setModuleCardsLoadingState(isLoading) {
+    const moduleCards = document.querySelectorAll('.module-card');
+    
+    moduleCards.forEach(card => {
+        if (isLoading) {
+            card.classList.add('loading');
+            card.style.pointerEvents = 'none';
+            card.style.opacity = '0.6';
+            
+            // Add loading spinner to badge
+            const badge = card.querySelector('.module-badges');
+            if (badge) {
+                badge.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            }
+        } else {
+            card.classList.remove('loading');
+            card.style.pointerEvents = '';
+            card.style.opacity = '';
+        }
+    });
+}
+
+    // Tab Navigation
+    function switchTab(tabName) {
+        document.querySelectorAll('.module-tab').forEach(tab => {
+            tab.classList.remove('active');
+        });
+        
+        const clickedTab = document.getElementById(tabName + 'TabBtn');
+        if (clickedTab) {
+            clickedTab.classList.add('active');
+        }
+        
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.remove('active');
+        });
+        
+        const targetContent = document.getElementById(tabName + 'TabContent');
+        if (targetContent) {
+            targetContent.classList.add('active');
+        }
+    }
+    
+    // Test Toast
+    function testToast(type) {
+        const messages = {
+            success: translations[currentLang].successMsg,
+            error: translations[currentLang].errorMsg,
+            info: translations[currentLang].infoMsg,
+            warning: translations[currentLang].warningMsg
+        };
+        showToast(messages[type], type);
+    }
+    
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('DOM loaded, initializing...');
+        
+        currentLang = localStorage.getItem('preferredLanguage') || 'en';
+        document.documentElement.setAttribute('dir', currentLang === 'ar' ? 'rtl' : 'ltr');
+        
+        document.getElementById('loginPage').classList.add('active');
+        document.getElementById('homePage').classList.remove('active');
+        currentPage = 'login';
+        
+        updateLoginLanguage();
+        
+        console.log('Login page displayed');
+    });
+
+// Check if user has permission for a specific subtab
+function hasSubtabPermission(subtabId) {
+    if (!window.ordersSubtabPermissions) {
+        console.log('No ordersSubtabPermissions loaded');
+        return false;
+    }
+    
+    const subtab = window.ordersSubtabPermissions.find(s => s.subtabId === subtabId);
+    console.log('Checking subtab permission for:', subtabId, 'Found:', subtab);
+    
+    if (!subtab) {
+        console.log('Subtab not found in permissions');
+        return false;
+    }
+    
+    const hasPermission = subtab.permission && subtab.permission.trim() !== '';
+    console.log('Has permission:', hasPermission, 'Permission value:', subtab.permission);
+    
+    return hasPermission;
+}
+
+// Get permission level for a subtab
+function getSubtabPermission(subtabId) {
+    if (!window.ordersSubtabPermissions) return '';
+    
+    const subtab = window.ordersSubtabPermissions.find(s => s.subtabId === subtabId);
+    return subtab ? subtab.permission : '';
+}
+
+// Get all subtabs for a specific parent tab
+function getSubtabsForParent(parentTabId) {
+    if (!window.allSubtabPermissions) return [];
+    
+    return window.allSubtabPermissions.filter(p => p.parentTab === parentTabId);
+}
+
+// Check if user has permission for a specific subtab
+function hasSubtabPermission(parentTabId, subtabId) {
+    if (!window.allSubtabPermissions) {
+        console.log('No allSubtabPermissions loaded');
+        return false;
+    }
+    
+    const fullTabId = `${parentTabId}.${subtabId}`;
+    const subtab = window.allSubtabPermissions.find(p => p.tabId === fullTabId);
+    
+    console.log('Checking subtab permission for:', fullTabId, 'Found:', subtab);
+    
+    if (!subtab) {
+        console.log('Subtab not found in permissions');
+        return false;
+    }
+    
+    const hasPermission = subtab.permission && subtab.permission.trim() !== '';
+    console.log('Has permission:', hasPermission, 'Permission value:', subtab.permission);
+    
+    return hasPermission;
+}
+
+// Get permission level for a subtab
+function getSubtabPermission(parentTabId, subtabId) {
+    if (!window.allSubtabPermissions) return '';
+    
+    const fullTabId = `${parentTabId}.${subtabId}`;
+    const subtab = window.allSubtabPermissions.find(p => p.tabId === fullTabId);
+    
+    return subtab ? subtab.permission : '';
+}
+
+ // Sales Module Functions
+    
+    let clientsList = [];
+    let productsList = [];
+    let salesRepList = [];
+    let productRowCounter = 0;
+    let selectedFiles = [];
+    
+    // Add template data at the top of script-sales.html
+const retailTemplate = [
+    { qty: 80, product: 'ط 900' },
+    { qty: 10, product: 'ط 500' },
+    { qty: 10, product: 'اورجانو كبير' },
+    { qty: 2, product: 'تفاح 500' },
+    { qty: 2, product: 'تفاح 250' },
+    { qty: 2, product: 'طحينة نصف كيلو' },
+    { qty: 2, product: 'طحينة وسط 260' },
+    { qty: 2, product: 'طحينة صغير 140' },
+    { qty: 5, product: 'طحينة ظرف 26' },
+    { qty: 2, product: 'ماء ورد 250' },
+    { qty: 2, product: 'ماء زهر 250' }
+];
+
+    // Convert Arabic-Indic numerals to Western numerals
+    function convertArabicNumerals(input) {
+        const arabicToWestern = {
+            '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+            '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9'
+        };
+        
+        let value = input.value;
+        let converted = value.replace(/[٠-٩]/g, function(match) {
+            return arabicToWestern[match];
+        });
+        
+        if (converted !== value) {
+            input.value = converted;
+        }
+    }
+    
+    // VAT toggle button selection
+    function selectVat(button, value) {
+        // Remove active class from all buttons
+        document.querySelectorAll('.vat-toggle-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        
+        // Add active class to selected button
+        button.classList.add('active');
+        
+        // Update hidden input value
+        document.getElementById('vat').value = value;
+    }
+    
+    function openSalesModule() {
+        // Check if permissions are loaded
+        if (!window.permissionsLoaded) {
+            showToast('Loading permissions...', 'info');
+            return;
+        }
+        
+        showPage('sales');
+        updateSalesLanguage();
+        updateOrdersSubtabBadges(); // Update subtab badges from already-loaded permissions
+        switchOrdersSubtab('all-orders'); // Open default subtab
+    }
+    
+ function updateSalesLanguage() {
+    document.documentElement.setAttribute('dir', currentLang === 'ar' ? 'rtl' : 'ltr');
+    
+    // Update static IDs
+    const ids = {
+        'navLangTextSales': currentLang === 'en' ? 'عربي' : 'English',
+        'userNameSales': localStorage.getItem('userName') || 'User',
+        'salesModuleTitle': translations[currentLang].salesModuleTitle,
+        'ordersTabLabel': translations[currentLang].ordersTabLabel,
+        'loadingText': translations[currentLang].loadingText,
+        'subtab-label-current': translations[currentLang].currentOrdersSubtab,
+        'subtab-label-distribution': translations[currentLang].distributionPlanSubtab,
+        'subtab-label-accounting': translations[currentLang].accountingSubtab,
+        'subtab-label-warehouse': translations[currentLang].warehouseSubtab,
+        'subtab-label-return': translations[currentLang].returnStockSubtab,
+        'subtab-label-all-orders': translations[currentLang].allOrdersSubtab // --- NEW LABEL ---
+    };
+
+    for (const [id, text] of Object.entries(ids)) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
+    }
+    
+    updateAddOrderLanguage();
+    updateTooltips();
+
+    // --- Refresh Active Subtab Content (UI only) ---
+    const activeSubtab = document.querySelector('.orders-subtab.active');
+    if (activeSubtab) {
+        const subtabName = activeSubtab.dataset.subtab;
+        if (subtabName === 'accounting' && typeof renderAccountingUI === 'function') {
+            renderAccountingUI();
+        } else if (subtabName === 'all-orders') {
+            // Re-render the filter bar to apply new language directions
+            if (typeof renderAllOrdersFilterBar === 'function') renderAllOrdersFilterBar();
+        }
+    }
+}
+    
+// --- OPERATIONS MODULE FUNCTIONS ---
+    function openOperationsModule() {
+        showPage('operations');
+        updateOperationsLanguage();
+    }
+
+    function switchOperationsTab(tabName) {
+        // Remove active class from tabs in Operations page
+        const container = document.getElementById('operationsPage');
+        if(!container) return;
+
+        container.querySelectorAll('.module-tab').forEach(t => t.classList.remove('active'));
+        container.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+        // Activate target
+        const btn = document.getElementById(tabName + 'TabBtn');
+        const content = document.getElementById(tabName + 'TabContent');
+        
+        if (btn) btn.classList.add('active');
+        if (content) content.classList.add('active');
+
+        // --- LOAD MODULE DATA ---
+        if (tabName === 'production') {
+            // Initialize Production Module (defined in script-production.html)
+            if (typeof initProductionModule === 'function') {
+                initProductionModule(); 
+            } else {
+                console.error('initProductionModule function not found');
+            }
+        } else if (tabName === 'purchases') {
+            // Future: initPurchasesModule();
+        } else if (tabName === 'materials') {
+            // Initialize Materials Module (defined in script-materials.html)
+            if (typeof initMaterialsModule === 'function') {
+                initMaterialsModule();
+            } else {
+                console.error('initMaterialsModule function not found');
+            }
+        }
+    }
+
+    function updateOperationsLanguage() {
+        document.documentElement.setAttribute('dir', currentLang === 'ar' ? 'rtl' : 'ltr');
+        
+        const ids = {
+            'navLangTextOperations': currentLang === 'en' ? 'عربي' : 'English',
+            'userNameOperations': localStorage.getItem('userName') || 'User',
+            'operationsModuleTitle': translations[currentLang].operationsModuleTitle,
+            'purchasesTabLabel': translations[currentLang].purchasesTabLabel,
+            'materialsTabLabel': translations[currentLang].materialsTabLabel,
+            'productionTabLabel': translations[currentLang].productionTabLabel
+        };
+
+        for (const [id, text] of Object.entries(ids)) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = text;
+        }
+        
+        updateTooltips();
+    }
+
+    function updateAddOrderLanguage() {
+        const trans = translations[currentLang];
+        
+        const addOrderBtnText = document.getElementById('addOrderBtnText');
+        if (addOrderBtnText) addOrderBtnText.textContent = trans.addOrderBtnText;
+        
+        const modalTitle = document.getElementById('modalTitle');
+        if (modalTitle) modalTitle.textContent = trans.modalTitle;
+        
+        const labelInvoiceDate = document.getElementById('labelInvoiceDate');
+        if (labelInvoiceDate) labelInvoiceDate.textContent = trans.labelInvoiceDate;
+        
+        const labelClientName = document.getElementById('labelClientName');
+        if (labelClientName) labelClientName.textContent = trans.labelClientName;
+        
+        const labelVat = document.getElementById('labelVat');
+        if (labelVat) labelVat.textContent = trans.labelVat;
+        
+        const labelPoTawoos = document.getElementById('labelPoTawoos');
+        if (labelPoTawoos) labelPoTawoos.textContent = trans.labelPoTawoos;
+        
+        const labelPoPrivateLabel = document.getElementById('labelPoPrivateLabel');
+        if (labelPoPrivateLabel) labelPoPrivateLabel.textContent = trans.labelPoPrivateLabel;
+        
+        const labelOrderType = document.getElementById('labelOrderType');
+        if (labelOrderType) labelOrderType.textContent = trans.labelOrderType;
+        
+        const labelInternalComments = document.getElementById('labelInternalComments');
+        if (labelInternalComments) labelInternalComments.textContent = trans.labelInternalComments;
+        
+        const labelExternalComments = document.getElementById('labelExternalComments');
+        if (labelExternalComments) labelExternalComments.textContent = trans.labelExternalComments;
+        
+        const productsWarning = document.getElementById('productsWarning');
+        if (productsWarning) productsWarning.textContent = trans.productsWarning;
+        
+        const btnCancel = document.getElementById('btnCancel');
+        if (btnCancel) btnCancel.textContent = trans.btnCancel;
+        
+        const btnSave = document.getElementById('btnSave');
+        if (btnSave) btnSave.textContent = trans.btnSave;
+        
+        // Update products section
+        const productsTitle = document.getElementById('productsTitle');
+        if (productsTitle) productsTitle.textContent = trans.productsTitle;
+        
+        const addProductBtn = document.getElementById('addProductBtn');
+        if (addProductBtn) addProductBtn.textContent = trans.addProductBtn;
+        
+        const productsInfoText = document.getElementById('productsInfoText');
+        if (productsInfoText) productsInfoText.textContent = trans.productsInfoText;
+        
+        // Update client input placeholder
+        const clientInput = document.getElementById('clientName');
+        if (clientInput) {
+            clientInput.placeholder = trans.selectClient;
+        }
+    }
+
+    function showConfirmModal() {
+        const modal = document.getElementById('confirmModal');
+        const message = document.getElementById('confirmModalMessage');
+        const trans = translations[currentLang];
+        
+        if (message) {
+            message.textContent = trans.newClientConfirm;
+        }
+        
+        const confirmYes = document.getElementById('confirmYes');
+        const confirmNo = document.getElementById('confirmNo');
+        
+        if (confirmYes) confirmYes.textContent = trans.confirmYes;
+        if (confirmNo) confirmNo.textContent = trans.confirmNo;
+        
+        if (modal) {
+            modal.classList.add('active');
+        }
+    }
+    
+    function closeConfirmModal(confirmed) {
+        const modal = document.getElementById('confirmModal');
+        if (modal) {
+            modal.classList.remove('active');
+        }
+        
+        if (confirmed) {
+            // User confirmed new client, proceed with save
+            proceedWithSave();
+        }
+        // If not confirmed, do nothing - user stays on form to fix
+    }
+    
+
+function switchOrdersSubtab(subtabName) {
+    // 1. Check permission
+    // Note: Ensure you have added 'orders.all-orders' and 'orders.eta' to your permissions list if needed
+    if (typeof hasSubtabPermission === 'function' && !hasSubtabPermission('orders', subtabName)) {
+        showNoPermissionMessage();
+        return;
+    }
+    
+    // 2. FORCE LABEL TRANSLATION
+    const lang = (typeof currentLang !== 'undefined') ? currentLang : 'en';
+    
+    // Update labels for specific tabs (keeping your existing pattern)
+    const labelMap = {
+        'warehouse': 'warehouseSubtab',
+        'return': 'returnStockSubtab',
+        'all-orders': 'allOrdersSubtab',
+        'eta': 'etaSubtab' // Added ETA translation key support
+    };
+
+    if (labelMap[subtabName]) {
+        const labelEl = document.getElementById(`subtab-label-${subtabName}`);
+        // Safety check for translations object
+        if (labelEl && typeof translations !== 'undefined' && translations[lang] && translations[lang][labelMap[subtabName]]) {
+            labelEl.textContent = translations[lang][labelMap[subtabName]];
+        }
+    }
+
+    // 3. Update active subtab button
+    document.querySelectorAll('.orders-subtab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    const activeTab = document.querySelector(`.orders-subtab[data-subtab="${subtabName}"]`);
+    if (activeTab) {
+        activeTab.classList.add('active');
+    }
+    
+    // 4. Hide all subtab contents
+    // Ensure your new div in app.html has the class 'orders-subtab-content' or 'tab-pane'
+    const allContents = document.querySelectorAll('.tab-pane, .orders-subtab-content'); 
+    allContents.forEach(content => {
+        content.classList.remove('active', 'show');
+        content.style.display = 'none'; // Force hide if classes fail
+    });
+    
+    // 5. Show selected subtab content
+    const targetContent = document.getElementById(`subtab-${subtabName}`) || document.getElementById(`subtab-orders-${subtabName}`);
+    if (targetContent) {
+        targetContent.classList.add('active', 'show');
+        targetContent.style.display = 'block';
+    }
+    
+    // 6. Load content based on subtab
+    if (subtabName === 'current') {
+        if (typeof loadOrders === 'function') loadOrders(); 
+    } else if (subtabName === 'distribution') {
+        if (typeof initializeDistributionPlanning === 'function') initializeDistributionPlanning();
+    } else if (subtabName === 'accounting') {
+        if (typeof initializeAccountingModule === 'function') initializeAccountingModule();
+    } else if (subtabName === 'warehouse') {
+        if (typeof initializeWarehouseModule === 'function') initializeWarehouseModule();
+    } else if (subtabName === 'return') {
+        if (typeof initializeReturnModule === 'function') initializeReturnModule();
+    } else if (subtabName === 'all-orders') {
+        // --- ALL ORDERS LOGIC ---
+        console.log('All Orders subtab loaded');
+        if (typeof initializeAllOrdersSubtab === 'function') {
+            initializeAllOrdersSubtab();
+        } else {
+            console.error('initializeAllOrdersSubtab function is missing!');
+        }
+    } else if (subtabName === 'eta') {
+        // --- NEW ETA LOGIC ADDED HERE ---
+        console.log('ETA Reconciliation subtab loaded');
+        if (typeof loadEtaReconciliation === 'function') {
+            loadEtaReconciliation();
+        } else {
+            console.error('loadEtaReconciliation function is missing! Check script-eta-reconciliation.html');
+        }
+    }
+}
+
+// Show no permission message
+function showNoPermissionMessage() {
+    const trans = translations[currentLang];
+    
+    // Find the active subtab content area
+    const activeContent = document.querySelector('.orders-subtab-content.active');
+    if (activeContent) {
+        activeContent.innerHTML = `
+            <div class="no-permission-state">
+                <i class="fas fa-lock"></i>
+                <h4>${trans.noPermissionTitle}</h4>
+                <p>${trans.noPermissionMessage}</p>
+            </div>
+        `;
+    }
+}
+
+// Show under development message
+function showUnderDevelopmentMessage(containerElement) {
+    const trans = translations[currentLang];
+    
+    if (containerElement) {
+        containerElement.innerHTML = `
+            <div class="under-development-state">
+                <i class="fas fa-tools"></i>
+                <h4>${trans.underDevelopment}</h4>
+                <p>${trans.underDevelopmentDesc}</p>
+            </div>
+        `;
+    }
+}
+
+function updateOrdersSubtabBadges() {
+    if (!window.allSubtabPermissions) {
+        console.log('Subtab permissions not loaded yet');
+        return;
+    }
+    
+    const icons = {
+        admin: 'fa-user-tie',
+        editor: 'fa-pen-to-square',
+        viewer: 'fa-eye'
+    };
+    
+    // Get all orders subtabs
+    const ordersSubtabs = getSubtabsForParent('orders');
+    console.log('Orders subtabs found:', ordersSubtabs);
+    
+    ordersSubtabs.forEach(subtab => {
+        const badge = document.getElementById(`subtab-badge-${subtab.subtabId}`);
+        if (badge && subtab.permission) {
+            const permLevel = subtab.permission || 'viewer';
+            const permIcon = icons[permLevel] || icons.viewer;
+            // Always use same class - no color variation
+            badge.className = `permission-badge`;
+            badge.innerHTML = `<i class="fas ${permIcon}"></i>`;
+        }
+    });
+}
+
+function loadOrders() {
+    // Find or create the orders container (not the entire subtab)
+    let ordersContainer = document.getElementById('current-orders-container');
+    
+    if (!ordersContainer) {
+        // Create container if it doesn't exist
+        const subtabCurrent = document.getElementById('subtab-current');
+        if (!subtabCurrent) return;
+        
+        ordersContainer = document.createElement('div');
+        ordersContainer.id = 'current-orders-container';
+        subtabCurrent.appendChild(ordersContainer);
+    }
+    
+    // Clear only the orders container, not the button
+    ordersContainer.innerHTML = `
+        <div class="content-loading">
+            <div class="spinner-large"></div>
+            <p>${translations[currentLang].loadingText}</p>
+        </div>
+    `;
+    
+    google.script.run
+        .withSuccessHandler(function(result) {
+            if (result.success) {
+                displayOrders(result.orders);
+            } else {
+                ordersContainer.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-exclamation-circle"></i>
+                        <h4>Error loading orders</h4>
+                        <p>${result.message}</p>
+                    </div>
+                `;
+            }
+        })
+        .withFailureHandler(function(error) {
+            console.error('Load orders error:', error);
+            ordersContainer.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <h4>Error loading orders</h4>
+                    <p>${error.message}</p>
+                </div>
+            `;
+        })
+        .getOrders();
+}
+
+function formatLoadingDate(dateString) {
+        if (!dateString) {
+            return '<div class="loading-date-display">-</div>';
+        }
+        
+        const parts = dateString.split('-');
+        if (parts.length !== 3) {
+            return '<div class="loading-date-display">-</div>';
+        }
+        
+        const orderDate = new Date(parts[0], parts[1] - 1, parts[2]);
+        
+        const today = new Date();
+        const cairoOffset = 2 * 60;
+        const utcNow = today.getTime() + (today.getTimezoneOffset() * 60000);
+        const cairoToday = new Date(utcNow + (cairoOffset * 60000));
+        cairoToday.setHours(0, 0, 0, 0);
+        
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        
+        const day = orderDate.getDate();
+        const month = monthNames[orderDate.getMonth()];
+        const shortDate = `${day} ${month}`;
+        
+        orderDate.setHours(0, 0, 0, 0);
+        const isToday = orderDate.getTime() === cairoToday.getTime();
+        
+        if (isToday) {
+            return `<div class="loading-date-display today">${shortDate}</div>`;
+        } else {
+            return `<div class="loading-date-display not-today">${shortDate}</div>`;
+        }
+    }
+
+    function getVatBadge(vat) {
+        if (!vat || vat.trim() === '') {
+            return '<span class="vat-badge disabled"><i class="fas fa-tag"></i> -</span>';
+        }
+        
+        const vatLower = vat.trim();
+        let badgeText = '';
+        
+        if (vatLower === 'ضريبي') {
+            badgeText = 'EXCL';
+        } else if (vatLower === 'ضريبة و خصم 1%') {
+            badgeText = 'EXCL -1%';
+        } else if (vatLower === 'سعر شامل الضريبة') {
+            badgeText = 'INCL';
+        } else if (vatLower === 'سعر شامل و خصم 1%') {
+            badgeText = 'INCL -1%';
+        } else {
+            badgeText = vat;
+        }
+        
+        return `<span class="vat-badge"><i class="fas fa-tag"></i> ${badgeText}</span>`;
+    }
+    
+</script>
