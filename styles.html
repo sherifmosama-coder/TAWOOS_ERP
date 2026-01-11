@@ -9289,4 +9289,54 @@
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
+
+/* ========================================================================== */
+/* --- PERMISSION ENFORCEMENT STYLES --- */
+/* ========================================================================== */
+/* 1. The Container (Module Card or Tab Button) */
+.permission-denied {
+    /* Visual Dimming */
+    opacity: 0.5 !important;           /* Fade out the card contents */
+    filter: grayscale(90%) !important; /* Almost entirely gray out original colors */
+    box-shadow: none !important;       /* Remove any active shadows */
+    
+    /* Interaction Blocking */
+    pointer-events: none !important;    /* Block ALL clicks/hovers inside */
+    cursor: not-allowed !important;     /* Fallback cursor */
+    user-select: none !important;       /* Prevent text selection */
+    
+    /* Layout requirement for the lock icon */
+    position: relative !important;
+    overflow: hidden; /* Ensures the lock doesn't spill out if the card has rounded corners */
+}
+
+/* 2. The Red Lock Icon Overlay */
+.permission-denied::after {
+    content: "\f023"; /* FontAwesome Lock Icon code */
+    font-family: "Font Awesome 5 Free";
+    font-weight: 900; /* Solid icon style */
+    
+    /* Corner Positioning (Top Right) */
+    position: absolute;
+    top: 10px;
+    right: 15px;
+    /* Remove previous transform: translate(-50%, -50%); */
+    
+    /* Styling */
+    font-size: 28px;       /* Prominent size */
+    color: #dc3545;        /* Vivid Red (standard "danger" color) */
+    opacity: 1.0;          /* Fully opaque so it pops against the dimmed background */
+    z-index: 99;           /* Ensure it sits on top of everything else in the card */
+    
+    /* Optional: Subtle shadow to make the red icon stand out more */
+    filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.4));
+}
+
+/* Optional: Ensure buttons that are denied also look correct */
+button.permission-denied::after {
+   top: 5px; /* Adjust slightly for smaller buttons */
+   right: 8px;
+   font-size: 20px;
+}
+
 </style>
