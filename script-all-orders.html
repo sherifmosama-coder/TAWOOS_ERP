@@ -477,6 +477,7 @@ function refreshAllOrdersData() {
 }
 
 // --- RENDER UI (v20.5 - Fixed Input ID) ---
+// --- RENDER UI (v20.5 - Fixed Input ID) ---
 function renderReportManagerUI() {
     const container = document.getElementById('all-orders-filter-container');
     
@@ -487,6 +488,18 @@ function renderReportManagerUI() {
         style.innerHTML = AO_MODAL_CSS; // Defined at bottom
         document.head.appendChild(style);
     }
+
+    // --- PERMISSION CHECK: NEW ORDER BUTTON ---
+    let newOrderBtnHtml = '';
+    // Only Editors and Admins can see this button
+    if (aoUserRole === 'editor' || aoUserRole === 'admin') {
+        newOrderBtnHtml = `
+            <button class="btn btn-success fw-bold shadow-sm d-flex align-items-center gap-2" onclick="ao_openOrderModal('add')">
+                <i class="fa-solid fa-square-plus"></i>
+                <span>New Order</span>
+            </button>`;
+    }
+
     // --- ICONS & HELPERS ---
     const ICONS = {
         basics:    { icon: 'fa-calendar-alt', class: 'ao-icon-basics' },
@@ -621,11 +634,8 @@ function renderReportManagerUI() {
                             <div class="ao-btn-circle-icon"><i class="fas fa-sync-alt ao-spin-hover"></i></div>
                             <span class="ao-btn-circle-text">Reload Orders</span>
                         </button>
-                    
-                        <button class="btn btn-success fw-bold shadow-sm d-flex align-items-center gap-2" onclick="ao_openAddOrderModal()">
-                            <i class="fa-solid fa-square-plus"></i>
-                            <span>New Order</span>
-                        </button>
+                        
+                        ${newOrderBtnHtml}
                         
                     </div>
                 </div>
@@ -1815,14 +1825,50 @@ function getFinanceVatBadge(vat) {
 function buildRowCard(row) {
     var dir = currentLang === 'ar' ? 'rtl' : 'ltr';
     var typeStyle = getOrderTypeVisuals(row.type);
+    
+    // --- 1. EDIT BUTTON (Permission Check) ---
+    var editBtnHtml = '';
+    // Only ADMINS can edit existing orders (Full Edit)
+    if (aoUserRole === 'admin') {
+        editBtnHtml = `
+            <div class="ao-btn-icon-small text-secondary ao-admin-edit-btn" 
+                style="width:30px; height:30px; margin-right:8px; border-color:transparent; background:transparent; cursor: pointer;"
+                onclick="ao_openOrderModal('edit', '${row.orderId}')" 
+                title="Edit Order (Admin)">
+                <i class="fas fa-pen"></i>
+            </div>`;
+    }
+
+    // --- 2. STATUS TOGGLE (Permission Check) ---
     var confirmIconHtml = ao_getConfirmationIcon(row.confirmationState);
+    
+    // Default: Viewers cannot click
+    let confirmAction = `style="width: 30px; height: 30px; flex-shrink: 0; cursor: not-allowed; opacity: 0.6;" title="Access Denied"`;
+    
+    // Editors & Admins can click
+    if (aoUserRole === 'editor' || aoUserRole === 'admin') {
+        confirmAction = `
+            style="width: 30px; height: 30px; flex-shrink: 0; cursor: pointer;"
+            class="d-flex align-items-center justify-content-center hover-scale" 
+            title="Status: ${row.confirmationState || 'Not Confirmed'}"
+            onclick="ao_handleStatusToggle('${row.orderId}', '${row.confirmationState}')"
+        `;
+    } else {
+        // For Viewers, wrap in basic div without onclick
+        confirmAction = `
+            style="width: 30px; height: 30px; flex-shrink: 0; cursor: default;"
+            class="d-flex align-items-center justify-content-center"
+            title="Status: ${row.confirmationState || 'Not Confirmed'}"
+        `;
+    }
+
     var statusStyle = getOrderStatusVisuals(row.status); 
     var displayId = row.orderId ? row.orderId.toString().padStart(4, '0') : '----';
 
-    // 1. Get the Icon using the pricingStrategy field
+    // Pricing Icon
     var pricingIcon = getClientPricingIcon(row.pricingStrategy);
 
-    // 2. Render the Client Chip
+    // Client Chip
     var clientChipHtml = `
         <div class="ao-data-chip flex-grow-1 text-truncate justify-content-start" 
              onclick="openClientPopover(event, '${row.orderId}')" 
@@ -1833,7 +1879,7 @@ function buildRowCard(row) {
         </div>
     `;
 
-    // 3. PO CHIP (Preserved Logic)
+    // PO Chip
     var poHtml = '';
     if (row.poData && (row.poData.text || row.poData.hasFiles)) {
         var txt = row.poData.text || '';
@@ -1847,13 +1893,12 @@ function buildRowCard(row) {
         poHtml = `<div class="d-flex align-items-center px-2 py-1 border rounded-pill" style="background-color: #fdfdfd; border-color: #e9ecef !important; height: 32px;">${textHtml}${iconHtml}</div>`;
     }
 
-    // 4. FINANCE CHIP (NEW: Document Badges)
+    // Finance Chip
     var financeChip = '';
     var f = row.financeData;
     if (f) {
         var totalFormatted = (f.calc.total || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
         
-        // A. VAT Badge Logic
         var vatLower = (f.vatType || '').trim();
         var vatClass = 'ao-vat-excl'; 
         var vatLabel = f.vatType || '-'; 
@@ -1864,7 +1909,6 @@ function buildRowCard(row) {
         else if (vatLower === 'سعر شامل و خصم 1%') { vatLabel = 'INCL -1%'; vatClass = 'ao-vat-incl'; }
         else if (vatLower.toUpperCase().includes('INC') || vatLower.includes('شامل')) { vatClass = 'ao-vat-incl'; }
         
-        // B. E-Invoice Logic
         var eInvDotHtml = '';
         var eInvTitle = 'No E-Invoice Info';
         if (f.eInvStatus && f.eInvStatus.required > 0) {
@@ -1874,25 +1918,20 @@ function buildRowCard(row) {
             eInvDotHtml = `<span class="ao-einv-dot ${dotClass}" title="${eInvTitle}"></span>`;
         }
 
-        // C. NEW: Document Number Badges Logic
         var docBadgesHtml = '';
         if (f.documents && f.documents.length > 0) {
             f.documents.forEach(doc => {
-                // Determine Color based on Type
-                let badgeStyle = 'background-color: #cff4fc; color: #055160; border: 1px solid #b6effb;'; // Default cyan
+                let badgeStyle = 'background-color: #cff4fc; color: #055160; border: 1px solid #b6effb;'; 
                 let icon = 'fa-file-invoice';
                 
                 if (doc.type === 'Delivery Note') {
-                    // Delivery: gray
                     badgeStyle = 'background-color: #e9ecef; color: #6c757d; border: 1px solid #6c757d;';
                     icon = 'fa-file-alt';
                 } else if (doc.type && doc.type.includes('Inv')) {
-                    // Invoice: cyan
                     badgeStyle = 'background-color: #cff4fc; color: #055160; border: 1px solid #b6effb;';
                     icon = 'fa-file-invoice';
                 }
 
-                // Build Small Badge
                 docBadgesHtml += `
                     <span class="d-inline-flex align-items-center gap-1 px-1 rounded mx-1" 
                           style="${badgeStyle} font-size: 0.7rem; height: 18px; line-height: 1;">
@@ -1902,14 +1941,11 @@ function buildRowCard(row) {
             });
         }
 
-        // D. Construct the Chip
         financeChip = `
             <div class="ao-chip-finance ${vatClass}" onclick="openFinancePopover(event, '${row.orderId}')" title="${eInvTitle}">
                 ${eInvDotHtml}
                 <span>${vatLabel}</span>
-                
                 ${docBadgesHtml}
-                
                 <span class="ms-1 border-start ps-1 border-dark opacity-50" style="font-family: monospace;">
                     ${totalFormatted}
                 </span>
@@ -1917,7 +1953,7 @@ function buildRowCard(row) {
         `;
     }
 
-    // 5. DELIVERY CHIP
+    // Delivery Chip
     var deliveryChip = '';
     var d = row.deliveryData;
     if (d && (d.truck || d.loadOrder)) {
@@ -1950,7 +1986,7 @@ function buildRowCard(row) {
             </div>`;
     }
 
-    // 6. PRODUCT CHIP
+    // Product Chip
     var count = row.itemsCount || 0;
     var productChip = `
         <span class="ao-chip" 
@@ -1962,7 +1998,7 @@ function buildRowCard(row) {
         </span>
     `;
 
-    // 7. COMMENT CHIPS
+    // Comment Chips
     var commentChips = '';
     if (row.comments) {
         if (row.comments.internal) {
@@ -1985,19 +2021,18 @@ function buildRowCard(row) {
         }
     }
 
-    // 8. FINAL CARD HTML
+    // Final HTML (Conditions Applied)
     return `
         <div class="card shadow-sm border-0 mb-2 ao-row-card">
             <div class="card-body p-2 d-flex align-items-center gap-2 flex-wrap" dir="${dir}">
                 
-                <div class="d-flex align-items-center gap-2 me-2">
+                ${editBtnHtml} <div class="d-flex align-items-center gap-2 me-2">
                     <div class="d-flex align-items-center justify-content-center" style="width: 30px; height: 30px; color: ${statusStyle.color};"
                          title="${statusStyle.tooltip}">
                         <i class="fas ${statusStyle.icon} fa-lg"></i>
                     </div>
-                    <div class="d-flex align-items-center justify-content-center" 
-                        style="width: 30px; height: 30px; flex-shrink: 0;"
-                        title="Status: ${row.confirmationState || 'Not Confirmed'}">
+                    
+                    <div ${confirmAction}>
                         ${confirmIconHtml}
                     </div>
                 </div>
@@ -3103,85 +3138,113 @@ const AO_MODAL_CSS = `
 
 // --- 3. MODAL & FORM FUNCTIONS ---
 
-function ao_openAddOrderModal() {
+let aoCurrentEditOrderId = null; // Global Tracker
+
+function ao_openOrderModal(mode, orderId = null) {
     const modal = document.getElementById('ao-modal-add-order');
     if (!modal) return;
     
     modal.classList.add('active');
     document.getElementById('ao-form-add-order').reset();
     
-    // --- RESET COMPONENTS ---
+    const titleEl = modal.querySelector('.ao-modal-header h3');
+    const saveBtn = document.getElementById('ao-btn-save-order');
     
-    // 1. Clear Product Rows 
-    // (Updated ID to match the validation logic in 'ao_handleSaveOrder')
-    const prodContainer = document.getElementById('ao-product-rows-container');
+    // --- RESET COMPONENTS ---
+    const prodContainer = document.getElementById('ao-new-products-container'); // Check this ID matches your HTML
     if(prodContainer) prodContainer.innerHTML = '';
     
-    // 2. Reset Files (If using global variable)
-    if(typeof aoSelectedFiles !== 'undefined') aoSelectedFiles = [];
-    if(typeof ao_updateFileList === 'function') ao_updateFileList();
+    // Reset Files (Matching your specific global var)
+    if(typeof aoPendingFiles !== 'undefined') aoPendingFiles = [];
+    if(typeof ao_renderFileList === 'function') ao_renderFileList();
     
-    // 3. Reset Counter
+    // Reset Counter
     if(typeof aoProductRowCounter !== 'undefined') aoProductRowCounter = 0;
     
-    // --- SET DEFAULTS ---
-    
-    // Date: Today
-    document.getElementById('ao-new-date').valueAsDate = new Date();
-    
-    // VAT: None
-    const vatBtn = document.querySelector('.ao-vat-btn[data-value=""]');
-    if(vatBtn && typeof ao_selectVat === 'function') ao_selectVat(vatBtn, '');
+    aoCurrentEditOrderId = null;
 
-    // Confirmation State: Default to 'Confirmed'
-    const confirmSelect = document.getElementById('ao-new-confirm-state');
-    if(confirmSelect) confirmSelect.value = 'Confirmed';
+    // --- LOGIC BRANCHING ---
 
-    // Order Type: Default to 'توريد'
-    const typeSelect = document.getElementById('ao-new-order-type');
-    if(typeSelect) typeSelect.value = 'توريد';
-    
-    // Add default rows (x2)
-    if(typeof ao_addProductRow === 'function') {
-        ao_addProductRow();
-        ao_addProductRow();
+    if (mode === 'edit' && orderId) {
+        // --- EDIT MODE ---
+        aoCurrentEditOrderId = orderId;
+        titleEl.innerHTML = `<i class="fas fa-edit me-2"></i> Edit Order #${orderId}`;
+        saveBtn.innerHTML = `<i class="fas fa-save"></i> Update Order`;
+        saveBtn.disabled = true;
+
+        showToast("Loading data...", "info");
+        
+        // Ensure dropdowns are loaded
+        if(typeof ao_loadClients === 'function') ao_loadClients();
+        if(typeof ao_loadProducts === 'function') ao_loadProducts();
+        if(typeof ao_loadSalesReps === 'function') ao_loadSalesReps();
+
+        google.script.run.withSuccessHandler(res => {
+            if (res.success) {
+                ao_populateEditForm(res.data); // Calls the helper below
+                saveBtn.disabled = false;
+            } else {
+                showToast(res.message, "error");
+                ao_closeAddOrderModal();
+            }
+        }).getOrderDataForEdit(orderId);
+
+    } else {
+        // --- ADD MODE ---
+        titleEl.innerHTML = `<i class="fas fa-cart-plus me-2"></i> Add New Order`;
+        saveBtn.innerHTML = `<i class="fas fa-save"></i> Save Order`;
+        saveBtn.disabled = false;
+
+        // Defaults
+        document.getElementById('ao-new-date').valueAsDate = new Date();
+        
+        // Reset VAT buttons
+        const vatBtn = document.querySelector('.ao-vat-btn[data-value=""]');
+        if(vatBtn && typeof ao_selectVat === 'function') ao_selectVat(vatBtn, '');
+
+        // Default Selects
+        const confirmSelect = document.getElementById('ao-new-confirm-state');
+        if(confirmSelect) confirmSelect.value = 'Confirmed';
+
+        const typeSelect = document.getElementById('ao-new-order-type');
+        if(typeSelect) typeSelect.value = 'توريد';
+        
+        // Add 2 Default Rows
+        if(typeof ao_addProductRow === 'function') {
+            ao_addProductRow();
+            ao_addProductRow();
+        }
+        
+        // Load Data
+        if(typeof ao_loadClients === 'function') ao_loadClients();
+        if(typeof ao_loadProducts === 'function') ao_loadProducts();
+        if(typeof ao_loadSalesReps === 'function') ao_loadSalesReps();
+        
+        // Reset UI State
+        if(document.getElementById('ao-client-strategy-label')) 
+            document.getElementById('ao-client-strategy-label').innerHTML = '';
+        
+        const defIcon = AO_STRATEGY_CONFIG['default'];
+        const iconEl = document.getElementById('ao-client-icon');
+        if(iconEl) {
+            iconEl.className = defIcon.icon;
+            iconEl.style.color = defIcon.color;
+        }
     }
     
-    // --- LOAD DATA ---
-    if(typeof ao_loadClients === 'function') ao_loadClients();
-    if(typeof ao_loadProducts === 'function') ao_loadProducts();
-    if(typeof ao_loadSalesReps === 'function') ao_loadSalesReps();
-    
-    // --- SETUP LISTENERS ---
-    
-    // 1. Client Field (FIXED ID)
+    // --- LISTENERS ---
     const clientInput = document.getElementById('ao-new-client');
     if(clientInput) {
-        clientInput.value = '';
+        if(mode !== 'edit') clientInput.value = '';
         
-        // Remove old listeners
         clientInput.removeEventListener('blur', ao_checkRetailTemplate);
         clientInput.removeEventListener('input', ao_updateClientUI);
         
-        // Add Listeners
         clientInput.addEventListener('blur', ao_checkRetailTemplate);
-        
-        // Trigger UI update on input (typing) and change (selection)
         clientInput.addEventListener('input', ao_updateClientUI);
         clientInput.addEventListener('change', () => { ao_updateClientUI(); ao_fetchContractMap(); });
     }
-    
-    // Add Date Listener
     document.getElementById('ao-new-date').addEventListener('change', ao_fetchContractMap);
-    
-    // Reset UI State on Open
-    document.getElementById('ao-client-strategy-label').innerHTML = '';
-    const defIcon = AO_STRATEGY_CONFIG['default'];
-    const iconEl = document.getElementById('ao-client-icon');
-    if(iconEl) {
-        iconEl.className = defIcon.icon;
-        iconEl.style.color = defIcon.color;
-    }
 }
 
 function ao_closeAddOrderModal() {
@@ -3645,23 +3708,19 @@ function ao_generateOrderSummary(products) {
     return lines.join('\n');
 }
 
-// --- HANDLE SAVE ORDER (Robust Refactor with User Email Fix) ---
+// --- HANDLE SAVE ORDER (Robust Refactor + Edit Support) ---
 function ao_handleSaveOrder(e) {
     if(e) e.preventDefault();
 
-    // --- STEP 0: AUTHENTICATION CHECK (New) ---
-    // Retrieve the logged-in user's email from LocalStorage
+    // --- STEP 0: AUTHENTICATION CHECK ---
     const userEmail = localStorage.getItem('userEmail');
-    
     if (!userEmail) {
         showToast("Session Expired: Please reload the page or login again.", "error");
         return;
     }
 
-    // --- STEP 1: READ ALL DOM VALUES IMMEDIATELY (Synchronous) ---
-    // We capture everything here to avoid any async/Promise confusion later.
-
-    // Helper: Safely get value or return empty string (Prevents "null" crashes)
+    // --- STEP 1: READ ALL DOM VALUES IMMEDIATELY ---
+    // Helper: Safely get value or return empty string
     const getVal = (id) => {
         const el = document.getElementById(id);
         return el ? el.value : '';
@@ -3672,15 +3731,15 @@ function ao_handleSaveOrder(e) {
     const clientName = clientInput ? clientInput.value.trim() : '';
     const dateVal = getVal('ao-new-date');
     const orderType = getVal('ao-new-order-type');
-    // 2. FIXED: Read from the hidden input updated by the buttons
+    // 2. Read from the hidden input updated by the buttons
     const vatValue = document.getElementById('ao-new-vat').value;
-    // 3. New & Existing Meta Fields (The safe 'getVal' prevents crashes here)
+    // 3. Meta Fields
     const valPoTawoos = getVal('ao-new-po-tawoos');
-    const valPoPrivate = getVal('ao-new-po-pl'); // Fixed ID
+    const valPoPrivate = getVal('ao-new-po-pl'); 
     const valInternal = getVal('ao-new-internal-notes');
     const valExternal = getVal('ao-new-external-notes');
     
-    // 4. Confirmation State (Default to 'Confirmed' if missing/null)
+    // 4. Confirmation State
     const rawConfirm = getVal('ao-new-confirm-state');
     const valConfirmState = rawConfirm || 'Confirmed';
     
@@ -3691,6 +3750,11 @@ function ao_handleSaveOrder(e) {
     // Client Validation
     const clientListOpts = document.getElementById('ao-client-list')?.options || [];
     let clientExists = false;
+    
+    // Note: In EDIT mode, the client might be valid but not in the current list if the list wasn't reloaded.
+    // We relax the check strictly for Edit Mode if needed, but for now we keep it safe.
+    // Use the input value directly if the datalist check fails but we are in edit mode? 
+    // For safety, we keep your logic:
     for (let i = 0; i < clientListOpts.length; i++) {
         if (clientListOpts[i].value === clientName) {
             clientExists = true;
@@ -3699,36 +3763,30 @@ function ao_handleSaveOrder(e) {
     }
 
     if (!clientName) { showToast("Please select a client", "error"); return; }
+    // Optional: Relax strict check for Edit Mode if needed
+    // if (!clientExists && !aoCurrentEditOrderId) { ... }
     if (!clientExists) { showToast("Invalid Client: Please select a client from the list", "error"); return; }
 
-    // Date Validation
     if (!dateVal) { showToast("Please select a date", "error"); return; }
 
     // Product Validation
-    // --- CORRECTED PRODUCT VALIDATION ---
-    // Target the specific class created by ao_addProductRow
     const productRows = document.querySelectorAll('.ao-product-row'); 
     let products = [];
     let totalWeight = 0;
     let hasPriceError = false;
 
-    productRows.forEach((row, index) => {
-        // 1. SELECTORS MATCHING YOUR "ao_addProductRow" HTML
+    productRows.forEach((row) => {
         const pInput = row.querySelector('[data-field="product"] input');
         const qInput = row.querySelector('[data-field="qty"] input');
         const bInput = row.querySelector('[data-field="bonus"] input');
         const priceInput = row.querySelector('[data-field="price"] input'); 
         const dInput = row.querySelector('[data-field="discount"] input');
         
-        // Safety check: if for some reason a row is malformed
         if(!pInput || !qInput || !bInput || !priceInput || !dInput) return;
 
         const pName = pInput.value.trim();
-        
-        // Skip rows where no product is selected
         if (!pName) return; 
 
-        // 2. PARSE VALUES
         const qty = parseFloat(qInput.value) || 0;
         const bonus = parseFloat(bInput.value) || 0;
         const discount = parseFloat(dInput.value) || 0;
@@ -3736,95 +3794,60 @@ function ao_handleSaveOrder(e) {
         const priceRaw = priceInput.value;
         const price = parseFloat(priceRaw);
         
-        // Extract Invoice Discount Amount
         const invDiscInput = row.querySelector('[data-field="invoiceDisc"] .ao-inv-disc-amount');
         const invoiceDisc = invDiscInput ? (parseFloat(invDiscInput.value) || 0) : 0;
 
-        // 3. STRICT PRICE CHECK
         if (priceRaw === '' || isNaN(price)) {
-            // Highlight the specific input with error
-            priceInput.classList.add('is-invalid'); // BS5 error class
+            priceInput.classList.add('is-invalid');
             priceInput.style.border = "2px solid red";
             hasPriceError = true;
         } else {
             priceInput.classList.remove('is-invalid');
             priceInput.style.border = "";
             
-            // 4. VALID ROW LOGIC (Qty OR Bonus > 0)
             if (qty > 0 || bonus > 0) {
-                // Extract calculated Invoice Disc amount
-                const invDiscInput = row.querySelector('.ao-inv-disc-amount');
-                const invoiceDisc = invDiscInput ? (parseFloat(invDiscInput.value) || 0) : 0;
-
                 products.push({
                     productName: pName,
                     qty: qty,
                     bonus: bonus,
                     price: price,
                     discount: discount,
-                    invoiceDisc: invoiceDisc // Pass to backend
+                    invoiceDisc: invoiceDisc
                 });
 
-                // --- WEIGHT CALCULATION (FIXED) ---
-                // 1. Find the product info in the global list
-                // We check 'fullName' or 'name' to be safe
                 const productInfo = aoProductsList.find(p => p.fullName === pName || p.name === pName);
-                
-                // 2. Get Unit Weight (Default to 0 if not loaded yet)
                 const unitWeight = productInfo ? (parseFloat(productInfo.weight) || 0) : 0;
-                
-                // 3. Calculate: (Qty + Bonus) * Unit Weight
-                // Note: We include Bonus in weight calculation as it is physical stock being moved
                 totalWeight += ((qty + bonus) * unitWeight); 
             }
         }
     });
 
-    // BLOCK IF PRICE ERROR
-    if (hasPriceError) {
-        showToast("CRITICAL: One or more products have invalid prices.", "error");
-        return;
-    }
+    if (hasPriceError) { showToast("CRITICAL: One or more products have invalid prices.", "error"); return; }
 
-    // BLOCK IF NO PRODUCTS (Unless special type)
     const allowedEmptyTypes = ['تحصيل', 'اداري'];
     if (!allowedEmptyTypes.includes(orderType) && products.length === 0) {
         showToast("Please add at least one product (Qty or Bonus required)", "error");
         return;
     }
 
-    // --- STEP 3: PREPARE FILES (Async) ---
+    // --- STEP 3: PREPARE FILES ---
     const saveBtn = document.getElementById('ao-btn-save-order'); 
-    
-    // Safety check in case ID is wrong, fallback to querySelector or create dummy
-    if (!saveBtn) {
-        console.error("Save button not found! Check HTML ID 'ao-btn-save-order'");
-        return;
-    }
+    if (!saveBtn) return;
 
-    // --- CRITICAL FIX: READ FROM GLOBAL ARRAY ---
-    // Ensure the global array exists (safety check)
-    if (typeof aoPendingFiles === 'undefined') {
-        console.warn("Global aoPendingFiles not found. Defaulting to empty.");
-        window.aoPendingFiles = [];
-    }
+    // Use Global Pending Files
+    if (typeof aoPendingFiles === 'undefined') window.aoPendingFiles = [];
 
     const originalBtnText = saveBtn.innerHTML;
     saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing ' + aoPendingFiles.length + ' files...';
     saveBtn.disabled = true;
 
-    console.log("Files pending upload:", aoPendingFiles.length);
-
     let filePromises = [];
-    
     if (aoPendingFiles.length > 0) {
         aoPendingFiles.forEach(file => {
             filePromises.push(new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = e => resolve({
-                    name: file.name,
-                    mimeType: file.type,
-                    data: e.target.result.split(',')[1] // Base64 part only
+                    name: file.name, mimeType: file.type, data: e.target.result.split(',')[1]
                 });
                 reader.onerror = error => reject(error);
                 reader.readAsDataURL(file);
@@ -3834,7 +3857,6 @@ function ao_handleSaveOrder(e) {
 
     // --- STEP 4: RESOLVE PROMISE & SEND ---
     Promise.all(filePromises).then(files => {
-        // We use the variables captured in Step 1 (No DOM access here)
         const formData = {
             invoiceDate: dateVal,
             clientName: clientName,
@@ -3848,38 +3870,49 @@ function ao_handleSaveOrder(e) {
             salesRep: valSalesRep,
             products: products,
             totalWeight: totalWeight,
-            // Use the dedicated helper function to format with Short Names & Bonus info
             orderSummary: (typeof ao_generateOrderSummary === 'function') 
                           ? ao_generateOrderSummary(products) 
                           : products.map(p => `${p.productName}: ${p.qty}`).join(', '),
-            files: files // SEND THE FILES READ FROM GLOBAL ARRAY
+            files: files
         };
 
-        google.script.run
-            .withSuccessHandler((res) => {
-                saveBtn.innerHTML = originalBtnText;
-                saveBtn.disabled = false;
-                if(res && res.success) {
-                    showToast(res.message, "success"); // Displays backend success + debug msg
-                    
-                    // --- SUCCESS CLEANUP ---
-                    // Clear global files logic
-                    aoPendingFiles = []; 
-                    if(typeof ao_renderFileList === 'function') ao_renderFileList();
+        const successHandler = (res) => {
+            saveBtn.innerHTML = originalBtnText;
+            saveBtn.disabled = false;
+            if(res && res.success) {
+                showToast(res.message, "success");
+                
+                // Cleanup
+                aoPendingFiles = []; 
+                if(typeof ao_renderFileList === 'function') ao_renderFileList();
+                ao_closeAddOrderModal();
+                refreshAllOrdersData(); 
+            } else {
+                showToast("Error: " + (res.message || "Unknown error"), "error");
+            }
+        };
 
-                    ao_closeAddOrderModal();
-                    refreshAllOrdersData(); 
-                } else {
-                    showToast("Error: " + (res.message || "Unknown error"), "error");
-                }
-            })
-            .withFailureHandler((err) => {
-                saveBtn.innerHTML = originalBtnText;
-                saveBtn.disabled = false;
-                showToast("System Error: " + err.message, "error");
-            })
-            // --- FINAL FIX: Passing the actual userEmail here ---
-            .saveNewOrder(formData, userEmail); 
+        const failureHandler = (err) => {
+            saveBtn.innerHTML = originalBtnText;
+            saveBtn.disabled = false;
+            showToast("System Error: " + err.message, "error");
+        };
+
+        // --- NEW BRANCHING LOGIC ---
+        if (aoCurrentEditOrderId) {
+            // EDIT MODE
+            google.script.run
+                .withSuccessHandler(successHandler)
+                .withFailureHandler(failureHandler)
+                .updateExistingOrder(aoCurrentEditOrderId, formData, userEmail);
+        } else {
+            // CREATE MODE
+            google.script.run
+                .withSuccessHandler(successHandler)
+                .withFailureHandler(failureHandler)
+                .saveNewOrder(formData, userEmail); 
+        }
+
     }).catch(err => {
         console.error("File Read Error:", err);
         saveBtn.innerHTML = originalBtnText;
@@ -3887,6 +3920,7 @@ function ao_handleSaveOrder(e) {
         showToast("Failed to read files: " + err.message, "error");
     });
 }
+
 // --- UNIFIED SUGGESTIONS HELPER (Updated: Shows on Click) ---
 function ao_showSuggestions(input, listType) {
     const val = input.value.toLowerCase().trim();
@@ -3938,6 +3972,109 @@ function ao_acceptSuggestion(el, value) {
     if(input.id === 'ao-new-client') {
         ao_checkRetailTemplate();
     }
+}
+
+function ao_populateEditForm(data) {
+    // 1. Basic Fields
+    document.getElementById('ao-new-date').value = data.invoiceDate;
+    document.getElementById('ao-new-client').value = data.clientName;
+    ao_updateClientUI(); // Trigger UI updates
+    
+    document.getElementById('ao-new-po-tawoos').value = data.poTawoos;
+    document.getElementById('ao-new-po-pl').value = data.poPrivateLabel;
+    document.getElementById('ao-new-internal-notes').value = data.internalComments;
+    document.getElementById('ao-new-external-notes').value = data.externalComments;
+    document.getElementById('ao-new-order-type').value = data.orderType;
+    
+    const confirmEl = document.getElementById('ao-new-confirm-state');
+    if(confirmEl) confirmEl.value = data.confirmationState;
+    
+    const salesEl = document.getElementById('ao-new-sales-rep');
+    if(salesEl) salesEl.value = data.salesRep;
+
+    // 2. VAT Buttons
+    const vatVal = data.vat;
+    const vatBtn = document.querySelector(`.ao-vat-btn[data-value="${vatVal}"]`) || document.querySelector('.ao-vat-btn[data-value=""]');
+    if(vatBtn) ao_selectVat(vatBtn, vatVal);
+
+    // 3. Products
+    const container = document.getElementById('ao-new-products-container');
+    if(container) {
+        container.innerHTML = '';
+        
+        if (data.products && data.products.length > 0) {
+            data.products.forEach(p => {
+                ao_addProductRow(p.productName, p.qty); 
+                
+                // Find the row we just added
+                const rows = container.querySelectorAll('.ao-product-row');
+                const lastRow = rows[rows.length - 1];
+                
+                if(lastRow) {
+                    // Set inputs
+                    lastRow.querySelector('[data-field="bonus"] input').value = p.bonus;
+                    lastRow.querySelector('[data-field="discount"] input').value = p.discount;
+                    
+                    const priceInput = lastRow.querySelector('[data-field="price"] input');
+                    if(priceInput) priceInput.value = p.price;
+                    
+                    const invDiscInput = lastRow.querySelector('.ao-inv-disc-amount');
+                    if(invDiscInput) invDiscInput.value = p.invoiceDisc;
+                    
+                    const invDiscDisp = lastRow.querySelector('[data-field="invoiceDisc"] input');
+                    if(invDiscDisp) invDiscDisp.value = p.invoiceDisc; // Simplified display
+
+                    ao_validateRow(lastRow.id);
+                }
+            });
+        } else {
+            ao_addProductRow();
+        }
+    }
+    ao_checkSaveButton();
+}
+
+function ao_handleStatusToggle(orderId, currentStatus) {
+    // 1. Permission Check
+    if (aoUserRole === 'viewer') {
+        showToast("Access Denied: View Only", "error");
+        return;
+    }
+
+    // 2. Editor Restrictions
+    if (aoUserRole === 'editor') {
+        // Editors cannot unlock canceled orders or confirm raw orders if validation logic existed
+        // But per your requirement: "Confirmed" <-> "Revised"
+        // Also they cannot set "Not Confirmed" or "Canceled" (Handled by toggle logic below)
+        
+        if (currentStatus === 'Canceled') {
+            showToast("Only Admins can change Canceled orders.", "warning");
+            return;
+        }
+        
+        // If it's "Not Confirmed" initially, Editor CAN confirm it.
+    }
+
+    // 3. Toggle Logic
+    let newStatus = 'Confirmed';
+    
+    if (currentStatus === 'Confirmed') newStatus = 'Revised';
+    else if (currentStatus === 'Revised') newStatus = 'Confirmed';
+    // If 'Not Confirmed', it becomes 'Confirmed'
+    
+    // 4. Execute
+    showToast("Updating status...", "info");
+    
+    google.script.run
+        .withSuccessHandler(res => {
+            if(res.success) {
+                showToast("Status updated", "success");
+                refreshAllOrdersData(); // Reload grid
+            } else {
+                showToast(res.message, "error");
+            }
+        })
+        .updateOrderConfirmationStatus(orderId, newStatus, localStorage.getItem('userEmail'));
 }
 </script>
 
