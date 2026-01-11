@@ -622,7 +622,7 @@ function refreshPage() {
         return translations[currentLang][statusKey] || status;
     }
     
-    // Authentication
+// Authentication
     function handleLogin(event) {
         event.preventDefault();
         
@@ -651,6 +651,7 @@ function refreshPage() {
                 btnSpinner.style.display = 'none';
                 
                 if (result.success) {
+                    // 1. Store Session Data
                     localStorage.setItem('userEmail', email);
                     localStorage.setItem('userName', result.userName);
                     localStorage.setItem('preferredLanguage', currentLang);
@@ -660,14 +661,41 @@ function refreshPage() {
                         userNameElement.textContent = result.userName;
                     }
                     
-                    // Show loading state on module cards
-                    setModuleCardsLoadingState(true);
-                    
-                    loadUserPermissions();
-                    
+                    // 2. Navigate to Home Page Immediately
                     console.log('Attempting to show home page...');
                     showPage('home');
                     updateHomeLanguage();
+                    
+                    // 3. Show loading state on modules while permissions fetch
+                    setModuleCardsLoadingState(true);
+                    
+                    // 4. CRITICAL: Fetch Permissions & Enforce "Dimming" Rules
+                    google.script.run
+                        .withSuccessHandler(function(permsResponse) {
+                            if (permsResponse.success) {
+                                console.log("Permissions loaded:", permsResponse.permissions);
+                                
+                                // ✅ TRIGGER THE ENFORCER: Apply visual dimming
+                                if (typeof applyPermissionRules === 'function') {
+                                    applyPermissionRules(permsResponse.permissions);
+                                } else {
+                                    console.warn('applyPermissionRules function not found');
+                                }
+                                
+                                // (Optional) Keep existing load logic if it handles other UI setup
+                                if (typeof loadUserPermissions === 'function') {
+                                    // You might want to update loadUserPermissions to accept data 
+                                    // instead of fetching again, but keeping it is safe for now.
+                                    loadUserPermissions(); 
+                                }
+                            }
+                            setModuleCardsLoadingState(false);
+                        })
+                        .withFailureHandler(function(err) {
+                            console.error("Failed to load permissions:", err);
+                            setModuleCardsLoadingState(false);
+                        })
+                        .getUserPermissions(email);
                     
                     setTimeout(() => {
                         showToast(translations[currentLang].loginSuccess, 'success');
@@ -1516,5 +1544,74 @@ function formatLoadingDate(dateString) {
         
         return `<span class="vat-badge"><i class="fas fa-tag"></i> ${badgeText}</span>`;
     }
+
+ /**
+ * MASTER PERMISSION ENFORCER
+ * Applies visual "Dimming" rules based on User Permissions.
+ * @param {Array} userPermissions - Array of permission objects from backend.
+ */
+function applyPermissionRules(userPermissions) {
+  console.log("👮 Starting Permission Enforcement...", userPermissions);
+
+  // 1. DEFINE THE MAP: Permission ID -> HTML Selector
+  // This maps the IDs from your PERMISSION_SCHEMA to actual DOM elements
+  const uiMap = {
+    // --- MODULES (Home Page) ---
+    'orders':              ['#salesModuleCard', '#ordersTabBtn'], // Dim Card & Tab
+    'operations':          ['#operationsModuleCard'],
     
+    // --- SALES SUBTABS ---
+    'orders.all-orders':   ['button[data-subtab="all-orders"]'],
+    'orders.distribution': ['button[data-subtab="distribution"]'],
+    'orders.accounting':   ['button[data-subtab="accounting"]'],
+    'orders.warehouse':    ['button[data-subtab="warehouse"]'],
+    'orders.return':       ['button[data-subtab="return"]'],
+    'orders.eta':          ['button[data-subtab="eta"]'],
+
+    // --- OPERATIONS TABS ---
+    'operations.purchases': ['#purchasesTabBtn'],
+    'operations.materials': ['#materialsTabBtn'],
+    'operations.production':['#productionTabBtn']
+  };
+
+  // 2. CONVERT USER PERMISSIONS TO A LOOKUP SET
+  // We normalize everything to lowercase to avoid mismatches
+  const allowedSet = new Set();
+  
+  if (userPermissions && Array.isArray(userPermissions)) {
+    userPermissions.forEach(p => {
+      // Check if permission is valid (true OR a valid role string)
+      const isValid = p.permission === true || 
+                      (typeof p.permission === 'string' && p.permission !== '' && p.permission !== 'none');
+      
+      if (isValid) {
+        allowedSet.add(p.tabId.toLowerCase());
+      }
+    });
+  }
+
+  // 3. ITERATE AND ENFORCE
+  for (const [permId, selectors] of Object.entries(uiMap)) {
+    const isAllowed = allowedSet.has(permId.toLowerCase());
+    
+    selectors.forEach(selector => {
+      const elements = document.querySelectorAll(selector);
+      elements.forEach(el => {
+        // Special Case: For Module Cards, we target the PARENT container
+        const targetEl = el.classList.contains('module-card') ? el : (el.closest('.module-card') || el);
+
+        if (!isAllowed) {
+          // ⛔ DENY: Add Class
+          targetEl.classList.add('permission-denied');
+          targetEl.setAttribute('title', 'Access Denied: Contact Admin');
+        } else {
+          // ✅ ALLOW: Remove Class
+          targetEl.classList.remove('permission-denied');
+          targetEl.removeAttribute('title');
+        }
+      });
+    });
+  }
+}
+
 </script>
