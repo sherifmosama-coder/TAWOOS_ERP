@@ -623,96 +623,97 @@ function refreshPage() {
     }
     
 // Authentication
-    function handleLogin(event) {
-        event.preventDefault();
-        
-        const email = document.getElementById('email').value.trim();
-        const password = document.getElementById('password').value;
-        
-        if (!email || !password) {
-            showToast(translations[currentLang].errorEmpty, 'error');
-            return;
-        }
-        
-        const loginBtn = document.getElementById('loginBtn');
-        const btnText = document.getElementById('btnText');
-        const btnSpinner = document.getElementById('btnSpinner');
-        
-        loginBtn.disabled = true;
-        btnText.style.display = 'none';
-        btnSpinner.style.display = 'inline-block';
-        
-        google.script.run
-            .withSuccessHandler(function(result) {
-                console.log('Login result:', result);
-                
-                loginBtn.disabled = false;
-                btnText.style.display = 'inline';
-                btnSpinner.style.display = 'none';
-                
-                if (result.success) {
-                    // 1. Store Session Data
-                    localStorage.setItem('userEmail', email);
-                    localStorage.setItem('userName', result.userName);
-                    localStorage.setItem('preferredLanguage', currentLang);
-                    
-                    const userNameElement = document.getElementById('userName');
-                    if (userNameElement) {
-                        userNameElement.textContent = result.userName;
-                    }
-                    
-                    // 2. Navigate to Home Page Immediately
-                    console.log('Attempting to show home page...');
-                    showPage('home');
-                    updateHomeLanguage();
-                    
-                    // 3. Show loading state on modules while permissions fetch
-                    setModuleCardsLoadingState(true);
-                    
-                    // 4. CRITICAL: Fetch Permissions & Enforce "Dimming" Rules
-                    google.script.run
-                        .withSuccessHandler(function(permsResponse) {
-                            if (permsResponse.success) {
-                                console.log("Permissions loaded:", permsResponse.permissions);
-                                
-                                // ✅ TRIGGER THE ENFORCER: Apply visual dimming
-                                if (typeof applyPermissionRules === 'function') {
-                                    applyPermissionRules(permsResponse.permissions);
-                                } else {
-                                    console.warn('applyPermissionRules function not found');
-                                }
-                                
-                                // (Optional) Keep existing load logic if it handles other UI setup
-                                if (typeof loadUserPermissions === 'function') {
-                                    // You might want to update loadUserPermissions to accept data 
-                                    // instead of fetching again, but keeping it is safe for now.
-                                    loadUserPermissions(); 
-                                }
-                            }
-                            setModuleCardsLoadingState(false);
-                        })
-                        .withFailureHandler(function(err) {
-                            console.error("Failed to load permissions:", err);
-                            setModuleCardsLoadingState(false);
-                        })
-                        .getUserPermissions(email);
-                    
-                    setTimeout(() => {
-                        showToast(translations[currentLang].loginSuccess, 'success');
-                    }, 300);
-                } else {
-                    showToast(translations[currentLang].errorInvalid, 'error');
-                }
-            })
-            .withFailureHandler(function(error) {
-                console.error('Login error:', error);
-                showToast(translations[currentLang].errorInvalid, 'error');
-                loginBtn.disabled = false;
-                btnText.style.display = 'inline';
-                btnSpinner.style.display = 'none';
-            })
-            .validateLogin(email, password);
+function handleLogin(event) {
+    event.preventDefault();
+    
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    
+    if (!email || !password) {
+        showToast(translations[currentLang].errorEmpty, 'error');
+        return;
     }
+    
+    const loginBtn = document.getElementById('loginBtn');
+    const btnText = document.getElementById('btnText');
+    const btnSpinner = document.getElementById('btnSpinner');
+    
+    loginBtn.disabled = true;
+    btnText.style.display = 'none';
+    btnSpinner.style.display = 'inline-block';
+    
+    google.script.run
+        .withSuccessHandler(function(result) {
+            console.log('Login result:', result);
+            
+            loginBtn.disabled = false;
+            btnText.style.display = 'inline';
+            btnSpinner.style.display = 'none';
+            
+            if (result.success) {
+                // 1. Store Session Data
+                localStorage.setItem('userEmail', email);
+                localStorage.setItem('userName', result.userName);
+                localStorage.setItem('preferredLanguage', currentLang);
+                
+                const userNameElement = document.getElementById('userName');
+                if (userNameElement) {
+                    userNameElement.textContent = result.userName;
+                }
+                
+                // 2. Navigate to Home Page Immediately
+                console.log('Attempting to show home page...');
+                showPage('home');
+                updateHomeLanguage();
+                
+                // 3. Show loading state on modules while permissions fetch
+                setModuleCardsLoadingState(true);
+                
+                // 4. CRITICAL: Fetch Permissions & Enforce "Dimming" Rules
+                google.script.run
+                    .withSuccessHandler(function(permsResponse) {
+                        if (permsResponse.success) {
+                            console.log("Permissions loaded:", permsResponse.permissions);
+                            
+                            // A. General UI Dimming
+                            if (typeof applyPermissionRules === 'function') {
+                                applyPermissionRules(permsResponse.permissions);
+                            }
+                            
+                            // B. Pass Permissions to All Orders Module (For Edit/New Buttons)
+                            if (typeof ao_setPermissions === 'function') {
+                                ao_setPermissions(permsResponse.permissions);
+                            }
+
+                            // C. Load Sidebar/Other Logic
+                            if (typeof loadUserPermissions === 'function') {
+                                loadUserPermissions(); 
+                            }
+                        }
+                        setModuleCardsLoadingState(false);
+                    })
+                    .withFailureHandler(function(err) {
+                        console.error("Failed to load permissions:", err);
+                        setModuleCardsLoadingState(false);
+                    })
+                    .getUserPermissions(email);
+                
+                setTimeout(() => {
+                    showToast(translations[currentLang].loginSuccess, 'success');
+                }, 300);
+            } else {
+                showToast(translations[currentLang].errorInvalid, 'error');
+            }
+        })
+        .withFailureHandler(function(error) {
+            console.error('Login error:', error);
+            showToast(translations[currentLang].errorInvalid, 'error');
+            loginBtn.disabled = false;
+            btnText.style.display = 'inline';
+            btnSpinner.style.display = 'none';
+        })
+        .validateLogin(email, password);
+}
     
     // Permissions
     function loadUserPermissions() {
@@ -1612,6 +1613,32 @@ function applyPermissionRules(userPermissions) {
       });
     });
   }
+}
+
+// --- PERMISSION STATE ---
+let aoUserRole = 'viewer'; // Default to restricted access
+
+/**
+ * Called by handleLogin to set specific rights for this module
+ */
+function ao_setPermissions(permissions) {
+    if (!permissions) return;
+    
+    // 1. Find permission for 'orders.all-orders'
+    const permObj = permissions.find(p => p.tabId === 'orders.all-orders');
+    
+    // 2. Set Role
+    if (permObj) {
+        aoUserRole = permObj.permission; 
+    } else {
+        aoUserRole = 'viewer';
+    }
+    console.log("👮 AO Module Role Set:", aoUserRole);
+    
+    // 3. Re-render UI if container exists
+    if (document.getElementById('all-orders-filter-container')) {
+        renderReportManagerUI();
+    }
 }
 
 </script>
