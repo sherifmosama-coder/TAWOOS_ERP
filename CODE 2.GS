@@ -1470,3 +1470,249 @@ function uploadFilesToDrive(filesData, orderId) {
     return { success: false, message: 'Upload Error: ' + error.toString() };
   }
 }
+
+
+// =============================================================================
+// ALL ORDERS: EDIT & SMART SAVE (History Tracking)
+// =============================================================================
+
+/**
+ * Fetches raw data for a specific order to populate the Edit Modal.
+ */
+function getOrderDataForEdit(orderId) {
+  try {
+    const ss = SpreadsheetApp.openById(SALES_SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('Orders');
+    const lastRow = getOrdersLastRow(sheet);
+    const orderIds = sheet.getRange(7, 4, lastRow - 6, 1).getValues(); // Column D
+    
+    let rowIndex = -1;
+    for (let i = 0; i < orderIds.length; i++) {
+      if (orderIds[i][0].toString() === orderId.toString()) {
+        rowIndex = i + 7;
+        break;
+      }
+    }
+
+    if (rowIndex === -1) return { success: false, message: 'Order not found' };
+
+    // Fetch Full Row
+    const rowValues = sheet.getRange(rowIndex, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const headerRow = sheet.getRange(3, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+    // Extract Products (Scan from Col AQ/42)
+    const products = [];
+    // Start scanning from index 42 (Column AQ) - Pattern: Qty, Bonus, Price, Disc, InvDisc
+    for (let c = 42; c < rowValues.length; c += 5) {
+        const qty = parseFloat(rowValues[c]) || 0;
+        const bonus = parseFloat(rowValues[c+1]) || 0;
+        
+        if (qty > 0 || bonus > 0) {
+            const prodName = headerRow[c] ? headerRow[c].toString().trim() : '';
+            if (prodName) {
+                products.push({
+                    productName: prodName,
+                    qty: qty,
+                    bonus: bonus,
+                    price: parseFloat(rowValues[c+2]) || 0,
+                    discount: parseFloat(rowValues[c+3]) || 0,
+                    invoiceDisc: parseFloat(rowValues[c+4]) || 0
+                });
+            }
+        }
+    }
+
+    // Construct Payload
+    const data = {
+        invoiceDate: rowValues[5] ? Utilities.formatDate(new Date(rowValues[5]), Session.getScriptTimeZone(), 'yyyy-MM-dd') : '', // Col F
+        clientName: rowValues[8], // Col I
+        vat: rowValues[9], // Col J
+        poTawoos: rowValues[10], // Col K
+        poPrivateLabel: rowValues[11], // Col L
+        internalComments: rowValues[16], // Col Q
+        externalComments: rowValues[17], // Col R
+        orderType: rowValues[41], // Col AP
+        confirmationState: rowValues[4], // Col E (Version/Confirmation) - Assuming E is reused or check your map
+        salesRep: rowValues[23], // Col X
+        products: products
+    };
+
+    return { success: true, data: data };
+
+  } catch (e) {
+    Logger.log("Error in getOrderDataForEdit: " + e.toString());
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * SMART UPDATE: Compares new data vs old data.
+ * Updates changed cells and appends a Note with history.
+ */
+function updateExistingOrder(orderId, formData, userEmail) {
+  try {
+    const ss = SpreadsheetApp.openById(SALES_SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('Orders');
+    
+    // 1. Find Row
+    const lastRow = getOrdersLastRow(sheet);
+    const orderIds = sheet.getRange(7, 4, lastRow - 6, 1).getValues();
+    let rowIndex = -1;
+    for (let i = 0; i < orderIds.length; i++) {
+      if (orderIds[i][0].toString() === orderId.toString()) {
+        rowIndex = i + 7;
+        break;
+      }
+    }
+    if (rowIndex === -1) return { success: false, message: 'Order not found' };
+
+    const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM HH:mm');
+    const userLabel = userEmail.split('@')[0];
+
+    // 2. Helper to Update Cell with Audit Note
+    function smartUpdate(colIndex, newValue, oldValue) {
+      // Normalize comparison (handle dates, strings, numbers)
+      let valA = newValue;
+      let valB = oldValue;
+      
+      if (valA instanceof Date) valA = valA.getTime();
+      if (valB instanceof Date) valB = valB.getTime();
+      if (valA === valB) return; // No change
+
+      const cell = sheet.getRange(rowIndex, colIndex);
+      
+      // Update Value
+      cell.setValue(newValue);
+
+      // Append Note
+      const oldNote = cell.getNote() || "";
+      const changeLog = `[${timestamp} ${userLabel}] ${valB} -> ${newValue}`;
+      cell.setNote(oldNote ? oldNote + "\n" + changeLog : changeLog);
+    }
+
+    // 3. Read Current Row Data
+    const currentRow = sheet.getRange(rowIndex, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const headerRow = sheet.getRange(3, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+    // 4. Update Standard Fields
+    // Map: Field -> Col Index (1-based)
+    // Date(F/6), Client(I/9), VAT(J/10), PO T(K/11), PO P(L/12), Int(Q/17), Ext(R/18), Type(AP/42), SalesRep(X/24)
+    
+    smartUpdate(6, new Date(formData.invoiceDate), currentRow[5]);
+    smartUpdate(9, formData.clientName, currentRow[8]);
+    smartUpdate(10, formData.vat, currentRow[9]);
+    smartUpdate(11, formData.poTawoos, currentRow[10]);
+    smartUpdate(12, formData.poPrivateLabel, currentRow[11]);
+    smartUpdate(17, formData.internalComments, currentRow[16]);
+    smartUpdate(18, formData.externalComments, currentRow[17]);
+    smartUpdate(42, formData.orderType, currentRow[41]);
+    smartUpdate(24, formData.salesRep, currentRow[23]);
+
+    // 5. Update Confirmation State (Col E / 5)
+    // Note: If you store "Confirmed/Revised" in Column E (Version), use 5. 
+    // If it's stored in Status (Col G/7), use 7. Based on your code, let's assume Col E (4) or a new column.
+    // The previous code mapped `row[4]` to `version`. If `confirmationState` is separate, please specify column.
+    // For now, I will assume it maps to Column E (index 4) as per your object structure.
+    smartUpdate(5, formData.confirmationState, currentRow[4]);
+
+
+    // 6. Update Products (Complex)
+    // Strategy: 
+    // A. Create a map of Incoming Products: { "ProdName": {qty, bonus, price...} }
+    // B. Loop through Sheet Headers (from 42). If header matches incoming -> update.
+    // C. If header matches existing sheet value but NOT incoming (removed product) -> set to 0.
+
+    const incomingMap = {};
+    formData.products.forEach(p => {
+        incomingMap[p.productName] = p;
+    });
+
+    for (let c = 42; c < headerRow.length; c += 5) {
+        const prodName = headerRow[c] ? headerRow[c].toString().trim() : '';
+        if (!prodName) continue;
+
+        const incoming = incomingMap[prodName];
+        
+        // Indices (0-based from row array)
+        const idxQty = c;
+        const idxBonus = c+1;
+        const idxPrice = c+2;
+        const idxDisc = c+3;
+        const idxInvD = c+4;
+
+        if (incoming) {
+            // Update values
+            smartUpdate(c + 1, incoming.qty, currentRow[idxQty]);
+            smartUpdate(c + 2, incoming.bonus, currentRow[idxBonus]);
+            smartUpdate(c + 3, incoming.price, currentRow[idxPrice]);
+            smartUpdate(c + 4, incoming.discount, currentRow[idxDisc]);
+            smartUpdate(c + 5, incoming.invoiceDisc, currentRow[idxInvD]);
+            
+            // Remove from map to track processed items
+            delete incomingMap[prodName];
+        } else {
+            // Product not in form, but might exist in sheet. 
+            // If sheet has value > 0, set to 0 (Removal)
+            if (currentRow[idxQty] > 0 || currentRow[idxBonus] > 0) {
+                smartUpdate(c + 1, 0, currentRow[idxQty]);
+                smartUpdate(c + 2, 0, currentRow[idxBonus]);
+                smartUpdate(c + 3, 0, currentRow[idxPrice]); // Reset price too? Optional.
+                smartUpdate(c + 4, 0, currentRow[idxDisc]);
+                smartUpdate(c + 5, 0, currentRow[idxInvD]);
+            }
+        }
+    }
+    
+    // 7. Update Total Weight (Col AA / 27)
+    smartUpdate(27, formData.totalWeight, currentRow[26]);
+
+    // 8. Update Order Summary Text (Col S / 19)
+    smartUpdate(19, formData.orderSummary, currentRow[18]);
+
+    return { success: true, message: 'Order updated successfully with history log.' };
+
+  } catch (e) {
+    Logger.log("Update Error: " + e.toString());
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * Updates just the confirmation status.
+ */
+function updateOrderConfirmationStatus(orderId, newStatus, userEmail) {
+  try {
+    const ss = SpreadsheetApp.openById(SALES_SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('Orders');
+    const lastRow = getOrdersLastRow(sheet);
+    const orderIds = sheet.getRange(7, 4, lastRow - 6, 1).getValues();
+    
+    let rowIndex = -1;
+    for (let i = 0; i < orderIds.length; i++) {
+      if (orderIds[i][0].toString() === orderId.toString()) {
+        rowIndex = i + 7;
+        break;
+      }
+    }
+    if (rowIndex === -1) return { success: false, message: 'Order not found' };
+
+    // Update Col E (5) for Confirmation Status
+    // Also append note
+    const cell = sheet.getRange(rowIndex, 5);
+    const oldVal = cell.getValue();
+    
+    if (oldVal !== newStatus) {
+        cell.setValue(newStatus);
+        const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM HH:mm');
+        const userLabel = userEmail.split('@')[0];
+        const changeLog = `[${timestamp} ${userLabel}] Status: ${oldVal} -> ${newStatus}`;
+        const oldNote = cell.getNote() || "";
+        cell.setNote(oldNote ? oldNote + "\n" + changeLog : changeLog);
+    }
+
+    return { success: true };
+
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
