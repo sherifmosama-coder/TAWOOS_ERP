@@ -1826,9 +1826,8 @@ function buildRowCard(row) {
     var dir = currentLang === 'ar' ? 'rtl' : 'ltr';
     var typeStyle = getOrderTypeVisuals(row.type);
     
-    // --- 1. EDIT BUTTON (Permission Check) ---
+    // --- 1. EDIT BUTTON (Admin Only) ---
     var editBtnHtml = '';
-    // Only ADMINS can edit existing orders (Full Edit)
     if (aoUserRole === 'admin') {
         editBtnHtml = `
             <div class="ao-btn-icon-small text-secondary ao-admin-edit-btn" 
@@ -1839,36 +1838,66 @@ function buildRowCard(row) {
             </div>`;
     }
 
-    // --- 2. STATUS TOGGLE (Permission Check) ---
-    var confirmIconHtml = ao_getConfirmationIcon(row.confirmationState);
+    // --- 2. INTERACTIVE STATUS TOGGLE ---
+    const isInteractive = (aoUserRole === 'editor' || aoUserRole === 'admin') ? 'interactive' : '';
+    const currentState = row.confirmationState || 'Confirmed';
     
-    // Default: Viewers cannot click
-    let confirmAction = `style="width: 30px; height: 30px; flex-shrink: 0; cursor: not-allowed; opacity: 0.6;" title="Access Denied"`;
+    // Active Classes for Slider Options
+    const activeClassConf = currentState === 'Confirmed' ? 'active' : '';
+    const activeClassRev = currentState === 'Revised' ? 'active' : '';
+
+    // Toggle HTML
+    const toggleHtml = `
+        <div class="ao-toggle-switch" data-state="${currentState}">
+            <div class="ao-toggle-slider"></div>
+            
+            <div class="ao-toggle-option ${activeClassConf}" 
+                 onclick="ao_handleStatusToggle('${row.orderId}', 'Confirmed', event)" 
+                 title="Set to Confirmed">
+                 <i class="fas fa-check"></i>
+            </div>
+            
+            <div class="ao-toggle-option ${activeClassRev}" 
+                 onclick="ao_handleStatusToggle('${row.orderId}', 'Revised', event)" 
+                 title="Set to Revised">
+                 <i class="fas fa-check-double"></i>
+            </div>
+        </div>
+    `;
+
+    // Cancel Button (Admin Only)
+    const cancelBtn = (aoUserRole === 'admin' && currentState !== 'Canceled') ? 
+        `<div class="ao-cancel-btn animate__animated animate__fadeIn" 
+              onclick="ao_confirmCancelOrder('${row.orderId}')" 
+              title="Cancel Order">
+            <i class="fas fa-times"></i>
+         </div>` : '';
+
+    // Static Icon HTML (Initial State)
+    var confirmIconHtml = ao_getConfirmationIcon(currentState);
     
-    // Editors & Admins can click
-    if (aoUserRole === 'editor' || aoUserRole === 'admin') {
-        confirmAction = `
-            style="width: 30px; height: 30px; flex-shrink: 0; cursor: pointer;"
-            class="d-flex align-items-center justify-content-center hover-scale" 
-            title="Status: ${row.confirmationState || 'Not Confirmed'}"
-            onclick="ao_handleStatusToggle('${row.orderId}', '${row.confirmationState}')"
-        `;
-    } else {
-        // For Viewers, wrap in basic div without onclick
-        confirmAction = `
-            style="width: 30px; height: 30px; flex-shrink: 0; cursor: default;"
-            class="d-flex align-items-center justify-content-center"
-            title="Status: ${row.confirmationState || 'Not Confirmed'}"
-        `;
-    }
+    // Assemble Status Control
+    const statusControlHtml = `
+        <div class="ao-status-control ${isInteractive}">
+            <div class="ao-static-icon d-flex align-items-center justify-content-center" 
+                 style="width:30px; height:30px;" 
+                 title="Status: ${currentState}">
+                 ${confirmIconHtml}
+            </div>
+            
+            ${toggleHtml}
+            
+            ${cancelBtn}
+        </div>
+    `;
+
 
     var statusStyle = getOrderStatusVisuals(row.status); 
     var displayId = row.orderId ? row.orderId.toString().padStart(4, '0') : '----';
 
-    // Pricing Icon
+    // Pricing & Chips
     var pricingIcon = getClientPricingIcon(row.pricingStrategy);
 
-    // Client Chip
     var clientChipHtml = `
         <div class="ao-data-chip flex-grow-1 text-truncate justify-content-start" 
              onclick="openClientPopover(event, '${row.orderId}')" 
@@ -1986,7 +2015,6 @@ function buildRowCard(row) {
             </div>`;
     }
 
-    // Product Chip
     var count = row.itemsCount || 0;
     var productChip = `
         <span class="ao-chip" 
@@ -1998,7 +2026,6 @@ function buildRowCard(row) {
         </span>
     `;
 
-    // Comment Chips
     var commentChips = '';
     if (row.comments) {
         if (row.comments.internal) {
@@ -2021,20 +2048,20 @@ function buildRowCard(row) {
         }
     }
 
-    // Final HTML (Conditions Applied)
     return `
         <div class="card shadow-sm border-0 mb-2 ao-row-card">
             <div class="card-body p-2 d-flex align-items-center gap-2 flex-wrap" dir="${dir}">
                 
-                ${editBtnHtml} <div class="d-flex align-items-center gap-2 me-2">
-                    <div class="d-flex align-items-center justify-content-center" style="width: 30px; height: 30px; color: ${statusStyle.color};"
+                ${editBtnHtml} 
+
+                <div class="d-flex align-items-center gap-2 me-2">
+                    <div class="d-flex align-items-center justify-content-center" 
+                         style="width: 30px; height: 30px; color: ${statusStyle.color};"
                          title="${statusStyle.tooltip}">
                         <i class="fas ${statusStyle.icon} fa-lg"></i>
                     </div>
                     
-                    <div ${confirmAction}>
-                        ${confirmIconHtml}
-                    </div>
+                    ${statusControlHtml}
                 </div>
 
                 <div class="ao-data-chip" onclick="aoOpenModal('master', '${row.orderId}')">
@@ -2068,6 +2095,25 @@ function buildRowCard(row) {
 function closePopover() {
     const existing = document.getElementById('ao-popover');
     if (existing) existing.remove();
+}
+
+/**
+ * Returns the HTML for the static status icon based on state.
+ */
+function ao_getConfirmationIcon(state) {
+    if (state === 'Confirmed') {
+        // Dark Green Double Check
+        return '<i class="fa-solid fa-check" style="color: #57D99A;"></i>'; 
+    } else if (state === 'Revised') {
+        // Orange Sync/Refresh
+        return '<i class="fas fa-check-double" style="color: #198754;"></i>'; 
+    } else if (state === 'Canceled') {
+        // Red X
+        return '<i class="fas fa-times-circle" style="color: #dc3545;"></i>';
+    } else {
+        // Default (Not Confirmed) - Grey Check
+        return '<i class="fa-regular fa-clock" style="color: #adb5bd; opacity: 0.5;"></i>';
+    }
 }
 
 function openClientPopover(event, orderId) {
@@ -4034,47 +4080,86 @@ function ao_populateEditForm(data) {
     ao_checkSaveButton();
 }
 
-function ao_handleStatusToggle(orderId, currentStatus) {
+/**
+ * Handles the status toggle click (Confirmed <-> Revised)
+ * @param {string} orderId 
+ * @param {string} targetStatus - The status we want to switch TO ('Confirmed' or 'Revised')
+ * @param {Event} event 
+ */
+function ao_handleStatusToggle(orderId, targetStatus, event) {
+    if (event) event.stopPropagation();
+
     // 1. Permission Check
-    if (aoUserRole === 'viewer') {
-        showToast("Access Denied: View Only", "error");
+    if (aoUserRole !== 'editor' && aoUserRole !== 'admin') {
+        showToast("Access Denied", "error");
         return;
     }
 
-    // 2. Editor Restrictions
-    if (aoUserRole === 'editor') {
-        // Editors cannot unlock canceled orders or confirm raw orders if validation logic existed
-        // But per your requirement: "Confirmed" <-> "Revised"
-        // Also they cannot set "Not Confirmed" or "Canceled" (Handled by toggle logic below)
+    // 2. Get UI Elements
+    // We look up the parent container to find both the Toggle and the Static Icon
+    const controlEl = event.target.closest('.ao-status-control');
+    const toggleEl = controlEl ? controlEl.querySelector('.ao-toggle-switch') : null;
+    const staticIconEl = controlEl ? controlEl.querySelector('.ao-static-icon') : null;
+
+    // 3. OPTIMISTIC UI UPDATE (Toggle Slider)
+    if (toggleEl) {
+        toggleEl.setAttribute('data-state', targetStatus);
         
-        if (currentStatus === 'Canceled') {
-            showToast("Only Admins can change Canceled orders.", "warning");
-            return;
-        }
+        // Update active class on toggle options
+        const opts = toggleEl.querySelectorAll('.ao-toggle-option');
+        opts.forEach(opt => opt.classList.remove('active'));
         
-        // If it's "Not Confirmed" initially, Editor CAN confirm it.
+        // 0 = Confirmed, 1 = Revised
+        if(targetStatus === 'Confirmed' && opts[0]) opts[0].classList.add('active');
+        if(targetStatus === 'Revised' && opts[1]) opts[1].classList.add('active');
     }
 
-    // 3. Toggle Logic
-    let newStatus = 'Confirmed';
-    
-    if (currentStatus === 'Confirmed') newStatus = 'Revised';
-    else if (currentStatus === 'Revised') newStatus = 'Confirmed';
-    // If 'Not Confirmed', it becomes 'Confirmed'
-    
-    // 4. Execute
-    showToast("Updating status...", "info");
-    
+    // 4. OPTIMISTIC UI UPDATE (Static Icon)
+    // This ensures the static view updates immediately when mouse leaves
+    if (staticIconEl) {
+        staticIconEl.innerHTML = ao_getConfirmationIcon(targetStatus);
+        // Explicitly update title for tooltip
+        staticIconEl.setAttribute('title', 'Status: ' + targetStatus);
+    }
+
+    // 5. Send to Backend
     google.script.run
         .withSuccessHandler(res => {
-            if(res.success) {
-                showToast("Status updated", "success");
-                refreshAllOrdersData(); // Reload grid
+            if (res.success) {
+                console.log("Status saved:", targetStatus);
+                // We typically don't need to refresh grid if UI update was successful,
+                // but refreshing ensures data consistency. 
+                // We'll delay it slightly to let the animation finish or skip it if desired.
+                // refreshAllOrdersData(); 
             } else {
-                showToast(res.message, "error");
+                showToast("Failed to save: " + res.message, "error");
+                refreshAllOrdersData(); // Revert on error
             }
         })
-        .updateOrderConfirmationStatus(orderId, newStatus, localStorage.getItem('userEmail'));
+        .updateOrderConfirmationStatus(orderId, targetStatus, localStorage.getItem('userEmail'));
+}
+
+/**
+ * Admin Cancel Confirmation
+ */
+function ao_confirmCancelOrder(orderId) {
+    // Simple custom dialog logic
+    // You can replace this with a beautiful modal if preferred
+    if(confirm("⚠️ ARE YOU SURE?\n\nDo you want to CANCEL Order #" + orderId + "?\nThis action cannot be undone easily.")) {
+        
+        showToast("Canceling Order...", "info");
+        
+        google.script.run
+            .withSuccessHandler(res => {
+                if(res.success) {
+                    showToast("Order Canceled", "success");
+                    refreshAllOrdersData();
+                } else {
+                    showToast(res.message, "error");
+                }
+            })
+            .updateOrderConfirmationStatus(orderId, 'Canceled', localStorage.getItem('userEmail'));
+    }
 }
 </script>
 
@@ -4602,5 +4687,104 @@ ul.ao-nav-pills .nav-link.active { background: white; color: #0d6efd; box-shadow
 /* Stop animation when expanded/hovered */
 .ao-btn-shine:hover::after {
     display: none;
+}
+
+/* --- SLIDING STATUS TOGGLE (Icons Version) --- */
+.ao-status-control {
+    position: relative;
+    width: 30px;
+    height: 30px;
+    transition: all 0.2s ease-out;
+    border-radius: 50px;
+    display: flex;
+    align-items: center;
+    overflow: hidden; /* masks the hidden parts */
+}
+
+/* Expand on Hover (Only for Interactive roles) */
+.ao-status-control.interactive:hover {
+    width: 110px; /* Wider to fit 2 icons */
+    background: #f1f3f5;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    padding: 0 4px;
+    overflow: visible; /* Allow tooltip/popups if needed */
+}
+
+/* Hide the static icon when hovering */
+.ao-status-control.interactive:hover .ao-static-icon {
+    display: none !important;
+}
+
+/* Toggle Container */
+.ao-toggle-switch {
+    display: none; /* Hidden by default */
+    width: 100%;
+    height: 24px;
+    background: #e9ecef;
+    border-radius: 20px;
+    position: relative;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 2px;
+}
+
+/* Show toggle on hover */
+.ao-status-control.interactive:hover .ao-toggle-switch {
+    display: flex;
+}
+
+/* Slider (The moving background) */
+.ao-toggle-slider {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 48%; 
+    height: 20px;
+    background: #57D99A; /* Green (Confirmed) */
+    border-radius: 50px;
+    transition: transform 0.2s cubic-bezier(0.4, 0.0, 0.2, 1);
+    z-index: 1;
+}
+
+/* Move Slider for Revised State */
+.ao-toggle-switch[data-state="Revised"] .ao-toggle-slider {
+    transform: translateX(100%);
+    background: #198754; /* Dark green */
+}
+
+/* The Clickable Options (Icons) */
+.ao-toggle-option {
+    flex: 1;
+    text-align: center;
+    z-index: 2;
+    cursor: pointer;
+    font-size: 12px;
+    color: #adb5bd; /* Inactive color */
+    line-height: 24px;
+    transition: color 0.2s;
+}
+
+/* Active Icon Color (White to contrast with slider) */
+.ao-toggle-option.active {
+    color: #fff;
+}
+
+/* Cancel Button (Admin) */
+.ao-cancel-btn {
+    display: none;
+    width: 24px;
+    height: 24px;
+    background: #ffe5e5;
+    color: #dc3545;
+    border-radius: 50%;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    cursor: pointer;
+    margin-left: 6px;
+    flex-shrink: 0;
+}
+.ao-status-control.interactive:hover .ao-cancel-btn {
+    display: flex;
 }
 </style>
