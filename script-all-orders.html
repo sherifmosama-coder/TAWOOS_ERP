@@ -3546,7 +3546,7 @@ function ao_addProductRow(preSelectProd = '', preQty = '') {
 
         <div style="flex: 1.2; min-width: 90px;" data-field="invoiceDisc">
             <label class="small text-muted mb-1">Inv. Disc</label>
-            <input type="text" class="form-control form-control-sm bg-light text-success fw-bold" readonly placeholder="0" value="0 (0%)">
+            <input type="text" class="form-control form-control-sm bg-light text-success" readonly placeholder="0" value="0 (0%)">
             <input type="hidden" class="ao-inv-disc-amount" value="0">
         </div>
         
@@ -3756,7 +3756,11 @@ function ao_generateOrderSummary(products) {
 
 // --- HANDLE SAVE ORDER (Robust Refactor + Edit Support) ---
 function ao_handleSaveOrder(e) {
-    if(e) e.preventDefault();
+    // 1. STOP PAGE RELOAD IMMEDIATELY
+    if(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
 
     // --- STEP 0: AUTHENTICATION CHECK ---
     const userEmail = localStorage.getItem('userEmail');
@@ -3777,8 +3781,11 @@ function ao_handleSaveOrder(e) {
     const clientName = clientInput ? clientInput.value.trim() : '';
     const dateVal = getVal('ao-new-date');
     const orderType = getVal('ao-new-order-type');
-    // 2. Read from the hidden input updated by the buttons
-    const vatValue = document.getElementById('ao-new-vat').value;
+    
+    // 2. VAT (Read from the hidden input updated by buttons)
+    const vatElement = document.getElementById('ao-new-vat');
+    const vatValue = vatElement ? vatElement.value : '';
+    
     // 3. Meta Fields
     const valPoTawoos = getVal('ao-new-po-tawoos');
     const valPoPrivate = getVal('ao-new-po-pl'); 
@@ -3797,10 +3804,7 @@ function ao_handleSaveOrder(e) {
     const clientListOpts = document.getElementById('ao-client-list')?.options || [];
     let clientExists = false;
     
-    // Note: In EDIT mode, the client might be valid but not in the current list if the list wasn't reloaded.
-    // We relax the check strictly for Edit Mode if needed, but for now we keep it safe.
-    // Use the input value directly if the datalist check fails but we are in edit mode? 
-    // For safety, we keep your logic:
+    // Note: Relax strict check slightly for Edit Mode if needed, but keeping safe logic:
     for (let i = 0; i < clientListOpts.length; i++) {
         if (clientListOpts[i].value === clientName) {
             clientExists = true;
@@ -3809,8 +3813,6 @@ function ao_handleSaveOrder(e) {
     }
 
     if (!clientName) { showToast("Please select a client", "error"); return; }
-    // Optional: Relax strict check for Edit Mode if needed
-    // if (!clientExists && !aoCurrentEditOrderId) { ... }
     if (!clientExists) { showToast("Invalid Client: Please select a client from the list", "error"); return; }
 
     if (!dateVal) { showToast("Please select a date", "error"); return; }
@@ -3840,7 +3842,8 @@ function ao_handleSaveOrder(e) {
         const priceRaw = priceInput.value;
         const price = parseFloat(priceRaw);
         
-        const invDiscInput = row.querySelector('[data-field="invoiceDisc"] .ao-inv-disc-amount');
+        // Extract Invoice Discount Amount (Hidden or Visible input)
+        const invDiscInput = row.querySelector('[data-field="invoiceDisc"] .ao-inv-disc-amount') || row.querySelector('.ao-inv-disc-amount');
         const invoiceDisc = invDiscInput ? (parseFloat(invDiscInput.value) || 0) : 0;
 
         if (priceRaw === '' || isNaN(price)) {
@@ -3944,8 +3947,9 @@ function ao_handleSaveOrder(e) {
             showToast("System Error: " + err.message, "error");
         };
 
-        // --- NEW BRANCHING LOGIC ---
-        if (aoCurrentEditOrderId) {
+        // --- BRANCHING LOGIC: EDIT vs CREATE ---
+        // Uses the global variable aoCurrentEditOrderId to determine mode
+        if (typeof aoCurrentEditOrderId !== 'undefined' && aoCurrentEditOrderId) {
             // EDIT MODE
             google.script.run
                 .withSuccessHandler(successHandler)
