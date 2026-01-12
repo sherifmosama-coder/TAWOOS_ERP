@@ -1820,13 +1820,17 @@ function getFinanceVatBadge(vat) {
 // --- 2. ROW BUILDER (Refined PO Chip) ---
 
 /**
- * ROW BUILDER - UPDATED WITH DOCUMENT BADGES (v10.2)
+ * ROW BUILDER - PRESERVED LOGIC + NEW FEATURES
+ * - Edit Icon: Starts as Regular, becomes Solid Blue on hover.
+ * - Status: Sliding Toggle with Icons.
+ * - Chips: All existing logic (PO, Finance, Delivery) preserved.
  */
 function buildRowCard(row) {
     var dir = currentLang === 'ar' ? 'rtl' : 'ltr';
     var typeStyle = getOrderTypeVisuals(row.type);
     
     // --- 1. EDIT BUTTON (Admin Only) ---
+    // Update: Uses 'fa-regular' initially. CSS handles the hover transform to Solid/Blue.
     var editBtnHtml = '';
     if (aoUserRole === 'admin') {
         editBtnHtml = `
@@ -1834,7 +1838,7 @@ function buildRowCard(row) {
                 style="width:30px; height:30px; margin-right:8px; border-color:transparent; background:transparent; cursor: pointer;"
                 onclick="ao_openOrderModal('edit', '${row.orderId}')" 
                 title="Edit Order (Admin)">
-                <i class="fas fa-pen"></i>
+                <i class="fa-regular fa-pen-to-square fa-lg"></i>
             </div>`;
     }
 
@@ -1846,7 +1850,7 @@ function buildRowCard(row) {
     const activeClassConf = currentState === 'Confirmed' ? 'active' : '';
     const activeClassRev = currentState === 'Revised' ? 'active' : '';
 
-    // Toggle HTML
+    // Toggle HTML (Visible on Hover)
     const toggleHtml = `
         <div class="ao-toggle-switch" data-state="${currentState}">
             <div class="ao-toggle-slider"></div>
@@ -1865,7 +1869,7 @@ function buildRowCard(row) {
         </div>
     `;
 
-    // Cancel Button (Admin Only)
+    // Cancel Button (Visible on Hover for Admin)
     const cancelBtn = (aoUserRole === 'admin' && currentState !== 'Canceled') ? 
         `<div class="ao-cancel-btn animate__animated animate__fadeIn" 
               onclick="ao_confirmCancelOrder('${row.orderId}')" 
@@ -1873,10 +1877,10 @@ function buildRowCard(row) {
             <i class="fas fa-times"></i>
          </div>` : '';
 
-    // Static Icon HTML (Initial State)
+    // Static Icon HTML (Visible when NOT hovering)
     var confirmIconHtml = ao_getConfirmationIcon(currentState);
     
-    // Assemble Status Control
+    // Assemble Status Control Wrapper
     const statusControlHtml = `
         <div class="ao-status-control ${isInteractive}">
             <div class="ao-static-icon d-flex align-items-center justify-content-center" 
@@ -1884,20 +1888,18 @@ function buildRowCard(row) {
                  title="Status: ${currentState}">
                  ${confirmIconHtml}
             </div>
-            
             ${toggleHtml}
-            
             ${cancelBtn}
         </div>
     `;
 
-
+    // --- 3. STANDARD CHIPS LOGIC (PRESERVED) ---
+    
     var statusStyle = getOrderStatusVisuals(row.status); 
     var displayId = row.orderId ? row.orderId.toString().padStart(4, '0') : '----';
-
-    // Pricing & Chips
     var pricingIcon = getClientPricingIcon(row.pricingStrategy);
 
+    // Client Chip
     var clientChipHtml = `
         <div class="ao-data-chip flex-grow-1 text-truncate justify-content-start" 
              onclick="openClientPopover(event, '${row.orderId}')" 
@@ -1922,7 +1924,7 @@ function buildRowCard(row) {
         poHtml = `<div class="d-flex align-items-center px-2 py-1 border rounded-pill" style="background-color: #fdfdfd; border-color: #e9ecef !important; height: 32px;">${textHtml}${iconHtml}</div>`;
     }
 
-    // Finance Chip
+    // Finance Chip (Detailed Logic Preserved)
     var financeChip = '';
     var f = row.financeData;
     if (f) {
@@ -1982,7 +1984,7 @@ function buildRowCard(row) {
         `;
     }
 
-    // Delivery Chip
+    // Delivery Chip (Detailed Logic Preserved)
     var deliveryChip = '';
     var d = row.deliveryData;
     if (d && (d.truck || d.loadOrder)) {
@@ -2015,6 +2017,7 @@ function buildRowCard(row) {
             </div>`;
     }
 
+    // Product Chip
     var count = row.itemsCount || 0;
     var productChip = `
         <span class="ao-chip" 
@@ -2026,6 +2029,7 @@ function buildRowCard(row) {
         </span>
     `;
 
+    // Comment Chips
     var commentChips = '';
     if (row.comments) {
         if (row.comments.internal) {
@@ -2048,15 +2052,13 @@ function buildRowCard(row) {
         }
     }
 
+    // --- 4. FINAL HTML ASSEMBLY ---
     return `
         <div class="card shadow-sm border-0 mb-2 ao-row-card">
             <div class="card-body p-2 d-flex align-items-center gap-2 flex-wrap" dir="${dir}">
                 
-                ${editBtnHtml} 
-
-                <div class="d-flex align-items-center gap-2 me-2">
-                    <div class="d-flex align-items-center justify-content-center" 
-                         style="width: 30px; height: 30px; color: ${statusStyle.color};"
+                ${editBtnHtml} <div class="d-flex align-items-center gap-2 me-2">
+                    <div class="d-flex align-items-center justify-content-center" style="width: 30px; height: 30px; color: ${statusStyle.color};"
                          title="${statusStyle.tooltip}">
                         <i class="fas ${statusStyle.icon} fa-lg"></i>
                     </div>
@@ -2067,15 +2069,15 @@ function buildRowCard(row) {
                 <div class="ao-data-chip" onclick="aoOpenModal('master', '${row.orderId}')">
                     <small class="text-muted opacity-75">#</small> <span class="font-monospace fw-bold">${displayId}</span>
                 </div>
-
+                
                 <div class="ao-data-chip" onclick="openDatePopover(event, '${row.orderId}')">
                     <i class="far fa-calendar-alt text-muted small"></i> <span>${row.dateFormatted}</span>
                 </div>
 
                 <div onclick="aoOpenModal('details', '${row.orderId}')">${productChip}</div>
-
+                
                 ${clientChipHtml}
-
+                
                 ${commentChips}
 
                 <div class="d-none d-md-flex gap-2 align-items-center">
@@ -3193,23 +3195,27 @@ function ao_openOrderModal(mode, orderId = null) {
     modal.classList.add('active');
     document.getElementById('ao-form-add-order').reset();
     
+    // Clear Dirty Tracking State
+    document.querySelectorAll('.ao-dirty-symbol').forEach(el => el.remove());
+    document.querySelectorAll('.ao-dirty-field').forEach(el => el.classList.remove('ao-dirty-field'));
+    
     const titleEl = modal.querySelector('.ao-modal-header h3');
     const saveBtn = document.getElementById('ao-btn-save-order');
+    const modalBody = modal.querySelector('.ao-modal-body');
     
+    // Remove old loader if exists
+    const oldLoader = document.getElementById('ao-modal-loader');
+    if(oldLoader) oldLoader.remove();
+
     // --- RESET COMPONENTS ---
-    const prodContainer = document.getElementById('ao-new-products-container'); // Check this ID matches your HTML
+    const prodContainer = document.getElementById('ao-new-products-container'); 
     if(prodContainer) prodContainer.innerHTML = '';
     
-    // Reset Files (Matching your specific global var)
     if(typeof aoPendingFiles !== 'undefined') aoPendingFiles = [];
     if(typeof ao_renderFileList === 'function') ao_renderFileList();
-    
-    // Reset Counter
     if(typeof aoProductRowCounter !== 'undefined') aoProductRowCounter = 0;
     
     aoCurrentEditOrderId = null;
-
-    // --- LOGIC BRANCHING ---
 
     if (mode === 'edit' && orderId) {
         // --- EDIT MODE ---
@@ -3218,16 +3224,26 @@ function ao_openOrderModal(mode, orderId = null) {
         saveBtn.innerHTML = `<i class="fas fa-save"></i> Update Order`;
         saveBtn.disabled = true;
 
-        showToast("Loading data...", "info");
-        
+        // INJECT LOADER OVERLAY
+        const loaderHtml = `
+            <div id="ao-modal-loader" class="ao-modal-loader">
+                <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status"></div>
+                <div class="mt-3 fw-bold text-muted">Loading Order Data...</div>
+            </div>`;
+        modalBody.insertAdjacentHTML('afterbegin', loaderHtml);
+
         // Ensure dropdowns are loaded
         if(typeof ao_loadClients === 'function') ao_loadClients();
         if(typeof ao_loadProducts === 'function') ao_loadProducts();
         if(typeof ao_loadSalesReps === 'function') ao_loadSalesReps();
 
         google.script.run.withSuccessHandler(res => {
+            // REMOVE LOADER
+            const loader = document.getElementById('ao-modal-loader');
+            if(loader) loader.remove();
+
             if (res.success) {
-                ao_populateEditForm(res.data); // Calls the helper below
+                ao_populateEditForm(res.data);
                 saveBtn.disabled = false;
             } else {
                 showToast(res.message, "error");
@@ -3241,32 +3257,25 @@ function ao_openOrderModal(mode, orderId = null) {
         saveBtn.innerHTML = `<i class="fas fa-save"></i> Save Order`;
         saveBtn.disabled = false;
 
-        // Defaults
         document.getElementById('ao-new-date').valueAsDate = new Date();
-        
-        // Reset VAT buttons
         const vatBtn = document.querySelector('.ao-vat-btn[data-value=""]');
         if(vatBtn && typeof ao_selectVat === 'function') ao_selectVat(vatBtn, '');
 
-        // Default Selects
         const confirmSelect = document.getElementById('ao-new-confirm-state');
         if(confirmSelect) confirmSelect.value = 'Confirmed';
 
         const typeSelect = document.getElementById('ao-new-order-type');
         if(typeSelect) typeSelect.value = 'توريد';
         
-        // Add 2 Default Rows
         if(typeof ao_addProductRow === 'function') {
             ao_addProductRow();
             ao_addProductRow();
         }
         
-        // Load Data
         if(typeof ao_loadClients === 'function') ao_loadClients();
         if(typeof ao_loadProducts === 'function') ao_loadProducts();
         if(typeof ao_loadSalesReps === 'function') ao_loadSalesReps();
         
-        // Reset UI State
         if(document.getElementById('ao-client-strategy-label')) 
             document.getElementById('ao-client-strategy-label').innerHTML = '';
         
@@ -3278,14 +3287,11 @@ function ao_openOrderModal(mode, orderId = null) {
         }
     }
     
-    // --- LISTENERS ---
     const clientInput = document.getElementById('ao-new-client');
     if(clientInput) {
         if(mode !== 'edit') clientInput.value = '';
-        
         clientInput.removeEventListener('blur', ao_checkRetailTemplate);
         clientInput.removeEventListener('input', ao_updateClientUI);
-        
         clientInput.addEventListener('blur', ao_checkRetailTemplate);
         clientInput.addEventListener('input', ao_updateClientUI);
         clientInput.addEventListener('change', () => { ao_updateClientUI(); ao_fetchContractMap(); });
@@ -4025,27 +4031,33 @@ function ao_acceptSuggestion(el, value) {
 }
 
 function ao_populateEditForm(data) {
+    // Helper to set value and enable tracking
+    const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.value = val || '';
+            ao_enableDirtyTracking(el); // Enable visual tracking
+        }
+    };
+
     // 1. Basic Fields
-    document.getElementById('ao-new-date').value = data.invoiceDate;
-    document.getElementById('ao-new-client').value = data.clientName;
-    ao_updateClientUI(); // Trigger UI updates
+    setVal('ao-new-date', data.invoiceDate);
+    setVal('ao-new-client', data.clientName);
+    ao_updateClientUI(); 
     
-    document.getElementById('ao-new-po-tawoos').value = data.poTawoos;
-    document.getElementById('ao-new-po-pl').value = data.poPrivateLabel;
-    document.getElementById('ao-new-internal-notes').value = data.internalComments;
-    document.getElementById('ao-new-external-notes').value = data.externalComments;
-    document.getElementById('ao-new-order-type').value = data.orderType;
-    
-    const confirmEl = document.getElementById('ao-new-confirm-state');
-    if(confirmEl) confirmEl.value = data.confirmationState;
-    
-    const salesEl = document.getElementById('ao-new-sales-rep');
-    if(salesEl) salesEl.value = data.salesRep;
+    setVal('ao-new-po-tawoos', data.poTawoos);
+    setVal('ao-new-po-pl', data.poPrivateLabel);
+    setVal('ao-new-internal-notes', data.internalComments);
+    setVal('ao-new-external-notes', data.externalComments);
+    setVal('ao-new-order-type', data.orderType);
+    setVal('ao-new-confirm-state', data.confirmationState);
+    setVal('ao-new-sales-rep', data.salesRep);
 
     // 2. VAT Buttons
     const vatVal = data.vat;
     const vatBtn = document.querySelector(`.ao-vat-btn[data-value="${vatVal}"]`) || document.querySelector('.ao-vat-btn[data-value=""]');
     if(vatBtn) ao_selectVat(vatBtn, vatVal);
+    // Note: VAT tracking is harder on buttons, skipping for simplicity or needs robust button logic
 
     // 3. Products
     const container = document.getElementById('ao-new-products-container');
@@ -4056,23 +4068,34 @@ function ao_populateEditForm(data) {
             data.products.forEach(p => {
                 ao_addProductRow(p.productName, p.qty); 
                 
-                // Find the row we just added
                 const rows = container.querySelectorAll('.ao-product-row');
                 const lastRow = rows[rows.length - 1];
                 
                 if(lastRow) {
+                    // Helper for Row Inputs
+                    const setRowVal = (selector, val) => {
+                        const input = lastRow.querySelector(selector);
+                        if(input) {
+                            input.value = val;
+                            ao_enableDirtyTracking(input);
+                        }
+                    };
+
+                    // Enable tracking for the Product Name select as well
+                    setRowVal('.ao-product-select', p.productName);
+                    
                     // Set inputs
-                    lastRow.querySelector('[data-field="bonus"] input').value = p.bonus;
-                    lastRow.querySelector('[data-field="discount"] input').value = p.discount;
+                    setRowVal('[data-field="qty"] input', p.qty);
+                    setRowVal('[data-field="bonus"] input', p.bonus);
+                    setRowVal('[data-field="discount"] input', p.discount);
+                    setRowVal('[data-field="price"] input', p.price);
                     
-                    const priceInput = lastRow.querySelector('[data-field="price"] input');
-                    if(priceInput) priceInput.value = p.price;
-                    
+                    // Invoice Disc
                     const invDiscInput = lastRow.querySelector('.ao-inv-disc-amount');
-                    if(invDiscInput) invDiscInput.value = p.invoiceDisc;
+                    if(invDiscInput) { invDiscInput.value = p.invoiceDisc; ao_enableDirtyTracking(invDiscInput); }
                     
                     const invDiscDisp = lastRow.querySelector('[data-field="invoiceDisc"] input');
-                    if(invDiscDisp) invDiscDisp.value = p.invoiceDisc; // Simplified display
+                    if(invDiscDisp) { invDiscDisp.value = p.invoiceDisc; ao_enableDirtyTracking(invDiscDisp); }
 
                     ao_validateRow(lastRow.id);
                 }
@@ -4163,6 +4186,90 @@ function ao_confirmCancelOrder(orderId) {
                 }
             })
             .updateOrderConfirmationStatus(orderId, 'Canceled', localStorage.getItem('userEmail'));
+    }
+}
+
+/**
+ * Enables "Dirty" tracking for an input element.
+ * Wraps the input if necessary to position the symbol correctly.
+ */
+function ao_enableDirtyTracking(element) {
+    if (!element) return;
+    
+    // 1. Store Original Value
+    // We treat null/undefined as empty string for consistent comparison
+    const val = element.value;
+    element.dataset.original = (val === null || val === undefined) ? '' : val;
+    
+    // 2. Ensure Safe Wrapper (For Positioning)
+    let parent = element.parentElement;
+    
+    // If inside an input-group, that's a safe parent.
+    // If direct child of a col-md-*, we need to wrap it to avoid overlap with labels.
+    if (!parent.classList.contains('input-group') && !parent.classList.contains('ao-dirty-wrapper')) {
+        // Create wrapper
+        const wrapper = document.createElement('div');
+        wrapper.className = 'ao-dirty-wrapper';
+        
+        // Insert wrapper before element
+        parent.insertBefore(wrapper, element);
+        
+        // Move element into wrapper
+        wrapper.appendChild(element);
+        parent = wrapper;
+    } else {
+        // Ensure existing parent has relative positioning
+        if(getComputedStyle(parent).position === 'static') {
+            parent.style.position = 'relative';
+        }
+    }
+
+    // 3. Add Listeners (Once Only)
+    if (element.dataset.trackingBound === 'true') return;
+    
+    const handler = function() { ao_checkDirtyStatus(this); };
+    
+    element.addEventListener('input', handler);
+    element.addEventListener('change', handler);
+    // Also check immediately in case value changed programmatically before this call
+    // ao_checkDirtyStatus(element); 
+    
+    element.dataset.trackingBound = 'true';
+}
+
+/**
+ * Checks current value against original and toggles indicator.
+ */
+function ao_checkDirtyStatus(element) {
+    // Normalize values for comparison
+    const original = (element.dataset.original || '').toString().trim();
+    const current = (element.value || '').toString().trim();
+    
+    const isDirty = (original !== current);
+    
+    // Find the wrapper (parent) to append the symbol to
+    const parent = element.parentElement;
+    let symbol = parent.querySelector(':scope > .ao-dirty-symbol');
+    
+    if (isDirty) {
+        element.classList.add('ao-dirty-field');
+        
+        if (!symbol) {
+            symbol = document.createElement('i');
+            symbol.className = 'fas fa-circle ao-dirty-symbol';
+            parent.appendChild(symbol);
+            
+            // Re-initialize Bootstrap tooltip if you use it, otherwise native title
+            // if(typeof bootstrap !== 'undefined' && bootstrap.Tooltip) new bootstrap.Tooltip(symbol);
+        }
+        
+        // Update Tooltip
+        const displayOrig = original === '' ? 'Empty' : original;
+        symbol.title = `Original: ${displayOrig}`;
+        
+    } else {
+        element.classList.remove('ao-dirty-field');
+        if (symbol) symbol.remove();
     }
 }
 </script>
@@ -4790,5 +4897,79 @@ ul.ao-nav-pills .nav-link.active { background: white; color: #0d6efd; box-shadow
 }
 .ao-status-control.interactive:hover .ao-cancel-btn {
     display: flex;
+}
+
+/* --- 1. EDIT BUTTON TRANSFORM --- */
+.ao-admin-edit-btn {
+    transition: all 0.2s ease-in-out;
+    color: #6c757d; /* Default gray */
+}
+.ao-admin-edit-btn:hover {
+    color: #0d6efd !important; /* Bootstrap Primary Blue */
+    transform: scale(1.1);
+}
+/* Font weight transition for Regular -> Solid */
+.ao-admin-edit-btn:hover i {
+    font-weight: 900 !important; /* Force Solid */
+}
+
+/* --- 2. MODAL LOADING OVERLAY --- */
+.ao-modal-loader {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.9);
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    border-radius: 8px;
+    backdrop-filter: blur(2px);
+}
+
+/* --- DIRTY FIELD TRACKING (Fixed) --- */
+/* The input itself when modified */
+.ao-dirty-field {
+    border-color: #ffc107 !important; /* Warning Orange */
+    background-color: #fffbf0 !important; /* Light Yellow Tint */
+    padding-right: 30px !important; /* Make room for the dot inside */
+    transition: all 0.2s;
+}
+
+/* The Symbol (Orange Dot) */
+.ao-dirty-symbol {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #ffc107;
+    font-size: 10px; /* Small discrete dot */
+    z-index: 20;
+    cursor: help;
+    animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    pointer-events: auto; /* Allow hovering for tooltip */
+}
+
+/* Fix for Textareas (Symbol at top-right) */
+textarea + .ao-dirty-symbol {
+    top: 12px;
+    transform: none;
+}
+
+/* Wrapper to hold the input + symbol safely */
+.ao-dirty-wrapper {
+    position: relative !important;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    flex-grow: 1;
+}
+
+@keyframes popIn {
+    from { transform: translateY(-50%) scale(0); opacity: 0; }
+    to { transform: translateY(-50%) scale(1); opacity: 1; }
 }
 </style>
