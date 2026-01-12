@@ -1110,177 +1110,266 @@ function getProductVatRate(ordersSheet, productsSheet, productName) {
   return vatRate;
 }
 
+// =============================================================================
+// SECURE ORDER SAVING (Formula-Safe, Validated & Auth-Aware)
+// =============================================================================
+
+// =============================================================================
+// SECURE ORDER SAVING (Formula-Safe, Validated & Auth-Aware)
+// =============================================================================
+
+// =============================================================================
+// SECURE ORDER SAVING (Formula-Safe, Validated & Audit-Logged)
+// =============================================================================
+
 /**
- * Saves New Order - SECURE VERSION
- * 1. Checks permissions explicitly server-side.
- * 2. Logs distinction between "True Viewer" and "Fallback Viewer".
- * 3. Uses the passed userEmail for logging (ignoring execution identity).
+ * Saves a NEW Order - Secure Version
+ * 1. Validates inputs BEFORE touching sheet.
+ * 2. Writes to specific cells to preserve formulas.
+ * 3. Enforces User Email logging in Column A.
  */
 function saveNewOrder(formData, userEmail) {
   try {
-    // --- 1. VALIDATE IDENTITY ---
-    if (!userEmail || typeof userEmail !== 'string' || userEmail.trim() === "") {
-        Logger.log('[Security Alert] Save attempt rejected: No user email provided.');
-        return { success: false, message: "System Error: User identity missing. Please re-login." };
+    // --- 1. STRICT VALIDATION ---
+    if (!userEmail || String(userEmail).trim() === '') {
+        return { success: false, message: "Security Error: User email missing. Please reload." };
     }
-
-    // --- 2. PERMISSION & ROLE DIAGNOSIS ---
-    // We fetch all permissions for this user to determine their specific access to 'orders'
+    
+    // Permission Check
     const permResult = getUserPermissions(userEmail);
-    
-    let role = 'viewer'; // Default deny/safe state
-    let permissionDebugStatus = ''; 
-
-    if (!permResult.success) {
-        // Case A: User email does not exist in the 'Users' sheet at all
-        role = 'viewer';
-        permissionDebugStatus = 'FALLBACK_VIEWER (User Not Found in DB)';
-    } else {
-        // User exists, look for the specific 'orders' main tab permission
-        // Note: We filter for !p.isSubtab to get the main module permission
-        const orderPerm = permResult.permissions.find(p => p.tabId === 'orders' && !p.isSubtab);
-
-        if (!orderPerm || !orderPerm.permission || orderPerm.permission.trim() === '') {
-             // Case B: User exists, but the 'orders' column is empty
-             role = 'viewer';
-             permissionDebugStatus = 'FALLBACK_VIEWER (Permission Cell is Empty)';
-        } else {
-             // Case C: User has an explicit permission set
-             role = orderPerm.permission.toLowerCase();
-             if (role === 'viewer') {
-                 permissionDebugStatus = 'TRUE_VIEWER (Explicitly assigned in DB)';
-             } else {
-                 permissionDebugStatus = 'AUTHORIZED_' + role.toUpperCase();
-             }
-        }
+    let role = 'viewer';
+    if (permResult.success) {
+        const p = permResult.permissions.find(x => x.tabId === 'orders' && !x.isSubtab);
+        if (p) role = p.permission;
     }
-
-    // --- 3. CONSOLE LOGGING (Requested Feature) ---
-    Logger.log('------------------------------------------------');
-    Logger.log(`[Order Save Attempt] User: ${userEmail}`);
-    Logger.log(`[Permission Diagnosis] Status: ${permissionDebugStatus}`);
-    Logger.log(`[Effective Role] ${role}`);
-    Logger.log('------------------------------------------------');
-
-    // --- 4. ENFORCE SECURITY ---
     if (role === 'viewer') {
-       return { success: false, message: "Permission Denied: Viewers cannot create new orders." };
+        return { success: false, message: "Access Denied: Viewers cannot create orders." };
     }
 
-    // =========================================================
-    // --- 5. EXISTING LOGIC (Preserved but using validated email) ---
-    // =========================================================
-    
-    Logger.log('--- START SAVE PROCESS ---');
-    const salesSpreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID); 
-    const ordersSheet = salesSpreadsheet.getSheetByName('Orders');
-    
-    if (!ordersSheet) {
-      return { success: false, message: 'Orders sheet not found' };
+    if (!formData.clientName || String(formData.clientName).trim() === '') {
+        return { success: false, message: "Validation Error: Client Name is required." };
+    }
+    if (!formData.invoiceDate) {
+        return { success: false, message: "Validation Error: Invoice Date is required." };
     }
     
-    // Smart Row Finder
-    const lastRow = ordersSheet.getLastRow();
-    let newRow = lastRow + 1; 
+    // Optional: Block if no products (unless special type)
+    const allowEmpty = ['تحصيل', 'اداري'].includes(formData.orderType);
+    if (!allowEmpty && (!formData.products || formData.products.length === 0)) {
+        return { success: false, message: "Validation Error: No products added." };
+    }
+
+    // --- 2. PREPARE SHEET ---
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('Orders');
+    if (!sheet) return { success: false, message: "System Error: 'Orders' sheet not found." };
+
+    // --- 3. SMART ROW FINDING ---
+    let lastRow = sheet.getLastRow();
+    if (typeof getOrdersLastRow === 'function') lastRow = getOrdersLastRow(sheet);
+    let newRow = lastRow + 1;
     
+    // Recycle empty rows if any
     if (lastRow >= 7) {
-       const rangeData = ordersSheet.getRange(7, 1, lastRow - 6, 9).getValues();
-       for (let i = 0; i < rangeData.length; i++) {
-          const rowData = rangeData[i];
-          // Check if key columns are empty to find gaps
-          const isAEmpty = !rowData[0] || rowData[0].toString().trim() === ''; // User Email Column
-          const isDEmpty = !rowData[3] || rowData[3].toString().trim() === ''; // Order ID Column
-          
-          if (isAEmpty && isDEmpty) {
-             newRow = 7 + i;
-             Logger.log('Gap found at Row: ' + newRow);
-             break;
-          }
-       }
-    }
-    
-    // Generate Order ID
-    let nextOrderId = 1;
-    if (lastRow >= 7) {
-       const idData = ordersSheet.getRange(7, 4, lastRow - 6, 1).getValues();
-       for (let i = 0; i < idData.length; i++) {
-          const val = parseInt(idData[i][0]);
-          if (!isNaN(val) && val >= nextOrderId) {
-             nextOrderId = val + 1;
-          }
-       }
-    }
-    Logger.log('Generated Order ID: ' + nextOrderId);
-
-    // Handle File Uploads
-    let fileUrls = [];
-    let uploadDebugMsg = "No files to upload";
-    
-    if (formData.files && formData.files.length > 0) {
-      Logger.log(`Found ${formData.files.length} files. Uploading...`);
-      const uploadResult = uploadFilesToDrive(formData.files, nextOrderId);
-      if (uploadResult.success) {
-        fileUrls = uploadResult.fileUrls;
-        uploadDebugMsg = `Uploaded ${fileUrls.length} files`;
-      } else {
-        uploadDebugMsg = `UPLOAD FAILED: ${uploadResult.message}`;
-        Logger.log('Upload Failed: ' + uploadResult.message);
-      }
-    }
-    
-    // --- WRITE DATA ---
-    // IMPORTANT: We write the passed 'userEmail' directly to Column A.
-    // We do NOT use Session.getActiveUser() or placeholders.
-    
-    ordersSheet.getRange(newRow, 1).setValue(userEmail);          // A (User Email)
-    ordersSheet.getRange(newRow, 2).setValue(new Date());         // B (Timestamp)
-    ordersSheet.getRange(newRow, 3).setValue('');                 // C
-    ordersSheet.getRange(newRow, 4).setValue(nextOrderId);        // D
-    ordersSheet.getRange(newRow, 5).setValue(formData.confirmationState || 'Confirmed'); // E
-
-    if (formData.invoiceDate) ordersSheet.getRange(newRow, 6).setValue(new Date(formData.invoiceDate)); // F
-    if (formData.clientName) ordersSheet.getRange(newRow, 9).setValue(formData.clientName);             // I
-    if (formData.vat) ordersSheet.getRange(newRow, 10).setValue(formData.vat);                          // J
-    if (formData.poTawoos) ordersSheet.getRange(newRow, 11).setValue(formData.poTawoos);                // K
-    if (formData.poPrivateLabel) ordersSheet.getRange(newRow, 12).setValue(formData.poPrivateLabel);    // L
-
-    // Files (M, N, O)
-    ordersSheet.getRange(newRow, 13, 1, 3).clearContent();
-    if (fileUrls.length > 0) {
-        if (fileUrls[0]) ordersSheet.getRange(newRow, 13).setValue(fileUrls[0]); // M
-        if (fileUrls[1]) ordersSheet.getRange(newRow, 14).setValue(fileUrls[1]); // N
-        if (fileUrls[2]) ordersSheet.getRange(newRow, 15).setValue(fileUrls[2]); // O
-    }
-
-    if (formData.internalComments) ordersSheet.getRange(newRow, 17).setValue(formData.internalComments); // Q
-    if (formData.externalComments) ordersSheet.getRange(newRow, 18).setValue(formData.externalComments); // R
-    if (formData.orderSummary) ordersSheet.getRange(newRow, 19).setValue(formData.orderSummary);         // S
-    
-    if (formData.salesRep) ordersSheet.getRange(newRow, 24).setValue(formData.salesRep);                 // X
-    if (formData.totalWeight) ordersSheet.getRange(newRow, 27).setValue(formData.totalWeight);           // AA
-    
-    ordersSheet.getRange(newRow, 42).setValue(formData.orderType || 'توريد');                            // AP
-
-    // Write Products
-    if (formData.products && formData.products.length > 0) {
-      const productColumnsMap = getProductColumnsMap(ordersSheet);
-      formData.products.forEach(product => {
-        const columns = productColumnsMap[product.productName];
-        if (columns) {
-          if (columns.qty) ordersSheet.getRange(newRow, columns.qty).setValue(product.qty);
-          if (columns.bonus) ordersSheet.getRange(newRow, columns.bonus).setValue(product.bonus);
-          if (columns.price) ordersSheet.getRange(newRow, columns.price).setValue(product.price);
-          if (columns.discount) ordersSheet.getRange(newRow, columns.discount).setValue(product.discount);
-          if (columns.invoiceDisc) ordersSheet.getRange(newRow, columns.invoiceDisc).setValue(product.invoiceDisc);
+        const checkRange = sheet.getRange(7, 1, lastRow - 6, 4).getValues();
+        for (let i = 0; i < checkRange.length; i++) {
+            const rowEmail = checkRange[i][0]; // Col A
+            const rowId = checkRange[i][3];    // Col D
+            if ((!rowEmail || rowEmail === '') && (!rowId || rowId === '')) {
+                newRow = 7 + i;
+                Logger.log("Recycling empty row: " + newRow);
+                break;
+            }
         }
-      });
     }
+
+    // --- 4. GENERATE ID ---
+    let nextOrderId = 1001;
+    if (lastRow >= 7) {
+       const idData = sheet.getRange(7, 4, lastRow - 6, 1).getValues();
+       let maxId = 0;
+       idData.forEach(r => {
+           const val = parseInt(r[0]);
+           if(!isNaN(val) && val > maxId) maxId = val;
+       });
+       if (maxId > 0) nextOrderId = maxId + 1;
+    }
+
+    // --- 5. HANDLE FILES ---
+    let fileUrls = [];
+    if (formData.files && formData.files.length > 0) {
+        const uploadRes = uploadFilesToDrive(formData.files, nextOrderId);
+        if (uploadRes.success) fileUrls = uploadRes.fileUrls;
+    }
+
+    // --- 6. TARGETED WRITING ---
+    // Note: We SKIP Column C (Status) to prevent overwriting formulas/validation
     
-    return { success: true, orderId: nextOrderId, message: "Order Saved. " + uploadDebugMsg };
+    // Metadata
+    sheet.getRange(newRow, 1).setValue(userEmail);          // Col A
+    sheet.getRange(newRow, 2).setValue(new Date());         // Col B
+    sheet.getRange(newRow, 3).setValue('Not Yet');          // Col C (Explicit set to satisfy validation)
+    sheet.getRange(newRow, 4).setValue(nextOrderId);        // Col D
+    sheet.getRange(newRow, 5).setValue(formData.confirmationState || 'Confirmed'); // Col E
+
+    // Main Data
+    sheet.getRange(newRow, 6).setValue(new Date(formData.invoiceDate)); // Col F
+    // Skip G, H
+    sheet.getRange(newRow, 9).setValue(formData.clientName);            // Col I
+    
+    if (formData.vat) sheet.getRange(newRow, 10).setValue(formData.vat);       // Col J
+    if (formData.poTawoos) sheet.getRange(newRow, 11).setValue(formData.poTawoos); // Col K
+    if (formData.poPrivateLabel) sheet.getRange(newRow, 12).setValue(formData.poPrivateLabel); // Col L
+
+    // Files
+    sheet.getRange(newRow, 13, 1, 3).clearContent();
+    if (fileUrls[0]) sheet.getRange(newRow, 13).setValue(fileUrls[0]);
+    if (fileUrls[1]) sheet.getRange(newRow, 14).setValue(fileUrls[1]);
+    if (fileUrls[2]) sheet.getRange(newRow, 15).setValue(fileUrls[2]);
+
+    // Details
+    if (formData.clientContact) sheet.getRange(newRow, 16).setValue(formData.clientContact); // Col P
+    if (formData.internalComments) sheet.getRange(newRow, 17).setValue(formData.internalComments); // Col Q
+    if (formData.externalComments) sheet.getRange(newRow, 18).setValue(formData.externalComments); // Col R
+    if (formData.orderSummary) sheet.getRange(newRow, 19).setValue(formData.orderSummary);         // Col S
+
+    if (formData.salesRep) sheet.getRange(newRow, 24).setValue(formData.salesRep); // Col X
+    if (formData.totalWeight) sheet.getRange(newRow, 27).setValue(formData.totalWeight); // Col AA
+    sheet.getRange(newRow, 42).setValue(formData.orderType || 'توريد'); // Col AP
+
+    // Products
+    if (formData.products && formData.products.length > 0) {
+        const productColumnsMap = getProductColumnsMap(sheet);
+        formData.products.forEach(p => {
+            const cols = productColumnsMap[p.productName];
+            if (cols) {
+                if (cols.qty) sheet.getRange(newRow, cols.qty).setValue(p.qty);
+                if (cols.bonus) sheet.getRange(newRow, cols.bonus).setValue(p.bonus);
+                if (cols.price) sheet.getRange(newRow, cols.price).setValue(p.price);
+                if (cols.discount) sheet.getRange(newRow, cols.discount).setValue(p.discount);
+                if (cols.invoiceDisc) sheet.getRange(newRow, cols.invoiceDisc).setValue(p.invoiceDisc);
+            }
+        });
+    }
+
+    return { success: true, orderId: nextOrderId, message: `Order #${nextOrderId} saved successfully.` };
 
   } catch (error) {
-    Logger.log('CRITICAL SAVE ERROR: ' + error.toString());
-    return { success: false, message: 'System error: ' + error.toString() };
+    Logger.log('SAVE ERROR: ' + error.toString());
+    return { success: false, message: 'System Error: ' + error.toString() };
+  }
+}
+
+/**
+ * Updates an EXISTING Order - With Cell-Level Audit Logs
+ */
+function updateExistingOrder(orderId, formData, userEmail) {
+  try {
+    // --- 1. VALIDATION ---
+    if (!userEmail) return { success: false, message: "Security Error: User email missing." };
+    if (!orderId) return { success: false, message: "Order ID missing." };
+    if (!formData.clientName) return { success: false, message: "Client Name is required." };
+
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('Orders');
+    
+    // --- 2. FIND ROW ---
+    let lastRow = sheet.getLastRow();
+    if (typeof getOrdersLastRow === 'function') lastRow = getOrdersLastRow(sheet);
+    
+    const orderIds = sheet.getRange(7, 4, lastRow - 6, 1).getValues();
+    let rowIndex = -1;
+    for (let i = 0; i < orderIds.length; i++) {
+      if (orderIds[i][0].toString() === orderId.toString()) {
+        rowIndex = i + 7;
+        break;
+      }
+    }
+    if (rowIndex === -1) return { success: false, message: 'Order not found.' };
+
+    // --- 3. FETCH OLD DATA (For Diffing) ---
+    const maxCols = sheet.getLastColumn();
+    // Read current values and notes to compare
+    const oldValues = sheet.getRange(rowIndex, 1, 1, maxCols).getValues()[0];
+    const oldNotesRange = sheet.getRange(rowIndex, 1, 1, maxCols);
+    const oldNotes = oldNotesRange.getNotes()[0];
+
+    const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM HH:mm');
+    const userLabel = userEmail.split('@')[0];
+
+    // --- 4. SMART SET HELPER (Updates Value + Appends Note) ---
+    const smartSet = (col1Based, newVal) => {
+        const colIdx = col1Based - 1; // 0-based index for array access
+        if (colIdx < 0 || colIdx >= oldValues.length) return;
+
+        let oldVal = oldValues[colIdx];
+        
+        // Normalize for comparison
+        let v1 = newVal;
+        let v2 = oldVal;
+        
+        if (v1 instanceof Date) v1 = v1.getTime();
+        else if (v1 === null || v1 === undefined) v1 = "";
+        else v1 = String(v1).trim();
+
+        if (v2 instanceof Date) v2 = v2.getTime();
+        else if (v2 === null || v2 === undefined) v2 = "";
+        else v2 = String(v2).trim();
+
+        // If Changed, Write + Log
+        if (v1 != v2) {
+            const cell = sheet.getRange(rowIndex, col1Based);
+            cell.setValue(newVal); // Write Value
+            
+            // Log History
+            const changeMsg = `[${timestamp} ${userLabel}] ${oldVal} -> ${newVal}`;
+            const existingNote = oldNotes[colIdx] || "";
+            cell.setNote(existingNote ? existingNote + "\n" + changeMsg : changeMsg);
+        }
+    };
+
+    // --- 5. UPDATE FIELDS ---
+    
+    // Basic Info
+    smartSet(5, formData.confirmationState); // Col E
+    smartSet(6, new Date(formData.invoiceDate)); // Col F
+    smartSet(9, formData.clientName); // Col I
+    smartSet(10, formData.vat); // Col J
+    smartSet(11, formData.poTawoos); // Col K
+    smartSet(12, formData.poPrivateLabel); // Col L
+    
+    smartSet(17, formData.internalComments); // Col Q
+    smartSet(18, formData.externalComments); // Col R
+    smartSet(19, formData.orderSummary); // Col S
+    
+    smartSet(24, formData.salesRep); // Col X
+    smartSet(27, formData.totalWeight); // Col AA
+    smartSet(42, formData.orderType); // Col AP
+
+    // Log General Edit on Order ID Cell (Col D)
+    const idCell = sheet.getRange(rowIndex, 4);
+    const idNote = idCell.getNote() || "";
+    idCell.setNote(idNote + `\n[Edit ${timestamp}] by ${userLabel}`);
+
+    // --- 6. UPDATE PRODUCTS (With Cell-Level Audit) ---
+    if (formData.products && formData.products.length > 0) {
+        const productColumnsMap = getProductColumnsMap(sheet);
+        formData.products.forEach(p => {
+            const cols = productColumnsMap[p.productName];
+            if (cols) {
+                if (cols.qty) smartSet(cols.qty, p.qty);
+                if (cols.bonus) smartSet(cols.bonus, p.bonus);
+                if (cols.price) smartSet(cols.price, p.price);
+                if (cols.discount) smartSet(cols.discount, p.discount);
+                if (cols.invoiceDisc) smartSet(cols.invoiceDisc, p.invoiceDisc);
+            }
+        });
+    }
+
+    return { success: true, message: 'Order updated successfully with detailed audit logs.' };
+
+  } catch (e) {
+    return { success: false, message: e.toString() };
   }
 }
 
@@ -1541,138 +1630,6 @@ function getOrderDataForEdit(orderId) {
 
   } catch (e) {
     Logger.log("Error in getOrderDataForEdit: " + e.toString());
-    return { success: false, message: e.toString() };
-  }
-}
-
-/**
- * SMART UPDATE: Compares new data vs old data.
- * Updates changed cells and appends a Note with history.
- */
-function updateExistingOrder(orderId, formData, userEmail) {
-  try {
-    const ss = SpreadsheetApp.openById(SALES_SPREADSHEET_ID);
-    const sheet = ss.getSheetByName('Orders');
-    
-    // 1. Find Row
-    const lastRow = getOrdersLastRow(sheet);
-    const orderIds = sheet.getRange(7, 4, lastRow - 6, 1).getValues();
-    let rowIndex = -1;
-    for (let i = 0; i < orderIds.length; i++) {
-      if (orderIds[i][0].toString() === orderId.toString()) {
-        rowIndex = i + 7;
-        break;
-      }
-    }
-    if (rowIndex === -1) return { success: false, message: 'Order not found' };
-
-    const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM HH:mm');
-    const userLabel = userEmail.split('@')[0];
-
-    // 2. Helper to Update Cell with Audit Note
-    function smartUpdate(colIndex, newValue, oldValue) {
-      // Normalize comparison (handle dates, strings, numbers)
-      let valA = newValue;
-      let valB = oldValue;
-      
-      if (valA instanceof Date) valA = valA.getTime();
-      if (valB instanceof Date) valB = valB.getTime();
-      if (valA === valB) return; // No change
-
-      const cell = sheet.getRange(rowIndex, colIndex);
-      
-      // Update Value
-      cell.setValue(newValue);
-
-      // Append Note
-      const oldNote = cell.getNote() || "";
-      const changeLog = `[${timestamp} ${userLabel}] ${valB} -> ${newValue}`;
-      cell.setNote(oldNote ? oldNote + "\n" + changeLog : changeLog);
-    }
-
-    // 3. Read Current Row Data
-    const currentRow = sheet.getRange(rowIndex, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const headerRow = sheet.getRange(3, 1, 1, sheet.getLastColumn()).getValues()[0];
-
-    // 4. Update Standard Fields
-    // Map: Field -> Col Index (1-based)
-    // Date(F/6), Client(I/9), VAT(J/10), PO T(K/11), PO P(L/12), Int(Q/17), Ext(R/18), Type(AP/42), SalesRep(X/24)
-    
-    smartUpdate(6, new Date(formData.invoiceDate), currentRow[5]);
-    smartUpdate(9, formData.clientName, currentRow[8]);
-    smartUpdate(10, formData.vat, currentRow[9]);
-    smartUpdate(11, formData.poTawoos, currentRow[10]);
-    smartUpdate(12, formData.poPrivateLabel, currentRow[11]);
-    smartUpdate(17, formData.internalComments, currentRow[16]);
-    smartUpdate(18, formData.externalComments, currentRow[17]);
-    smartUpdate(42, formData.orderType, currentRow[41]);
-    smartUpdate(24, formData.salesRep, currentRow[23]);
-
-    // 5. Update Confirmation State (Col E / 5)
-    // Note: If you store "Confirmed/Revised" in Column E (Version), use 5. 
-    // If it's stored in Status (Col G/7), use 7. Based on your code, let's assume Col E (4) or a new column.
-    // The previous code mapped `row[4]` to `version`. If `confirmationState` is separate, please specify column.
-    // For now, I will assume it maps to Column E (index 4) as per your object structure.
-    smartUpdate(5, formData.confirmationState, currentRow[4]);
-
-
-    // 6. Update Products (Complex)
-    // Strategy: 
-    // A. Create a map of Incoming Products: { "ProdName": {qty, bonus, price...} }
-    // B. Loop through Sheet Headers (from 42). If header matches incoming -> update.
-    // C. If header matches existing sheet value but NOT incoming (removed product) -> set to 0.
-
-    const incomingMap = {};
-    formData.products.forEach(p => {
-        incomingMap[p.productName] = p;
-    });
-
-    for (let c = 42; c < headerRow.length; c += 5) {
-        const prodName = headerRow[c] ? headerRow[c].toString().trim() : '';
-        if (!prodName) continue;
-
-        const incoming = incomingMap[prodName];
-        
-        // Indices (0-based from row array)
-        const idxQty = c;
-        const idxBonus = c+1;
-        const idxPrice = c+2;
-        const idxDisc = c+3;
-        const idxInvD = c+4;
-
-        if (incoming) {
-            // Update values
-            smartUpdate(c + 1, incoming.qty, currentRow[idxQty]);
-            smartUpdate(c + 2, incoming.bonus, currentRow[idxBonus]);
-            smartUpdate(c + 3, incoming.price, currentRow[idxPrice]);
-            smartUpdate(c + 4, incoming.discount, currentRow[idxDisc]);
-            smartUpdate(c + 5, incoming.invoiceDisc, currentRow[idxInvD]);
-            
-            // Remove from map to track processed items
-            delete incomingMap[prodName];
-        } else {
-            // Product not in form, but might exist in sheet. 
-            // If sheet has value > 0, set to 0 (Removal)
-            if (currentRow[idxQty] > 0 || currentRow[idxBonus] > 0) {
-                smartUpdate(c + 1, 0, currentRow[idxQty]);
-                smartUpdate(c + 2, 0, currentRow[idxBonus]);
-                smartUpdate(c + 3, 0, currentRow[idxPrice]); // Reset price too? Optional.
-                smartUpdate(c + 4, 0, currentRow[idxDisc]);
-                smartUpdate(c + 5, 0, currentRow[idxInvD]);
-            }
-        }
-    }
-    
-    // 7. Update Total Weight (Col AA / 27)
-    smartUpdate(27, formData.totalWeight, currentRow[26]);
-
-    // 8. Update Order Summary Text (Col S / 19)
-    smartUpdate(19, formData.orderSummary, currentRow[18]);
-
-    return { success: true, message: 'Order updated successfully with history log.' };
-
-  } catch (e) {
-    Logger.log("Update Error: " + e.toString());
     return { success: false, message: e.toString() };
   }
 }
