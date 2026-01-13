@@ -187,25 +187,30 @@ function getEtaModuleAccessToken() {
 }
 
 /**
- * --- 4. SYNC ACTION ---
- * Called by frontend: refreshEtaData()
+ * --- 4. SYNC ACTION (SMART MERGE & HISTORY PRESERVE) ---
+ * Updates:
+ * 1. Merges new Portal Data with Existing History (Doesn't wipe old rows).
+ * 2. Updates status for any record found in the fetch (covering the 3-day grace period).
+ * 3. Preserves PDF links unless UUID/Status changes.
  */
 function refreshEtaCache(userEmail) {
+  if (!userEmail) return { success: false, message: "Security Error: User email missing." };
+  
   const perm = getEtaModulePermission(userEmail);
-  if (perm === 'none' || perm === 'viewer') return { success: false, message: "Permission Denied" };
+  if (perm === 'none' || perm === 'viewer') return { success: false, message: "Permission Denied." };
 
   try {
     const ss = SpreadsheetApp.openById(ETA_MODULE_CONFIG.spreadsheetId);
     let cacheSheet = ss.getSheetByName(ETA_MODULE_CONFIG.syncSheetName);
-
-    // Create Cache Sheet if missing
+    
+    // Create Sheet if missing
     if (!cacheSheet) {
       cacheSheet = ss.insertSheet(ETA_MODULE_CONFIG.syncSheetName);
       const headers = [
         "Internal ID", "ETA UUID", "Status", "Public URL", "PDF Link", "Verification",
         "Date Rec", "Date Issued", "Receiver Name", "Receiver ID", "Total Amount",
         "Net Amount", "Total Sales", "Total Disc", "Doc Type", "Type Name AR",
-        "Issuer Name", "Issuer ID", "Long ID", "Sub UUID", "Raw JSON", "Type Version" // Added Col V
+        "Issuer Name", "Issuer ID", "Long ID", "Sub UUID", "Raw JSON", "Type Version"
       ];
       cacheSheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold");
     }
@@ -213,70 +218,207 @@ function refreshEtaCache(userEmail) {
     const token = getEtaModuleAccessToken();
     if (!token) throw new Error("Authentication failed");
 
+    // 1. Fetch Recent Docs (Active Window)
     const docs = fetchEtaModuleRecentDocs(token);
-    if (!docs.length) return { success: true, count: 0, message: "No new invoices found" };
-
-    // PDF Map
-    const existingData = cacheSheet.getDataRange().getValues();
-    const pdfMap = new Map();
-    if (existingData.length > 1) {
-      for (let i = 1; i < existingData.length; i++) {
-        if (existingData[i][0] && existingData[i][4]) {
-           pdfMap.set(String(existingData[i][0]).trim(), existingData[i][4]);
-        }
-      }
+    
+    // 2. Load Existing History into a Map (Key: InternalID)
+    const lastRow = cacheSheet.getLastRow();
+    const existingMap = new Map(); // Stores the full row array
+    
+    if (lastRow > 1) {
+      const data = cacheSheet.getRange(2, 1, lastRow - 1, 22).getValues();
+      data.forEach(row => {
+        const iId = String(row[0]).trim();
+        if (iId) existingMap.set(iId, row);
+      });
     }
 
-    const folder = DriveApp.getFolderById(ETA_MODULE_CONFIG.targetFolderId);
-    const newRows = [];
-    const fmtDate = (d) => d ? d.replace('T', ' ').replace('Z', '') : '';
+    if (!docs.length && existingMap.size === 0) {
+        return { success: true, count: 0, message: "No data found." };
+    }
 
+    // 3. Process Portal Data (Group by InternalID to find Winners)
+    const groupedDocs = {};
     docs.forEach(doc => {
-      const internalID = doc.internalId ? String(doc.internalId).trim() : "MISSING";
-      let pdfUrl = pdfMap.get(internalID) || "";
-      if (!pdfUrl && internalID !== "MISSING") {
-         pdfUrl = saveEtaModulePdfToDrive(doc.uuid, internalID, token, folder);
-      }
-
-      newRows.push([
-        internalID,                             
-        doc.uuid || '',                         
-        doc.status || '',                 
-        doc.publicUrl || '',                    
-        pdfUrl,                                 
-        "✅ Synced",                          
-        fmtDate(doc.dateTimeReceived),          
-        fmtDate(doc.dateTimeIssued),            
-        doc.receiverName || '',                 
-        doc.receiverId || '',                   
-        Number(doc.total) || 0,                 
-        Number(doc.netAmount) || 0,             
-        Number(doc.totalSalesAmount || doc.totalSales) || 0, 
-        Number(doc.totalDiscountAmount || doc.totalDiscount) || 0, 
-        doc.typeName || '',                     
-        doc.documentTypeNameSecondaryLang || '',
-        doc.issuerName || '',                   
-        doc.issuerId || '',                     
-        doc.longId || '',                       
-        doc.submissionUUID || '',               
-        JSON.stringify(doc),                    
-        doc.typeVersionName || '' // Col V [cite: 1]
-      ]);
+      const iId = doc.internalId ? String(doc.internalId).trim() : "MISSING";
+      if (iId === "MISSING") return;
+      if (!groupedDocs[iId]) groupedDocs[iId] = [];
+      groupedDocs[iId].push(doc);
     });
 
-    if (newRows.length > 0) {
-      if (cacheSheet.getLastRow() > 1) {
-          // Clear 22 columns
-          cacheSheet.getRange(2, 1, cacheSheet.getLastRow() - 1, 22).clearContent();
-      }
-      newRows.sort((a, b) => String(b[0]).localeCompare(String(a[0])));
-      // Set 22 columns
-      cacheSheet.getRange(2, 1, newRows.length, 22).setValues(newRows);
+    const fmtDate = (d) => d ? d.replace('T', ' ').replace('Z', '') : '';
+
+    // 4. Update/Insert Records
+    // We loop through the Portal Data and update the Map
+    for (const [id, versions] of Object.entries(groupedDocs)) {
+       
+       // Enrich with 'Smart Status' (Check for Pending Cancellation)
+       versions.forEach(v => {
+           v.smartStatus = v.status;
+           if (v.status === 'Valid' && v.cancelRequestDate) v.smartStatus = 'Cancelling';
+           if (v.status === 'Valid' && v.rejectRequestDate) v.smartStatus = 'Rejecting';
+       });
+
+       // Sort: Cancelled/ing > Valid > Submitted
+       versions.sort((a, b) => {
+          const getScore = (s) => {
+              if (s === 'Cancelled' || s === 'Cancelling' || s === 'Rejecting') return 5;
+              if (s === 'Valid') return 4;
+              if (s === 'Submitted') return 3;
+              return 1;
+          };
+          const scoreDiff = getScore(b.smartStatus) - getScore(a.smartStatus);
+          if (scoreDiff !== 0) return scoreDiff;
+          return new Date(b.dateTimeIssued) - new Date(a.dateTimeIssued);
+       });
+       
+       const winner = versions[0];
+       
+       // Check against Existing
+       const existingRow = existingMap.get(id);
+       let pdfUrl = "";
+       
+       if (existingRow) {
+          const oldUuid = existingRow[1]; // Col B
+          const oldStatus = existingRow[2]; // Col C
+          const oldPdf = existingRow[4]; // Col E
+          
+          // Rule: Keep PDF unless UUID changed OR Status Changed (e.g. Valid -> Cancelling)
+          // This ensures we refresh the PDF to get the "Cancelled" watermark
+          if (oldUuid !== winner.uuid || oldStatus !== winner.smartStatus) {
+             pdfUrl = ""; 
+          } else {
+             pdfUrl = oldPdf;
+          }
+       }
+
+       // Construct the New Row
+       const newRow = [
+          id,
+          winner.uuid || '',
+          winner.smartStatus, // Updated Status
+          winner.publicUrl || '',
+          pdfUrl, 
+          "✅ Synced",
+          fmtDate(winner.dateTimeReceived),
+          fmtDate(winner.dateTimeIssued),
+          winner.receiverName || '',
+          winner.receiverId || '',
+          Number(winner.total) || 0,
+          Number(winner.netAmount) || 0,
+          Number(winner.totalSalesAmount || winner.totalSales) || 0,
+          Number(winner.totalDiscountAmount || winner.totalDiscount) || 0,
+          winner.typeName || '',
+          winner.documentTypeNameSecondaryLang || '',
+          winner.issuerName || '',
+          winner.issuerId || '',
+          winner.longId || '',
+          winner.submissionUUID || '',
+          JSON.stringify(winner),
+          winner.typeVersionName || ''
+       ];
+
+       // UPDATE the Map (Upsert)
+       existingMap.set(id, newRow);
     }
 
-    return { success: true, count: newRows.length };
+    // 5. Convert Map back to Array & Write
+    const finalRows = Array.from(existingMap.values());
+    
+    // Sort by Internal ID Descending (Newest first)
+    finalRows.sort((a, b) => String(b[0]).localeCompare(String(a[0])));
+
+    if (finalRows.length > 0) {
+       // Clear Sheet & Rewrite All (Safe because finalRows includes History + Updates)
+       if (cacheSheet.getLastRow() > 1) {
+          cacheSheet.getRange(2, 1, cacheSheet.getLastRow() - 1, 22).clearContent();
+       }
+       cacheSheet.getRange(2, 1, finalRows.length, 22).setValues(finalRows);
+    }
+
+    return { success: true, count: finalRows.length, message: "Sync complete. History preserved & Recent statuses updated." };
+
   } catch (e) {
     Logger.log("Sync Error: " + e);
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * --- 5. BATCH PDF SAVER (NEW) ---
+ * Downloads multiple PDFs in parallel using UrlFetchApp.fetchAll
+ * Updates the 'Invoices' sheet with the new links.
+ * @param {Array} requests - Array of { uuid, internalId }
+ */
+function batchSaveEtaPdfs(requests) {
+  if (!requests || requests.length === 0) return { success: true, saved: 0 };
+  
+  try {
+    const token = getEtaModuleAccessToken();
+    if (!token) throw new Error("Auth Failed");
+    
+    const folder = DriveApp.getFolderById(ETA_MODULE_CONFIG.targetFolderId);
+    const ss = SpreadsheetApp.openById(ETA_MODULE_CONFIG.spreadsheetId);
+    const sheet = ss.getSheetByName(ETA_MODULE_CONFIG.syncSheetName);
+    
+    // Map InternalID -> Row Index for fast updating
+    // We read columns A (ID) and E (PDF URL)
+    const lastRow = sheet.getLastRow();
+    const sheetData = sheet.getRange(2, 1, lastRow - 1, 5).getValues(); // Cols A to E
+    const rowMap = new Map();
+    sheetData.forEach((r, i) => {
+       if (r[0]) rowMap.set(String(r[0]).trim(), i + 2); // Store actual row number
+    });
+
+    let savedCount = 0;
+    const CHUNK_SIZE = 15; // Process in chunks to avoid memory/timeout issues
+
+    for (let i = 0; i < requests.length; i += CHUNK_SIZE) {
+       const chunk = requests.slice(i, i + CHUNK_SIZE);
+       
+       // Prepare Fetch Requests
+       const fetchPayloads = chunk.map(req => {
+          return {
+            url: `${ETA_MODULE_CONFIG.apiUrl}/api/v1.0/documents/${req.uuid}/pdf`,
+            method: 'get',
+            headers: { 
+              'Authorization': 'Bearer ' + token, 
+              'Accept': 'application/pdf',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            },
+            muteHttpExceptions: true
+          };
+       });
+       
+       // Execute Parallel Fetch
+       const responses = UrlFetchApp.fetchAll(fetchPayloads);
+       
+       // Process Responses
+       responses.forEach((res, idx) => {
+          const req = chunk[idx];
+          if (res.getResponseCode() === 200 && res.getHeaders()['Content-Type'].includes('pdf')) {
+             const safeId = String(req.internalId).replace(/[^a-zA-Z0-9]/g, '');
+             const fileName = `ETA_${safeId}_${req.uuid.substring(0, 8)}.pdf`;
+             
+             // Create File (Inherits Parent Permissions - Faster)
+             const blob = res.getBlob().setName(fileName);
+             const file = folder.createFile(blob); 
+             const fileUrl = file.getUrl();
+             
+             // Update Sheet immediately (or batch if preferred, but immediate is safer here)
+             const rowNum = rowMap.get(String(req.internalId));
+             if (rowNum) {
+                sheet.getRange(rowNum, 5).setValue(fileUrl); // Col E is PDF Link
+             }
+             savedCount++;
+          }
+       });
+    }
+    
+    return { success: true, saved: savedCount };
+
+  } catch (e) {
+    Logger.log("Batch Save Error: " + e.toString());
     return { success: false, message: e.toString() };
   }
 }
