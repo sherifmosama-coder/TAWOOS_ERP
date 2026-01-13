@@ -231,25 +231,46 @@
 </style>
 
 <script>
+/**
+ * Loads the Reconciliation Dashboard
+ * FIX: Added session check and robust error handling
+ */
 function loadEtaReconciliation() {
+    // 1. Safety Check: Verify Login
+    const userEmail = localStorage.getItem('userEmail');
+    if (!userEmail) {
+        console.warn("User email not found in localStorage. Dashboard might show limited data.");
+    }
+
     const table = document.getElementById('main-reconcile-table');
     const loading = document.getElementById('eta-loading-state');
-    
-    // Clear old data rows (keep thead)
-    while (table.tBodies.length > 0) {
-        table.removeChild(table.tBodies[0]);
+    const tbody = table.querySelector('tbody');
+
+    // Clear old data safely
+    if (tbody) {
+        tbody.innerHTML = '';
+    } else {
+        // Create tbody if it doesn't exist to prevent errors
+        table.appendChild(document.createElement('tbody'));
     }
     
-    // Show loading
-    loading.style.display = 'block';
-    loading.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Analyzing Data...';
+    // Show loading state
+    if (loading) {
+        loading.style.display = 'block';
+        loading.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Analyzing Data...';
+    }
 
     google.script.run
-      .withSuccessHandler(renderStackedRows)
-      .withFailureHandler(err => {
-         loading.innerHTML = `<span class="text-danger">Error: ${err}</span>`;
+      .withSuccessHandler((data) => {
+          // Hide loading
+          if (loading) loading.style.display = 'none';
+          // Render data
+          renderStackedRows(data);
       })
-      .getReconciliationDashboardData();
+      .withFailureHandler(err => {
+          if (loading) loading.innerHTML = `<div class="text-danger p-3">Error loading dashboard: ${err}</div>`;
+      })
+      .getReconciliationDashboardData(); // No arguments needed for read-only dashboard
 }
 
 function renderStackedRows(jsonStr) {
@@ -391,6 +412,15 @@ function renderStackedRows(jsonStr) {
 function refreshEtaData() {
     const btn = document.getElementById('btn-eta-sync');
     const originalText = btn.innerHTML;
+    
+    // 1. CRITICAL: Get User Email from Storage
+    const userEmail = localStorage.getItem('userEmail');
+    
+    if (!userEmail) {
+        alert("Session Error: Could not verify your identity. Please reload the page.");
+        return;
+    }
+
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Syncing...';
     
@@ -398,18 +428,21 @@ function refreshEtaData() {
       .withSuccessHandler((res) => {
          btn.disabled = false;
          btn.innerHTML = originalText;
-         if(res.success) {
-            loadEtaReconciliation(); // Refresh table
+         
+         if(res && res.success) {
+            // Optional: Show a toast if you have a toast function, otherwise standard alert/log
+            console.log("Sync Success: " + (res.message || "Data updated"));
+            loadEtaReconciliation(); // Auto-refresh table
          } else {
-            alert(res.message);
+            alert("Sync Failed: " + (res.message || "Unknown error"));
          }
       })
       .withFailureHandler((e) => {
          btn.disabled = false;
          btn.innerHTML = originalText;
-         alert("Error: " + e);
+         alert("System Error: " + e);
       })
-      .refreshEtaCache();
+      .refreshEtaCache(userEmail); // <--- FIX: Passing userEmail to Backend
 }
 
 function formatMoney(n) {
