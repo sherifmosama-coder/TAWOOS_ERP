@@ -277,24 +277,40 @@ function renderStackedRows(jsonStr) {
     const table = document.getElementById('main-reconcile-table');
     const loading = document.getElementById('eta-loading-state');
     
-    // Clear old rows
-    while (table.tBodies.length > 0) { table.removeChild(table.tBodies[0]); }
-    loading.style.display = 'none';
+    if (table && table.tBodies) {
+        while (table.tBodies.length > 0) { table.removeChild(table.tBodies[0]); }
+    }
+    
+    if (loading) loading.style.display = 'none';
 
     if (!jsonStr) return;
+
     let response;
-    try { response = JSON.parse(jsonStr); } catch(e) { console.error(e); return; }
+    try { 
+        response = JSON.parse(jsonStr); 
+    } catch(e) { 
+        console.error("JSON Parse Error:", e); 
+        return; 
+    }
+
+    if (typeof updateBatchSaveUI === 'function') {
+        updateBatchSaveUI(response);
+    }
 
     const data = response.data || [];
+
     if (data.length === 0) {
-       loading.style.display = 'block'; loading.innerHTML = 'No records found.'; return;
+        if (loading) {
+            loading.style.display = 'block'; 
+            loading.innerHTML = 'No records found.'; 
+        }
+        return;
     }
 
     if(document.getElementById('stat-summary-text')) {
-       document.getElementById('stat-summary-text').innerText = `${data.length} Records processed`;
+        document.getElementById('stat-summary-text').innerText = `${data.length} Records processed`;
     }
 
-    // Helper
     const fmtDate = (dStr) => {
         if (!dStr) return '-';
         const d = new Date(dStr);
@@ -302,75 +318,140 @@ function renderStackedRows(jsonStr) {
         return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
     };
 
+    // --- INJECT CUSTOM CSS FOR BADGES ---
+    if (!document.getElementById('reconcile-custom-css')) {
+        const style = document.createElement('style');
+        style.id = 'reconcile-custom-css';
+        style.innerHTML = `
+            #main-reconcile-table { border-collapse: separate; border-spacing: 0; }
+            .reconcile-group { transition: box-shadow 0.2s; }
+            .reconcile-group:hover { box-shadow: 0 4px 15px rgba(0,0,0,0.08); transform: translateY(-1px); }
+            .reconcile-group td { background-color: #fff; border-top: 1px solid #e9ecef; }
+            .reconcile-group tr:first-child td { border-top: 1px solid #dee2e6; }
+            .reconcile-group tr:last-child td { border-bottom: 1px solid #dee2e6; }
+            .reconcile-group tr td:last-child { border-right: 1px solid #dee2e6; }
+            
+            /* NEW STATUS BADGE STYLES */
+            .eta-status-badge {
+                font-size: 0.75rem;
+                padding: 2px 6px;
+                border-radius: 4px;
+                font-weight: 600;
+                margin-right: 5px;
+                display: inline-block;
+                vertical-align: middle;
+            }
+            .st-valid { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+            .st-submitted { background-color: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+            .st-invalid, .st-rejected { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+            .st-cancelled { background-color: #e2e3e5; color: #383d41; border: 1px solid #d6d8db; }
+            .st-pending-cancel { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; } /* Orange for Cancelling */
+        `;
+        document.head.appendChild(style);
+    }
+
     data.forEach(item => {
         const int = item.internal || {};
         const eta = item.eta || {};
-        const status = item.status;
+        const reconStatus = item.status; // MATCHED, MISMATCH etc.
+        const rowKey = item.key || int.serial || '-';
 
-        // 1. ICONS
+        // --- A. ICONS (Reconciliation Status) ---
         let iconHtml = '';
-        if (status === 'MATCHED') {
+        if (reconStatus === 'MATCHED') {
            iconHtml = `<div class="status-icon-box icon-match" title="Matched"><i class="fas fa-check"></i></div>`;
-        } else if (status === 'MISSING_ON_ETA') {
+        } else if (reconStatus === 'MISSING_ON_ETA') {
            iconHtml = `<div class="status-icon-box icon-missing" title="Missing on Portal"><i class="fas fa-question"></i></div>`;
-        } else if (status.includes('MISMATCH')) {
+        } else if (reconStatus && reconStatus.includes('MISMATCH')) {
            iconHtml = `<div class="status-icon-box icon-diff" title="Mismatch"><i class="fas fa-exclamation"></i></div>`;
         } else {
            iconHtml = `<div class="status-icon-box icon-missing" style="filter:grayscale(100%)" title="Missing Internal"><i class="fas fa-times"></i></div>`;
         }
 
-        // 2. DATA PREP
+        // --- B. DATA PREP ---
         const summary = int.summary || '<span class="text-muted small">-</span>';
-        const serial = int.serial || eta.key || '-'; 
+        const serial = int.serial || rowKey; 
+        
         let fullClientHtml = '';
         if (int.fullName) {
             fullClientHtml = `<span style="font-weight:400; font-size:0.85rem; color:#90a4ae; margin-left:6px;">(${int.fullName})</span>`;
         }
+        
         const dateInt = fmtDate(int.date);
         const dateEta = eta.issueDate ? fmtDate(eta.issueDate) : '-';
         
         const totalInt = int.total ? Number(int.total).toLocaleString('en-EG', {minimumFractionDigits: 2}) : '0.00';
         const totalEta = eta.total ? Number(eta.total).toLocaleString('en-EG', {minimumFractionDigits: 2}) : '-';
 
-        // 3. VERSION LOGIC (UPDATED)
+        // --- C. VERSION BADGE ---
         let verBadgeHtml = '';
         if (eta.versionName) {
            const ver = String(eta.versionName).trim();
-           
-           // Check if version is standard (1 or 1.0)
            const isStandard = (ver === '1.0' || ver === '1');
-           
            const verClass = isStandard ? 'badge-ver-std' : 'badge-ver-warn';
-           
-           // Only show 'v' prefix if it's just a number
            const label = ver.toLowerCase().startsWith('v') ? ver : `v${ver}`;
-           
            verBadgeHtml = `<span class="badge-ver ${verClass}" title="Invoice Type Version">${label}</span>`;
         }
 
-        // 4. FILE ICONS
+        // --- NEW: ETA PORTAL STATUS BADGE ---
+        let etaStatusHtml = '';
+        if (eta.status) {
+            const st = String(eta.status).trim();
+            let stClass = 'st-submitted'; // Default
+            let icon = '';
+
+            // Logic to assign colors
+            if (st.toLowerCase() === 'valid') { stClass = 'st-valid'; icon = '<i class="fas fa-check-circle"></i>'; }
+            else if (st.toLowerCase() === 'invalid') { stClass = 'st-invalid'; icon = '<i class="fas fa-times-circle"></i>'; }
+            else if (st.toLowerCase() === 'cancelled') { stClass = 'st-cancelled'; icon = '<i class="fas fa-ban"></i>'; }
+            else if (st.toLowerCase() === 'rejected') { stClass = 'st-rejected'; icon = '<i class="fas fa-times-circle"></i>'; }
+            else if (st.includes('Cancelling') || st.includes('Rejecting')) { 
+                stClass = 'st-pending-cancel'; 
+                icon = '<i class="fas fa-exclamation-triangle"></i>'; 
+            }
+
+            etaStatusHtml = `<span class="eta-status-badge ${stClass}">${icon} ${st}</span>`;
+        }
+
+        // --- D. FILE ACTIONS ---
         const linkInt = int.link 
           ? `<a href="${int.link}" target="_blank" class="btn-icon-link" title="Open Internal Doc"><i class="fas fa-file-alt text-primary"></i></a>`
           : `<span class="btn-icon-link link-disabled"><i class="fas fa-file-alt"></i></span>`;
 
-        const linkEta = eta.pdf 
-          ? `<a href="${eta.pdf}" target="_blank" class="btn-icon-link" title="Open ETA PDF"><i class="fas fa-file-pdf text-success"></i></a>`
-          : `<span class="btn-icon-link link-disabled"><i class="fas fa-file-pdf"></i></span>`;
+        let linkEta = '';
+        if (eta.pdf) {
+            linkEta = `<a href="${eta.pdf}" target="_blank" class="btn-icon-link" title="Open ETA PDF"><i class="fas fa-file-pdf text-success"></i></a>`;
+        } else if (eta.uuid && (eta.status === 'Valid' || eta.status === 'Submitted')) {
+            linkEta = `<button onclick="downloadSinglePdf('${rowKey}', '${eta.uuid}', this)" class="btn btn-sm text-secondary p-0 border-0" title="Download PDF to Drive" style="background:transparent;"><i class="fa-solid fa-cloud-arrow-down"></i></button>`;
+        } else {
+            linkEta = `<span class="btn-icon-link link-disabled"><i class="fas fa-file-pdf"></i></span>`;
+        }
 
-        // 5. BUILD GROUP
+        // --- E. BUILD ROW GROUP ---
         const group = document.createElement('tbody');
         group.className = 'reconcile-group';
 
+        // Styling Logic
+        let accentColor = '#b0bec5'; 
+        if (reconStatus === 'MATCHED') accentColor = '#2e7d32'; 
+        else if (reconStatus === 'MISSING_ON_ETA') accentColor = '#f57c00'; 
+        else if (reconStatus && reconStatus.includes('MISMATCH')) accentColor = '#c62828'; 
+
+        group.style.borderBottom = "15px solid #f4f6f9"; 
+        group.style.backgroundColor = "#ffffff";
+
         group.innerHTML = `
           <tr class="row-internal">
-            <td rowspan="2" class="cell-common text-center">${iconHtml}</td>
+            <td rowspan="2" class="cell-common text-center" style="vertical-align: middle; border-left: 5px solid ${accentColor};">
+                ${iconHtml}
+            </td>
             
-            <td rowspan="2" class="cell-common text-center">
-              <span class="data-chip chip-serial">#${serial}</span>
+            <td rowspan="2" class="cell-common text-center" style="vertical-align: middle;">
+              <span class="data-chip chip-serial" style="font-size: 0.9rem; font-weight: bold;">#${serial}</span>
               <div style="font-size:0.7rem; color:#90a4ae; margin-top:4px;">v${int.version||1}</div>
             </td>
 
-            <td rowspan="2" class="cell-common col-summary-rtl">${summary}</td>
+            <td rowspan="2" class="cell-common col-summary-rtl" style="vertical-align: middle;">${summary}</td>
             
             <td>
                <span class="src-badge bg-int">INT</span>
@@ -390,14 +471,14 @@ function renderStackedRows(jsonStr) {
           <tr class="row-eta">
              <td>
                <span class="src-badge bg-eta" title="Official Portal Data" style="padding: 4px 7px;"><i class="fas fa-globe"></i></span>
-               ${verBadgeHtml}
+               ${etaStatusHtml} ${verBadgeHtml}
                ${eta.client 
                   ? `<span style="font-weight:500;">${eta.client}</span>` 
                   : '<span class="text-danger small fst-italic">Not found</span>'}
              </td>
              <td class="text-center"><span class="data-chip chip-date">${dateEta}</span></td>
              <td class="text-end">
-                <span class="data-chip chip-money ${status.includes('MISMATCH') ? 'chip-money-err' : ''}">
+                <span class="data-chip chip-money ${reconStatus && reconStatus.includes('MISMATCH') ? 'chip-money-err' : ''}">
                     ${totalEta}
                 </span>
              </td>
@@ -447,6 +528,114 @@ function refreshEtaData() {
 
 function formatMoney(n) {
     return n ? Number(n).toLocaleString('en-EG', {minimumFractionDigits: 2}) : '0.00';
+}
+
+
+/**
+ * --- NEW: BATCH SAVE CONTROLLER ---
+ * Scans the dashboard data for Valid invoices missing PDFs
+ * and displays a Batch Save button.
+ */
+function updateBatchSaveUI(data) {
+    // 'data' comes from getReconciliationDashboardData()
+    // data.data is the array of rows
+    if (!data || !data.data) return;
+
+    const missingPdfItems = [];
+    
+    // Scan for: Status=Valid/Submitted AND PDF=Empty AND UUID exists
+    data.data.forEach(row => {
+        if (row.eta && (row.eta.status === 'Valid' || row.eta.status === 'Submitted')) {
+            if (!row.eta.pdf || row.eta.pdf === '') {
+                if (row.eta.uuid && row.key) {
+                    missingPdfItems.push({
+                        internalId: row.key,
+                        uuid: row.eta.uuid
+                    });
+                }
+            }
+        }
+    });
+
+    const headerContainer = document.querySelector('.eta-header-actions') || document.getElementById('eta-controls-area');
+    // Ensure we have a container. If using your existing layout, you might need to adjust the selector.
+    // Assuming the Sync button is inside a container we can append to.
+    
+    let batchBtn = document.getElementById('btn-batch-pdf');
+    
+    if (missingPdfItems.length > 0) {
+        if (!batchBtn) {
+            batchBtn = document.createElement('button');
+            batchBtn.id = 'btn-batch-pdf';
+            batchBtn.className = 'btn btn-warning ms-2'; // Bootstrap styling
+            batchBtn.style.fontWeight = 'bold';
+            
+            // Insert after sync button
+            const syncBtn = document.getElementById('btn-eta-sync');
+            if (syncBtn && syncBtn.parentNode) {
+                syncBtn.parentNode.insertBefore(batchBtn, syncBtn.nextSibling);
+            }
+        }
+        
+        batchBtn.innerHTML = `<i class="fas fa-file-download"></i> Save e-invoices to drive | ${missingPdfItems.length} remaining`;
+        batchBtn.onclick = () => runBatchSave(missingPdfItems);
+        batchBtn.style.display = 'inline-block';
+        
+    } else {
+        if (batchBtn) batchBtn.style.display = 'none';
+    }
+}
+
+/**
+ * Triggers the Backend Batch Process
+ */
+function runBatchSave(items) {
+    const btn = document.getElementById('btn-batch-pdf');
+    const originalText = btn.innerHTML;
+    
+    btn.disabled = true;
+    btn.innerHTML = `<i class="fas fa-circle-notch fa-spin"></i> Downloading ${items.length} files...`;
+    
+    google.script.run
+      .withSuccessHandler(res => {
+          if (res.success) {
+              alert(`Successfully saved ${res.saved} invoices to Drive.`);
+              loadEtaReconciliation(); // Refresh to update links
+          } else {
+              alert("Error: " + res.message);
+              btn.disabled = false;
+              btn.innerHTML = originalText;
+          }
+      })
+      .withFailureHandler(err => {
+          alert("System Error: " + err);
+          btn.disabled = false;
+          btn.innerHTML = originalText;
+      })
+      .batchSaveEtaPdfs(items);
+}
+
+/**
+ * Helper to download single PDF (assigned to row button)
+ */
+function downloadSinglePdf(internalId, uuid, btnElement) {
+    if (!uuid || !internalId) return;
+    
+    const originalIcon = btnElement.innerHTML;
+    btnElement.disabled = true;
+    btnElement.innerHTML = `<i class="fas fa-spinner fa-spin"></i>`;
+    
+    google.script.run
+      .withSuccessHandler(res => {
+          if (res.success) {
+              loadEtaReconciliation(); // Refresh UI
+          } else {
+              alert("Failed: " + res.message);
+              btnElement.disabled = false;
+              btnElement.innerHTML = originalIcon;
+          }
+      })
+      .batchSaveEtaPdfs([{ internalId: internalId, uuid: uuid }]);
 }
 
 </script>
