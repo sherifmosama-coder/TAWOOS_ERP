@@ -10,6 +10,7 @@ let allOrdersState = {
 };
 
 let aoPendingFiles = [];
+let aoExistingFiles = [];
 
 // --- CONFIG: STRATEGY VISUALS (User Defined) ---
 const AO_STRATEGY_CONFIG = {
@@ -838,7 +839,7 @@ function renderReportManagerUI() {
 
                         <div class="ao-modal-footer mt-4 pt-3 border-top d-flex justify-content-end gap-2">
                             <button type="button" class="btn btn-light border" onclick="ao_closeAddOrderModal()">Cancel</button>
-                            <button type="submit" class="btn btn-primary" id="ao-btn-save-order" disabled>
+                            <button type="button" class="btn btn-primary" id="ao-btn-save-order" onclick="ao_handleSaveOrder()" disabled>
                                 <i class="fas fa-save"></i> Save Order
                             </button>
                         </div>
@@ -3199,6 +3200,11 @@ function ao_openOrderModal(mode, orderId = null) {
     document.querySelectorAll('.ao-dirty-symbol').forEach(el => el.remove());
     document.querySelectorAll('.ao-dirty-field').forEach(el => el.classList.remove('ao-dirty-field'));
     
+    // --- RESET FILES (New) ---
+    aoExistingFiles = [];
+    aoPendingFiles = [];
+    ao_renderFileList(); // Clear UI chips
+
     const titleEl = modal.querySelector('.ao-modal-header h3');
     const saveBtn = document.getElementById('ao-btn-save-order');
     const modalBody = modal.querySelector('.ao-modal-body');
@@ -3211,10 +3217,7 @@ function ao_openOrderModal(mode, orderId = null) {
     const prodContainer = document.getElementById('ao-new-products-container'); 
     if(prodContainer) prodContainer.innerHTML = '';
     
-    if(typeof aoPendingFiles !== 'undefined') aoPendingFiles = [];
-    if(typeof ao_renderFileList === 'function') ao_renderFileList();
     if(typeof aoProductRowCounter !== 'undefined') aoProductRowCounter = 0;
-    
     aoCurrentEditOrderId = null;
 
     if (mode === 'edit' && orderId) {
@@ -3223,7 +3226,7 @@ function ao_openOrderModal(mode, orderId = null) {
         titleEl.innerHTML = `<i class="fas fa-edit me-2"></i> Edit Order #${orderId}`;
         saveBtn.innerHTML = `<i class="fas fa-save"></i> Update Order`;
         saveBtn.disabled = true;
-
+        
         // INJECT LOADER OVERLAY
         const loaderHtml = `
             <div id="ao-modal-loader" class="ao-modal-loader">
@@ -3677,23 +3680,33 @@ function ao_checkSaveButton() {
 
 // --- 7. FILE HANDLING ---
 
+// --- 7. FILE HANDLING (Updated for Append/Delete) ---
+
 // Triggered by the HTML onchange="ao_handleFileSelect(event)"
 function ao_handleFileSelect(event) {
     const input = event.target;
     if (!input.files || input.files.length === 0) return;
 
-    // 1. Add new files to our global array
-    Array.from(input.files).forEach(file => {
-        // Prevent duplicates (optional)
-        if (!aoPendingFiles.some(f => f.name === file.name && f.size === file.size)) {
-            aoPendingFiles.push(file);
+    const newFiles = Array.from(input.files);
+    
+    // Calculate total count (Existing + Pending + New)
+    const totalCount = aoExistingFiles.length + aoPendingFiles.length + newFiles.length;
+    
+    if (totalCount > 3) {
+        showToast("Maximum 3 files allowed total.", "warning");
+        // Only add what fits
+        const spaceLeft = 3 - (aoExistingFiles.length + aoPendingFiles.length);
+        if (spaceLeft > 0) {
+            const allowed = newFiles.slice(0, spaceLeft);
+            aoPendingFiles = [...aoPendingFiles, ...allowed];
         }
-    });
+    } else {
+        // Add all
+        aoPendingFiles = [...aoPendingFiles, ...newFiles];
+    }
 
-    // 2. Clear the input so user can select more files if needed
+    // Clear input and Render
     input.value = ''; 
-
-    // 3. Update the UI List
     ao_renderFileList();
 }
 
@@ -3703,23 +3716,45 @@ function ao_renderFileList() {
 
     container.innerHTML = ''; // Clear current display
 
+    // 1. Render Existing Files (Blue)
+    aoExistingFiles.forEach((url, index) => {
+        const chip = document.createElement('div');
+        chip.className = 'badge bg-info text-white border d-flex align-items-center gap-2 p-2 m-1 shadow-sm';
+        chip.innerHTML = `
+            <a href="${url}" target="_blank" class="text-white text-decoration-none d-flex align-items-center gap-1">
+                <i class="fas fa-link"></i> File ${index + 1}
+            </a>
+            <i class="fas fa-times-circle text-white cursor-pointer hover-text-danger" 
+               onclick="ao_removeFile('existing', ${index})" title="Remove"></i>
+        `;
+        container.appendChild(chip);
+    });
+
+    // 2. Render Pending Files (Green)
     aoPendingFiles.forEach((file, index) => {
         const chip = document.createElement('div');
-        chip.className = 'badge bg-light text-dark border d-flex align-items-center gap-2 p-2';
+        chip.className = 'badge bg-success text-white border d-flex align-items-center gap-2 p-2 m-1 shadow-sm';
         chip.innerHTML = `
-            <i class="fas fa-file-pdf text-danger"></i>
-            <span>${file.name}</span>
-            <span class="text-muted small">(${(file.size/1024).toFixed(0)}KB)</span>
-            <i class="fas fa-times text-secondary cursor-pointer" onclick="ao_removeFile(${index})" style="cursor:pointer"></i>
+            <i class="fas fa-file-upload"></i>
+            <span>${file.name.substring(0, 15)}${file.name.length > 15 ? '...' : ''}</span>
+            <span class="small opacity-75">(${(file.size/1024).toFixed(0)}KB)</span>
+            <i class="fas fa-times-circle text-white cursor-pointer hover-text-danger" 
+               onclick="ao_removeFile('pending', ${index})" title="Remove"></i>
         `;
         container.appendChild(chip);
     });
 }
 
-function ao_removeFile(index) {
-    aoPendingFiles.splice(index, 1);
+// Updated to accept Type (existing vs pending)
+function ao_removeFile(type, index) {
+    if (type === 'existing') {
+        aoExistingFiles.splice(index, 1);
+    } else {
+        aoPendingFiles.splice(index, 1);
+    }
     ao_renderFileList();
 }
+
 
 function ao_updateFileList() {
     const div = document.getElementById('ao-file-list');
@@ -3760,13 +3795,16 @@ function ao_generateOrderSummary(products) {
     return lines.join('\n');
 }
 
-// --- HANDLE SAVE ORDER (Robust Refactor + Edit Support) ---
+// --- HANDLE SAVE ORDER (Fixed: Prevents Reload & Handles Files) ---
+// --- HANDLE SAVE ORDER (Debug Enabled & File Aware) ---
 function ao_handleSaveOrder(e) {
-    // 1. STOP PAGE RELOAD IMMEDIATELY
-    if(e) {
+    // 1. CRITICAL: STOP PAGE RELOAD
+    if (e) {
         e.preventDefault();
         e.stopPropagation();
     }
+
+    console.log("[AO] Save Initiated...");
 
     // --- STEP 0: AUTHENTICATION CHECK ---
     const userEmail = localStorage.getItem('userEmail');
@@ -3775,42 +3813,30 @@ function ao_handleSaveOrder(e) {
         return;
     }
 
-    // --- STEP 1: READ ALL DOM VALUES IMMEDIATELY ---
-    // Helper: Safely get value or return empty string
+    // --- STEP 1: READ INPUTS ---
     const getVal = (id) => {
         const el = document.getElementById(id);
         return el ? el.value : '';
     };
 
-    // 1. Basic Fields
+    // Basic Fields
     const clientInput = document.getElementById('ao-new-client');
     const clientName = clientInput ? clientInput.value.trim() : '';
     const dateVal = getVal('ao-new-date');
     const orderType = getVal('ao-new-order-type');
+    const vatValue = document.getElementById('ao-new-vat')?.value || '';
     
-    // 2. VAT (Read from the hidden input updated by buttons)
-    const vatElement = document.getElementById('ao-new-vat');
-    const vatValue = vatElement ? vatElement.value : '';
-    
-    // 3. Meta Fields
+    // Meta Fields
     const valPoTawoos = getVal('ao-new-po-tawoos');
     const valPoPrivate = getVal('ao-new-po-pl'); 
     const valInternal = getVal('ao-new-internal-notes');
     const valExternal = getVal('ao-new-external-notes');
-    
-    // 4. Confirmation State
-    const rawConfirm = getVal('ao-new-confirm-state');
-    const valConfirmState = rawConfirm || 'Confirmed';
-    
+    const valConfirmState = getVal('ao-new-confirm-state') || 'Confirmed';
     const valSalesRep = getVal('ao-new-sales-rep');
 
     // --- STEP 2: VALIDATIONS ---
-    
-    // Client Validation
     const clientListOpts = document.getElementById('ao-client-list')?.options || [];
     let clientExists = false;
-    
-    // Note: Relax strict check slightly for Edit Mode if needed, but keeping safe logic:
     for (let i = 0; i < clientListOpts.length; i++) {
         if (clientListOpts[i].value === clientName) {
             clientExists = true;
@@ -3819,8 +3845,7 @@ function ao_handleSaveOrder(e) {
     }
 
     if (!clientName) { showToast("Please select a client", "error"); return; }
-    if (!clientExists) { showToast("Invalid Client: Please select a client from the list", "error"); return; }
-
+    if (!clientExists) { showToast("Warning: Client not in standard list", "warning"); } 
     if (!dateVal) { showToast("Please select a date", "error"); return; }
 
     // Product Validation
@@ -3831,24 +3856,18 @@ function ao_handleSaveOrder(e) {
 
     productRows.forEach((row) => {
         const pInput = row.querySelector('[data-field="product"] input');
-        const qInput = row.querySelector('[data-field="qty"] input');
-        const bInput = row.querySelector('[data-field="bonus"] input');
+        if(!pInput || !pInput.value) return;
+
+        const pName = pInput.value.trim();
+        if(!pName) return;
+
+        const qty = parseFloat(row.querySelector('[data-field="qty"] input').value) || 0;
+        const bonus = parseFloat(row.querySelector('[data-field="bonus"] input').value) || 0;
         const priceInput = row.querySelector('[data-field="price"] input'); 
         const dInput = row.querySelector('[data-field="discount"] input');
         
-        if(!pInput || !qInput || !bInput || !priceInput || !dInput) return;
-
-        const pName = pInput.value.trim();
-        if (!pName) return; 
-
-        const qty = parseFloat(qInput.value) || 0;
-        const bonus = parseFloat(bInput.value) || 0;
-        const discount = parseFloat(dInput.value) || 0;
-        
         const priceRaw = priceInput.value;
         const price = parseFloat(priceRaw);
-        
-        // Extract Invoice Discount Amount (Hidden or Visible input)
         const invDiscInput = row.querySelector('[data-field="invoiceDisc"] .ao-inv-disc-amount') || row.querySelector('.ao-inv-disc-amount');
         const invoiceDisc = invDiscInput ? (parseFloat(invDiscInput.value) || 0) : 0;
 
@@ -3859,18 +3878,16 @@ function ao_handleSaveOrder(e) {
         } else {
             priceInput.classList.remove('is-invalid');
             priceInput.style.border = "";
-            
             if (qty > 0 || bonus > 0) {
                 products.push({
                     productName: pName,
                     qty: qty,
                     bonus: bonus,
                     price: price,
-                    discount: discount,
+                    discount: parseFloat(dInput.value) || 0,
                     invoiceDisc: invoiceDisc
                 });
-
-                const productInfo = aoProductsList.find(p => p.fullName === pName || p.name === pName);
+                const productInfo = (typeof aoProductsList !== 'undefined') ? aoProductsList.find(p => p.fullName === pName || p.name === pName) : null;
                 const unitWeight = productInfo ? (parseFloat(productInfo.weight) || 0) : 0;
                 totalWeight += ((qty + bonus) * unitWeight); 
             }
@@ -3885,20 +3902,24 @@ function ao_handleSaveOrder(e) {
         return;
     }
 
+    console.log("[AO] Validation Passed. Preparing Files...");
+
     // --- STEP 3: PREPARE FILES ---
     const saveBtn = document.getElementById('ao-btn-save-order'); 
     if (!saveBtn) return;
 
-    // Use Global Pending Files
-    if (typeof aoPendingFiles === 'undefined') window.aoPendingFiles = [];
-
     const originalBtnText = saveBtn.innerHTML;
-    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing ' + aoPendingFiles.length + ' files...';
+    // Check Global Pending Files
+    const pendingFiles = (typeof aoPendingFiles !== 'undefined') ? aoPendingFiles : [];
+    const keptFiles = (typeof aoExistingFiles !== 'undefined') ? aoExistingFiles : [];
+
+    saveBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Processing ${pendingFiles.length > 0 ? pendingFiles.length + ' files' : '...'} `;
     saveBtn.disabled = true;
 
+    // Read Files as Base64
     let filePromises = [];
-    if (aoPendingFiles.length > 0) {
-        aoPendingFiles.forEach(file => {
+    if (pendingFiles.length > 0) {
+        pendingFiles.forEach(file => {
             filePromises.push(new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = e => resolve({
@@ -3910,8 +3931,10 @@ function ao_handleSaveOrder(e) {
         });
     }
 
-    // --- STEP 4: RESOLVE PROMISE & SEND ---
+    // --- STEP 4: SEND TO BACKEND ---
     Promise.all(filePromises).then(files => {
+        console.log(`[AO] Files Read: ${files.length} new, ${keptFiles.length} kept.`);
+
         const formData = {
             invoiceDate: dateVal,
             clientName: clientName,
@@ -3928,17 +3951,22 @@ function ao_handleSaveOrder(e) {
             orderSummary: (typeof ao_generateOrderSummary === 'function') 
                           ? ao_generateOrderSummary(products) 
                           : products.map(p => `${p.productName}: ${p.qty}`).join(', '),
-            files: files
+            
+            // KEY FIX: Send both lists
+            files: files,              // New uploads (Base64)
+            keptFiles: keptFiles       // URLs to keep
         };
 
         const successHandler = (res) => {
             saveBtn.innerHTML = originalBtnText;
             saveBtn.disabled = false;
+            console.log("[AO] Server Response:", res);
+            
             if(res && res.success) {
                 showToast(res.message, "success");
-                
                 // Cleanup
-                aoPendingFiles = []; 
+                if(typeof aoPendingFiles !== 'undefined') aoPendingFiles = []; 
+                if(typeof aoExistingFiles !== 'undefined') aoExistingFiles = [];
                 if(typeof ao_renderFileList === 'function') ao_renderFileList();
                 ao_closeAddOrderModal();
                 refreshAllOrdersData(); 
@@ -3950,19 +3978,18 @@ function ao_handleSaveOrder(e) {
         const failureHandler = (err) => {
             saveBtn.innerHTML = originalBtnText;
             saveBtn.disabled = false;
+            console.error("[AO] Server Error:", err);
             showToast("System Error: " + err.message, "error");
         };
 
-        // --- BRANCHING LOGIC: EDIT vs CREATE ---
-        // Uses the global variable aoCurrentEditOrderId to determine mode
+        // --- BRANCHING: EDIT vs CREATE ---
+        console.log("[AO] Invoking Backend...");
         if (typeof aoCurrentEditOrderId !== 'undefined' && aoCurrentEditOrderId) {
-            // EDIT MODE
             google.script.run
                 .withSuccessHandler(successHandler)
                 .withFailureHandler(failureHandler)
                 .updateExistingOrder(aoCurrentEditOrderId, formData, userEmail);
         } else {
-            // CREATE MODE
             google.script.run
                 .withSuccessHandler(successHandler)
                 .withFailureHandler(failureHandler)
@@ -4043,7 +4070,7 @@ function ao_populateEditForm(data) {
     // 1. Basic Fields
     setVal('ao-new-date', data.invoiceDate);
     setVal('ao-new-client', data.clientName);
-    ao_updateClientUI(); 
+    if(typeof ao_updateClientUI === 'function') ao_updateClientUI(); // Trigger UI
     
     setVal('ao-new-po-tawoos', data.poTawoos);
     setVal('ao-new-po-pl', data.poPrivateLabel);
@@ -4056,10 +4083,15 @@ function ao_populateEditForm(data) {
     // 2. VAT Buttons
     const vatVal = data.vat;
     const vatBtn = document.querySelector(`.ao-vat-btn[data-value="${vatVal}"]`) || document.querySelector('.ao-vat-btn[data-value=""]');
-    if(vatBtn) ao_selectVat(vatBtn, vatVal);
-    // Note: VAT tracking is harder on buttons, skipping for simplicity or needs robust button logic
+    if(vatBtn && typeof ao_selectVat === 'function') ao_selectVat(vatBtn, vatVal);
 
-    // 3. Products
+    // --- 3. FILES POPULATION (New) ---
+    // data.existingFiles comes from getOrderDataForEdit in Backend
+    aoExistingFiles = data.existingFiles || []; 
+    aoPendingFiles = []; // Ensure pending is clear
+    ao_renderFileList(); // Render the blue chips
+
+    // 4. Products
     const container = document.getElementById('ao-new-products-container');
     if(container) {
         container.innerHTML = '';
@@ -4072,7 +4104,6 @@ function ao_populateEditForm(data) {
                 const lastRow = rows[rows.length - 1];
                 
                 if(lastRow) {
-                    // Helper for Row Inputs
                     const setRowVal = (selector, val) => {
                         const input = lastRow.querySelector(selector);
                         if(input) {
@@ -4081,16 +4112,12 @@ function ao_populateEditForm(data) {
                         }
                     };
 
-                    // Enable tracking for the Product Name select as well
                     setRowVal('.ao-product-select', p.productName);
-                    
-                    // Set inputs
                     setRowVal('[data-field="qty"] input', p.qty);
                     setRowVal('[data-field="bonus"] input', p.bonus);
                     setRowVal('[data-field="discount"] input', p.discount);
                     setRowVal('[data-field="price"] input', p.price);
                     
-                    // Invoice Disc
                     const invDiscInput = lastRow.querySelector('.ao-inv-disc-amount');
                     if(invDiscInput) { invDiscInput.value = p.invoiceDisc; ao_enableDirtyTracking(invDiscInput); }
                     
