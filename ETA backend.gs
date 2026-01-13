@@ -15,7 +15,7 @@ const ETA_MODULE_CONFIG = {
   apiUrl: 'https://api.preprod.invoicing.eta.gov.eg',
   
   // FILE SYSTEM & SHEETS
-  targetFolderId: '1lyfSYYZAIQTW6i8q59DXqoLjQ5e563Oc',
+  targetFolderId: '1s7OyKDsUnNcd9iVSUzniMZSkAmcIAjWd',
   spreadsheetId: '19gyEZlBxFiTBKpAt3wjwC1lNkglG9Oaovcz2d4ZnGcg', 
   
   syncSheetName: 'ETA Invoices',   // Cache Sheet
@@ -190,8 +190,7 @@ function getEtaModuleAccessToken() {
  * --- 4. SYNC ACTION ---
  * Called by frontend: refreshEtaData()
  */
-function refreshEtaCache() {
-  const userEmail = Session.getActiveUser().getEmail();
+function refreshEtaCache(userEmail) {
   const perm = getEtaModulePermission(userEmail);
   if (perm === 'none' || perm === 'viewer') return { success: false, message: "Permission Denied" };
 
