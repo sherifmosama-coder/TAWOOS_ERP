@@ -456,7 +456,7 @@ function showSingleInvoiceModal(orderId, type, serial, data, field) {
         serial: serial,
         data: data,  // This must not be null
         field: field,
-        lang: 'en',
+        lang: 'ar',
         format: 'PNG',
         quickFormat: 'PNG',
         internalComment: internalComment,
@@ -547,23 +547,39 @@ function createSingleInvoiceModalStructure() {
     const modalHtml = `
     <div id="previewModal" class="preview-overlay">
         <div class="preview-container-modern">
-            <!-- Modern Header Bar -->
             <div class="preview-header-bar">
                 <div class="header-left">
                     <h3 id="modal-invoice-title">Invoice Preview</h3>
-                    <!-- Attachments Bar (Inline in header) -->
-                    <div id="preview-attachments-bar" class="preview-attachments-inline" style="display: none;">
+                    
+                    <div class="header-control-group" style="margin-left: 20px;">
+                        <label class="modern-checkbox" style="margin-bottom: 0;">
+                            <input type="checkbox" id="p-hide-bonus" onchange="debouncedRender(100)">
+                            <span>Hide Bonus</span>
+                        </label>
+                    </div>
+
+                    <div class="quick-actions-inline" style="margin-left: 15px; display: flex; gap: 5px;">
+                        <button class="btn-quick-modern" id="quick-print-btn" onclick="handleQuickAction('print')" title="Print" disabled>
+                            <i class="fas fa-print"></i>
+                        </button>
+                        <button class="btn-quick-modern" id="quick-download-btn" onclick="handleQuickAction('download')" title="Download PDF" disabled>
+                            <i class="fas fa-download"></i>
+                        </button>
+                    </div>
+
+                    <div id="preview-attachments-bar" class="preview-attachments-inline" style="display: none; margin-left: 15px;">
                         <span class="attachments-label">Attachments:</span>
                         <div id="preview-attachments-container" class="attachments-chips-inline"></div>
                     </div>
-                    <!-- Cash Sales Checkbox (when VAT is blank) -->
-                    <div id="cash-sales-container" class="cash-sales-inline" style="display: none;">
+                    
+                    <div id="cash-sales-container" class="cash-sales-inline" style="display: none; margin-left: 15px;">
                         <label class="cash-sales-checkbox">
                             <input type="checkbox" id="cash-sales-checkbox" onchange="handleCashSalesToggle()">
                             <span id="cash-sales-label">بيع نقدي</span>
                         </label>
                     </div>
                 </div>
+
                 <div class="header-right">
                     <div class="header-control-group">
                         <label class="header-label">Serial</label>
@@ -572,23 +588,22 @@ function createSingleInvoiceModalStructure() {
                     <div class="header-control-group">
                         <label class="header-label">Language</label>
                         <div class="header-toggle">
-                            <button class="header-toggle-btn active" onclick="setPreviewLang('en', this)">EN</button>
-                            <button class="header-toggle-btn" onclick="setPreviewLang('ar', this)">AR</button>
+                            <button class="header-toggle-btn" onclick="setPreviewLang('en', this)">EN</button>
+                            <button class="header-toggle-btn active" onclick="setPreviewLang('ar', this)">AR</button>
                         </div>
                     </div>
-                    <!-- REMOVED FORMAT TOGGLE - PNG ONLY -->
+                    
                     <div class="header-actions">
                         <button class="header-btn header-btn-reject" onclick="closePreview()">
                             <i class="fas fa-times"></i> Cancel
                         </button>
                         <button class="header-btn header-btn-save" id="btn-save-invoice" onclick="confirmSingleGeneration()">
-                            <i class="fas fa-save"></i> Save
+                            <i class="fas fa-save"></i> Save PDF
                         </button>
                     </div>
                 </div>
             </div>
 
-            <!-- Internal Comment Bar (Frozen) -->
             <div id="preview-internal-comment-bar" class="preview-comment-bar" style="display: none;">
                 <div class="comment-bar-icon">
                     <i class="fas fa-comment-dots"></i>
@@ -599,82 +614,13 @@ function createSingleInvoiceModalStructure() {
                 </div>
             </div>
             
-            <!-- Main Content -->
-            <div class="preview-main-modern">
-                <!-- Compact Sidebar -->
-                <div class="preview-sidebar-modern">
-                    <div class="sidebar-section-modern">
-                        <label class="modern-checkbox">
-                            <input type="checkbox" id="p-hide-bonus" onchange="debouncedRender(100)">
-                            <span>Hide Bonus Column</span>
-                        </label>
-                    </div>
-                    
-                    <div class="sidebar-section-modern">
-                        <h4 class="sidebar-title-modern">Quick Actions</h4>
-                        <div class="quick-actions-grid">
-                            <button class="btn-quick-modern" id="quick-print-btn" onclick="handleQuickAction('print')" title="Print" disabled>
-                                <i class="fas fa-print"></i>
-                            </button>
-                            <button class="btn-quick-modern" id="quick-download-btn" onclick="handleQuickAction('download')" title="Download" disabled>
-                                <i class="fas fa-download"></i>
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="sidebar-section-modern">
-                        <h4 class="sidebar-title-modern">Page Fit</h4>
-                        <div class="fit-buttons-grid">
-                            <button class="fit-btn" onclick="autofitPage('height', this)" title="Fit Height">
-                                <i class="fas fa-arrows-alt-v"></i>
-                            </button>
-                            <button class="fit-btn" onclick="autofitPage('width', this)" title="Fit Width">
-                                <i class="fas fa-arrows-alt-h"></i>
-                            </button>
-                            <button class="fit-btn active" onclick="autofitPage('default', this)" title="Default">
-                                <i class="fas fa-undo"></i>
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="sidebar-section-modern">
-                        <h4 class="sidebar-title-modern">Margins</h4>
-                        <div class="margin-controls">
-                            <div class="margin-row">
-                                <span>Top</span>
-                                <input type="range" id="p-margin-top" min="0" max="100" value="48" oninput="updatePreviewStyles()">
-                                <span id="val-mt">48</span>
-                            </div>
-                            <div class="margin-row">
-                                <span>Bot</span>
-                                <input type="range" id="p-margin-bottom" min="0" max="100" value="40" oninput="updatePreviewStyles()">
-                                <span id="val-mb">40</span>
-                            </div>
-                            <div class="margin-row">
-                                <span>Left</span>
-                                <input type="range" id="p-margin-left" min="0" max="50" value="5" oninput="updatePreviewStyles()">
-                                <span id="val-ml">5</span>
-                            </div>
-                            <div class="margin-row">
-                                <span>Right</span>
-                                <input type="range" id="p-margin-right" min="0" max="50" value="5" oninput="updatePreviewStyles()">
-                                <span id="val-mr">5</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>  <!-- CLOSE SIDEBAR HERE -->
-                
-                <!-- Preview Area - SIBLING to sidebar, NOT CHILD -->
-                <div class="preview-content-modern">
-                    <div class="paper-wrapper-modern">
-                        <div id="margin-guide-top" class="margin-guide horizontal"></div>
-                        <div id="margin-guide-bottom" class="margin-guide horizontal"></div>
-                        <div id="margin-guide-left" class="margin-guide vertical"></div>
-                        <div id="margin-guide-right" class="margin-guide vertical"></div>
-                        <iframe id="previewFrame" class="a4-paper"></iframe>
+            <div class="preview-main-modern" style="display: block; overflow: auto; background: #525659; text-align: center;">
+                <div class="preview-content-modern" style="display: inline-block; padding: 20px; vertical-align: top; text-align: left;">
+                    <div class="paper-wrapper-modern" style="box-shadow: 0 0 10px rgba(0,0,0,0.5);">
+                        <iframe id="previewFrame" class="a4-paper" style="height: 297mm; width: 210mm; border: none; background: white;"></iframe>
                     </div>
                 </div>
-            </div>  <!-- CLOSE MAIN -->
+            </div>
         </div>
     </div>
     `;
@@ -682,19 +628,51 @@ function createSingleInvoiceModalStructure() {
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
-// =============================================================================
-// NEW: confirmSingleGeneration - Save single invoice
-// =============================================================================
+function getConsistentFilename() {
+    if (!currentPreviewData || !currentPreviewData.data) return 'Invoice';
+    
+    const d = currentPreviewData.data;
+    let clientName = '';
+    let branch = '';
+
+    if (currentPreviewData.isCashSales) {
+        clientName = currentPreviewData.lang === 'ar' ? 'بيع نقدي' : 'Cash Sales';
+    } else {
+        // Try to get name from DETAILS object first, then direct props
+        if (d.CLIENT_DETAILS && d.CLIENT_DETAILS.name) {
+            clientName = d.CLIENT_DETAILS.name;
+            branch = d.CLIENT_DETAILS.branch || '';
+        } else {
+            clientName = d.CLIENT_NAME || d.CLIENT_NAME_INV || 'Client';
+        }
+    }
+    
+    const serial = currentPreviewData.serial || 'Draft';
+    
+    // Construct Name: "Client Branch Serial"
+    const parts = [clientName, branch, serial].filter(p => p && String(p).trim() !== '');
+    const fullName = parts.join(' ');
+    
+    // Sanitize for Filename (Remove illegal chars / \ : * ? " < > |)
+    const safeName = fullName.replace(/[\/\\:*?"<>|]/g, "").trim();
+    
+    return safeName;
+}
+
 
 function confirmSingleGeneration() {
     const btn = document.getElementById('btn-save-invoice');
     const originalText = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating PDF...';
     btn.disabled = true;
 
     const frame = document.getElementById('previewFrame');
+    
+    // CAPTURE HTML INSTEAD OF IMAGE
+    const rawHtml = frame.contentDocument.documentElement.outerHTML;
+
     const settings = {
-        fileType: 'PNG', // FORCE PNG
+        fileType: 'PDF', // FORCE PDF
         targetType: currentPreviewData.type,
         serialNumber: currentPreviewData.serial,
         language: currentPreviewData.lang,
@@ -702,33 +680,15 @@ function confirmSingleGeneration() {
     };
 
     const userEmail = localStorage.getItem('userEmail') || 'N/A';
+    
+    // GENERATE CONSISTENT FILENAME
+    const fileName = getConsistentFilename();
 
-    try {
-        const iframeBody = frame.contentDocument.body;
-        iframeBody.style.backgroundColor = "#ffffff";
-        
-        html2canvas(iframeBody, {
-            scale: 2,
-            logging: false,
-            useCORS: true,
-            windowWidth: iframeBody.scrollWidth,
-            windowHeight: iframeBody.scrollHeight
-        }).then(canvas => {
-            const payload = canvas.toDataURL('image/png').split(',')[1];
-            saveSingleInvoice(payload, settings, userEmail, btn, originalText);
-        }).catch(e => {
-            showToast('Save Failed: ' + e.message, 'error');
-            btn.innerHTML = originalText;
-            btn.disabled = false;
-        });
-    } catch (e) {
-        showToast('Failed: ' + e.message, 'error');
-        btn.innerHTML = originalText;
-        btn.disabled = false;
-    }
+    saveSingleInvoice(rawHtml, settings, userEmail, btn, originalText, fileName);
 }
 
-function saveSingleInvoice(payload, settings, userEmail, btn, originalText) {
+
+function saveSingleInvoice(payload, settings, userEmail, btn, originalText, fileName) {
     const orderId = currentPreviewData.orderId;
     const field = currentPreviewData.field;
     const invoiceData = {};
@@ -797,7 +757,8 @@ function saveSingleInvoice(payload, settings, userEmail, btn, originalText) {
             btn.innerHTML = originalText;
             btn.disabled = false;
         })
-        .commitInvoiceGeneration(orderId, null, settings, payload, userEmail);
+        // PASS FILENAME HERE (Replaces null)
+        .commitInvoiceGeneration(orderId, fileName, settings, payload, userEmail);
 }
 
 // =============================================================================
@@ -1238,37 +1199,68 @@ function renderIframeContent() {
         // Hide Bonus Flag
         const hideBonus = document.getElementById('p-hide-bonus') ? document.getElementById('p-hide-bonus').checked : false;
 
-        // Financial formatting helper: negative values shown as (value)
         const formatMoney = (value) => {
             const num = parseFloat(value || 0);
-            if (num < 0) {
-                return `(${Math.abs(num).toFixed(2)})`;
-            }
-            return num.toFixed(2);
+            return num < 0 ? `(${Math.abs(num).toFixed(2)})` : num.toFixed(2);
         };
         
-        // 1. Capture Margins (These elements EXIST)
-        const mt = document.getElementById('p-margin-top').value;
-        const mb = document.getElementById('p-margin-bottom').value;
-        const ml = document.getElementById('p-margin-left').value;
-        const mr = document.getElementById('p-margin-right').value;
+        // =========================================================
+        // LAYOUT CONFIGURATION (CENTERING & MARGINS)
+        // =========================================================
+        const mt = 70; // 70mm (7cm) Top Margin
         
-        // 2. Set Defaults for Removed Sliders
-        const pad = 8;    // Default padding px
-        
-        // Auto-fit columns - no fixed widths, let content determine size
-        // Pre-calculate CSS
         const initialStyles = `
-            body { 
-                padding-top: ${mt}mm !important; 
-                padding-bottom: ${mb}mm !important; 
-                padding-left: ${ml}mm !important; 
-                padding-right: ${mr}mm !important; 
+            @page { 
+                size: A4; 
+                margin: 0; 
             }
-            td { padding: ${pad}px 5px !important; }
-        `;
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                box-sizing: border-box;
+            }
+            html {
+                width: 100%;
+                height: 100%;
+            }
+            body {
+                margin: 0;
+                padding: 0;
+                width: 100%;
+                min-height: 100%;
+                background-color: #525659; /* Gray background in iframe to show contrast */
+                display: flex;
+                justify-content: center; /* Center horizontally */
+                align-items: flex-start;
+            }
+            
+            /* THE PAGE CONTAINER (White Paper) */
+            .page-container {
+                width: 210mm; /* Fixed A4 Width */
+                min-height: 297mm; /* Minimum A4 Height */
+                background: white;
+                padding-top: ${mt}mm;
+                padding-left: 10mm;
+                padding-right: 10mm;
+                padding-bottom: 10mm;
+                position: relative;
+                box-shadow: 0 0 10px rgba(0,0,0,0.1); /* Subtle shadow for preview */
+                margin: 0 auto;
+                transform-origin: top center;
+            }
 
-        // Define Labels
+            /* Hides shadow in PDF/Print */
+            @media print {
+                body { background: white; }
+                .page-container { box-shadow: none; margin: 0; width: 100%; }
+            }
+
+            td { padding: 4px 5px !important; }
+        `;
+        
+        // =========================================================
+        // DATA PREPARATION & TRANSLATIONS
+        // =========================================================
         const labels = {
             title: isAr ? (isDN ? 'إذن تسليم' : 'فاتورة') : (isDN ? 'DELIVERY NOTE' : 'INVOICE'),
             date: isAr ? 'التاريخ' : 'Date',
@@ -1301,35 +1293,30 @@ function renderIframeContent() {
         };
 
         const client = d.CLIENT_DETAILS || { name: d.CLIENT_NAME || '', branch: '', address: '', vat: '' };
-        
-        // If cash sales mode, override client name
         if (currentPreviewData.isCashSales) {
-            const cashSalesName = currentPreviewData.lang === 'ar' ? 'بيع نقدي' : 'Cash Sales';
-            client.name = cashSalesName;
+            client.name = currentPreviewData.lang === 'ar' ? 'بيع نقدي' : 'Cash Sales';
         }
+        
         const orderRow = accountingData.orders.find(o => o.orderId == currentPreviewData.orderId) || {};
         const products = d.PRODUCTS_DETAIL || [];
-        
-        // Detect if bonus exists in products
         const hasBonus = products.some(p => (parseFloat(p.bonus)||0) > 0);
         const showBonus = hasBonus && !hideBonus;
 
         let bodyContent = '';
         let rows = '';
-        
+
+        // =========================================================
+        // DOCUMENT CONTENT GENERATION
+        // =========================================================
         if (isDN) {
-            // ==================== DELIVERY NOTE VERSION ====================
-            
+            // --- DELIVERY NOTE LOGIC ---
             let dnTotalManualDiscount = 0;
-            
             if (products.length > 0) {
                 products.forEach(p => {
                     const displayName = isAr ? (p.nameAr || p.name) : (p.nameEn || p.name);
                     const qty = parseFloat(p.qty)||0;
                     const bonus = parseFloat(p.bonus)||0;
                     const unitPrice = parseFloat(p.unitPrice)||0;
-                    
-                    // CRITICAL: For DN, only QTY is used in calculations (bonus is FREE)
                     const lineSubtotal = unitPrice * qty;
                     
                     rows += `
@@ -1342,12 +1329,9 @@ function renderIframeContent() {
                         <td>${lineSubtotal.toFixed(2)}</td>
                     </tr>`;
                     
-                    // Manual discount handling
                     if (p.hasManualDiscount) {
-                        const manualDiscountPerItem = parseFloat(p.manualDiscountPerItem || 0);
-                        const discountAmt = manualDiscountPerItem * qty;  // Only qty, not bonus
+                        const discountAmt = (parseFloat(p.manualDiscountPerItem || 0)) * qty;
                         dnTotalManualDiscount += discountAmt;
-                        
                         rows += `
                         <tr class="discount-row">
                             <td class="product-name indent">${labels.addDiscount}</td>
@@ -1363,18 +1347,12 @@ function renderIframeContent() {
                 const colspan = showBonus ? 6 : 5;
                 rows = `<tr><td colspan="${colspan}" style="padding:20px; text-align:center;">No products</td></tr>`;
             }
-            
+
             bodyContent = `
                 <div class="header anonymous">
-                    <div class="header-side start">
-                        <h1 class="main-title">${labels.title}</h1>
-                    </div>
-                    <div class="header-center">
-                        <div class="serial-display">#${currentPreviewData.serial}</div>
-                    </div>
-                    <div class="header-side end">
-                        <div class="date-display"><i class="fas fa-calendar-alt"></i> ${d.INVOICE_DATE}</div>
-                    </div>
+                    <div class="header-side start"><h1 class="main-title">${labels.title}</h1></div>
+                    <div class="header-center"><div class="serial-display">#${currentPreviewData.serial}</div></div>
+                    <div class="header-side end"><div class="date-display"><i class="fas fa-calendar-alt"></i> ${d.INVOICE_DATE}</div></div>
                 </div>
                 
                 <div class="box-container">
@@ -1403,12 +1381,12 @@ function renderIframeContent() {
                     <table id="invoiceTable">
                         <thead>
                             <tr>
-                                <th style="width: 40%">${labels.item}<div class="resizer"></div></th>
-                                <th style="width: 10%">${labels.unit}<div class="resizer"></div></th>
-                                <th style="width: 10%">${labels.qty}<div class="resizer"></div></th>
-                                ${showBonus ? `<th style="width: 10%">${labels.bonus}<div class="resizer"></div></th>` : ''}
-                                <th style="width: 15%">${labels.price}<div class="resizer"></div></th>
-                                <th style="width: 15%">${labels.total}<div class="resizer"></div></th>
+                                <th style="width: 40%">${labels.item}</th>
+                                <th style="width: 10%">${labels.unit}</th>
+                                <th style="width: 10%">${labels.qty}</th>
+                                ${showBonus ? `<th style="width: 10%">${labels.bonus}</th>` : ''}
+                                <th style="width: 15%">${labels.price}</th>
+                                <th style="width: 15%">${labels.total}</th>
                             </tr>
                         </thead>
                         <tbody>${rows}</tbody>
@@ -1442,9 +1420,7 @@ function renderIframeContent() {
             `;
             
         } else {
-            // ==================== TAX INVOICE VERSION ====================
-            
-            // Group products by VAT rate
+            // --- TAX INVOICE LOGIC ---
             const products14 = products.filter(p => p.vatRate > 0);
             const products0 = products.filter(p => p.vatRate === 0);
             
@@ -1467,7 +1443,6 @@ function renderIframeContent() {
                     subtotalBeforeDiscount += lineSubtotal;
                     subtotalAfterDiscount += parseFloat(p.finalAmount || 0);
                     
-                    // Main product row
                     rows += `
                     <tr>
                         <td class="product-name">${displayName}</td>
@@ -1478,114 +1453,59 @@ function renderIframeContent() {
                         <td>${lineSubtotal.toFixed(2)}</td>
                     </tr>`;
                     
-                    // Promotional Discount Row
+                    // Detailed Discount Rows
                     if (p.hasPromotionalDiscount) {
                         const discountAmt = parseFloat(p.promotionalDiscountAmount || 0);
                         totalPromotionalDiscount += discountAmt;
                         const label = isAr 
-                            ? `خصم ترويجي (${p.promotionalDiscountPct.toFixed(1)}٪) [${p.officialPrice.toFixed(2)} → ${p.promotionalPrice.toFixed(2)}]`
-                            : `Promotional Discount (${p.promotionalDiscountPct.toFixed(1)}%) [${p.officialPrice.toFixed(2)} → ${p.promotionalPrice.toFixed(2)}]`;
-                        
-                        rows += `
-                        <tr class="discount-row">
-                            <td class="product-name indent">${label}</td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
-                            <td class="discount-value">${formatMoney(-discountAmt / totalQty)}</td>
-                            <td class="discount-value">${formatMoney(-discountAmt)}</td>
-                        </tr>`;
+                            ? `خصم ترويجي (${p.promotionalDiscountPct.toFixed(1)}٪)`
+                            : `Promotional Discount (${p.promotionalDiscountPct.toFixed(1)}%)`;
+                        rows += `<tr class="discount-row"><td class="product-name indent">${label}</td><td></td><td></td><td></td><td class="discount-value">${formatMoney(-discountAmt / totalQty)}</td><td class="discount-value">${formatMoney(-discountAmt)}</td></tr>`;
                     }
-                    
-                    // Invoice Discount Row
                     if (p.hasContractDiscount) {
                         const discountAmt = parseFloat(p.contractDiscountAmount || 0);
                         totalContractDiscount += discountAmt;
-                        const label = isAr 
-                            ? `خصم الفاتورة (${p.contractDiscountPct.toFixed(1)}٪)`
-                            : `Invoice Discount (${p.contractDiscountPct.toFixed(1)}%)`;
-                        
-                        rows += `
-                        <tr class="discount-row">
-                            <td class="product-name indent">${label}</td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
-                            <td class="discount-value">${formatMoney(-discountAmt / totalQty)}</td>
-                            <td class="discount-value">${formatMoney(-discountAmt)}</td>
-                        </tr>`;
+                        const label = isAr ? `خصم الفاتورة (${p.contractDiscountPct.toFixed(1)}٪)` : `Invoice Discount (${p.contractDiscountPct.toFixed(1)}%)`;
+                        rows += `<tr class="discount-row"><td class="product-name indent">${label}</td><td></td><td></td><td></td><td class="discount-value">${formatMoney(-discountAmt / totalQty)}</td><td class="discount-value">${formatMoney(-discountAmt)}</td></tr>`;
                     }
-                    
-                    // Manual Discount Row
                     if (p.hasManualDiscount) {
                         const discountAmt = parseFloat(p.manualDiscountAmount || 0);
                         totalManualDiscount += discountAmt;
-                        const label = isAr 
-                            ? `خصم إضافي`
-                            : `Additional Discount`;
-                        
-                        rows += `
-                        <tr class="discount-row">
-                            <td class="product-name indent">${label}</td>
-                            <td></td>
-                            <td></td>
-                            <td></td>
-                            <td class="discount-value">${formatMoney(-discountAmt / totalQty)}</td>
-                            <td class="discount-value">${formatMoney(-discountAmt)}</td>
-                        </tr>`;
+                        const label = isAr ? `خصم إضافي` : `Additional Discount`;
+                        rows += `<tr class="discount-row"><td class="product-name indent">${label}</td><td></td><td></td><td></td><td class="discount-value">${formatMoney(-discountAmt / totalQty)}</td><td class="discount-value">${formatMoney(-discountAmt)}</td></tr>`;
                     }
                 });
-                
                 return { rows, subtotalBeforeDiscount, totalPromotionalDiscount, totalContractDiscount, totalManualDiscount, subtotalAfterDiscount };
             };
             
-            // Generate rows for 14% products
             let allRows = '';
             let grandSubtotalBefore = 0;
             let grandPromotional = 0;
             let grandContract = 0;
             let grandManual = 0;
-            let grandSubtotalAfter = 0;
             
             if (products14.length > 0) {
                 const result14 = generateProductRows(products14);
                 allRows += result14.rows;
-                
                 const label14 = isAr ? 'المجموع الفرعي (منتجات 14٪)' : 'Subtotal (14% Products)';
-                allRows += `
-                <tr class="subtotal-row">
-                    <td colspan="5" style="text-align: end; font-weight: 700;">${label14}</td>
-                    <td style="font-weight: 700;">${result14.subtotalAfterDiscount.toFixed(2)}</td>
-                </tr>`;
-                
+                allRows += `<tr class="subtotal-row"><td colspan="5" style="text-align: end; font-weight: 700;">${label14}</td><td style="font-weight: 700;">${result14.subtotalAfterDiscount.toFixed(2)}</td></tr>`;
                 grandSubtotalBefore += result14.subtotalBeforeDiscount;
                 grandPromotional += result14.totalPromotionalDiscount;
                 grandContract += result14.totalContractDiscount;
                 grandManual += result14.totalManualDiscount;
-                grandSubtotalAfter += result14.subtotalAfterDiscount;
             }
-            
-            // Generate rows for 0% products
             if (products0.length > 0) {
                 const result0 = generateProductRows(products0);
                 allRows += result0.rows;
-                
                 const label0 = isAr ? 'المجموع الفرعي (منتجات 0٪)' : 'Subtotal (0% Products)';
-                allRows += `
-                <tr class="subtotal-row">
-                    <td colspan="5" style="text-align: end; font-weight: 700;">${label0}</td>
-                    <td style="font-weight: 700;">${result0.subtotalAfterDiscount.toFixed(2)}</td>
-                </tr>`;
-                
+                allRows += `<tr class="subtotal-row"><td colspan="5" style="text-align: end; font-weight: 700;">${label0}</td><td style="font-weight: 700;">${result0.subtotalAfterDiscount.toFixed(2)}</td></tr>`;
                 grandSubtotalBefore += result0.subtotalBeforeDiscount;
                 grandPromotional += result0.totalPromotionalDiscount;
                 grandContract += result0.totalContractDiscount;
                 grandManual += result0.totalManualDiscount;
-                grandSubtotalAfter += result0.subtotalAfterDiscount;
             }
             
             rows = allRows || '<tr><td colspan="6" style="padding:20px; text-align:center;">No products</td></tr>';
-            
             const sellerName = isAr ? '<strong>الطاووس لتعبئة و تجارة المواد الغذائية</strong>' : '<strong>AlTawoos for packing and food trading</strong>';
             
             bodyContent = `
@@ -1620,12 +1540,12 @@ function renderIframeContent() {
                     <table id="invoiceTable">
                         <thead>
                             <tr>
-                                <th>${labels.item}<div class="resizer"></div></th>
-                                <th>${labels.barcode}<div class="resizer"></div></th>
-                                <th>${labels.unit}<div class="resizer"></div></th>
-                                <th>${labels.qty}<div class="resizer"></div></th>
-                                <th>${labels.price}<div class="resizer"></div></th>
-                                <th>${labels.total}<div class="resizer"></div></th>
+                                <th>${labels.item}</th>
+                                <th>${labels.barcode}</th>
+                                <th>${labels.unit}</th>
+                                <th>${labels.qty}</th>
+                                <th>${labels.price}</th>
+                                <th>${labels.total}</th>
                             </tr>
                         </thead>
                         <tbody>${rows}</tbody>
@@ -1645,11 +1565,13 @@ function renderIframeContent() {
                     </table>
                 </div>
                 
-                <div class="page-meta">${new Date().toLocaleString()} - - - - User: ${d.USER_EMAIL || 'N/A'} - - - - Order: ${d.ORDER_ID_DISPLAY || 'N/A'} - - - - v${d.VERSION || 1}</div>
+                <div class="page-meta">${new Date().toLocaleString()} - User: ${d.USER_EMAIL || 'N/A'} - Order: ${d.ORDER_ID_DISPLAY || 'N/A'} - v${d.VERSION || 1}</div>
             `;
         }
-
-        // Build complete HTML document
+        
+        // =========================================================
+        // FINAL HTML ASSEMBLY WITH AUTO-ZOOM SCRIPT
+        // =========================================================
         const html = `<!DOCTYPE html>
             <html dir="${dir}">
             <head>
@@ -1657,12 +1579,9 @@ function renderIframeContent() {
                 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
                 <style id="dynamic-styles">${initialStyles}</style>
                 <style>
-                    /* Static Styles */
-                    body { font-family: 'Tajawal', sans-serif; margin: 0; padding: 0; color: #333; box-sizing: border-box; background: white; min-height: 100vh; }
-                    *, *::before, *::after { box-sizing: inherit; }
-                    
+                    /* STATIC STYLES (PRESERVED) */
+                    body { font-family: 'Tajawal', sans-serif; color: #333; }
                     .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 2px solid #1e3a5f; padding-bottom: 15px; }
-                    .header.anonymous { }
                     .header-side { flex: 1; }
                     .header-side.start { text-align: start; }
                     .header-side.end { display: flex; justify-content: flex-end; }
@@ -1672,7 +1591,6 @@ function renderIframeContent() {
                     .badge { background: #f8f9fa; color: #495057; padding: 4px 8px; border-radius: 8px; font-size: 14px; font-weight: 700; border: 1px solid #dee2e6; white-space: nowrap; }
                     .serial-display { font-size: 24px; font-weight: 900; color: #333; background: #f8f9fa; padding: 5px 20px; border-radius: 8px; border: 2px solid #dee2e6; display: inline-block; }
                     .date-display { font-size: 16px; font-weight: 600; color: #555; display: flex; align-items: center; gap: 8px; background: #f8f9fa; padding: 6px 12px; border-radius: 6px; border: 1px solid #dee2e6; }
-                    
                     .box-container { display: flex; gap: 15px; margin-bottom: 20px; }
                     .info-box { flex: 1; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; }
                     .box-header { background: #f1f3f5; padding: 6px 10px; font-size: 10px; font-weight: 700; color: #6c757d; text-transform: uppercase; border-bottom: 1px solid #e0e0e0; }
@@ -1681,82 +1599,148 @@ function renderIframeContent() {
                     .vat-number { font-family: sans-serif; direction: ltr; unicode-bidi: embed; font-weight: 700; }
                     .logistics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
                     .meta-label { color: #666; font-size: 11px; }
-
                     .table-wrapper { width: 100%; border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 20px; overflow: hidden; }
                     table { width: 100%; border-collapse: collapse; table-layout: auto; }
-                    th { background: #e3f2fd; color: #1e3a5f; padding: 8px 4px; font-size: 11px; font-weight: 800; text-align: center; position: relative; border-bottom: 1px solid #90caf9; }
-                    td { border-bottom: 1px solid #eee; padding: 8px 4px; font-size: 11px; text-align: center; vertical-align: middle; overflow: hidden; }
+                    th { background: #e3f2fd; color: #1e3a5f; padding: 8px 4px; font-size: 11px; font-weight: 800; text-align: center; border-bottom: 1px solid #90caf9; }
+                    td { border-bottom: 1px solid #eee; padding: 8px 4px; font-size: 11px; text-align: center; vertical-align: middle; }
                     .discount-row { background: #f9f9f9; font-style: italic; color: #d9534f; }
                     .discount-row td { border-bottom: none; padding: 4px 8px; font-size: 10px; }
                     .discount-value { color: #d9534f; font-weight: 600; }
                     .indent { padding-inline-start: 30px !important; }
                     .subtotal-row { background: #e3f2fd; }
                     .subtotal-row td { border-top: none !important; border-bottom: 2px solid #1e3a5f !important; padding: 8px; }
-                    
                     .product-name { text-align: start; font-weight: 600; color: #1e3a5f; padding-inline-start: 8px; white-space: normal; min-width: 150px; }
                     .barcode-cell { font-family: 'Libre Barcode 128', cursive; font-size: 32px; line-height: 0.8; }
-
-                    .resizer { position: absolute; top: 0; bottom: 0; right: 0; width: 5px; cursor: col-resize; z-index: 10; opacity: 0; }
-                    [dir="rtl"] .resizer { right: auto; left: 0; }
-                    th:hover .resizer { opacity: 1; background: rgba(30, 58, 95, 0.2); }
-
                     .footer-section { display: flex; justify-content: flex-end; }
                     .totals-table { width: 250px; border-collapse: collapse; }
                     .totals-table td { padding: 4px 0; border-bottom: 1px solid #eee; text-align: end; font-size: 12px; }
                     .totals-table tr:last-child td { border-top: 2px solid #1e3a5f; border-bottom: none; font-size: 14px; font-weight: 900; color: #1e3a5f; padding-top: 8px; }
-                    
                     .comment-box { margin-top: 15px; padding: 15px; border: 2px solid #333; border-radius: 8px; font-size: 12px; background-color: #fff; }
                     .comment-label { font-weight: 700; display: flex; align-items: center; gap: 8px; margin-bottom: 5px; text-transform: uppercase; }
                     .dn-footer { margin-top: 30px; padding-top: 10px; border-top: 2px solid #333; }
                     .disclaimer { font-weight: 700; font-size: 11px; margin-bottom: 20px; text-align: center; }
                     .signature-area { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; margin-top: 30px; }
-                    
                     .page-meta { font-size: 9px; color: #ccc; margin-top: 30px; text-align: center; border-top: 1px solid #eee; padding-top: 5px; }
                 </style>
             </head>
             <body>
-                <div id="invoice-content">${bodyContent}</div>
-                
+                <div id="main-layout" class="page-container">
+                    ${bodyContent}
+                </div>
+
                 <script>
-                    (function() {
-                        const table = document.getElementById('invoiceTable');
-                        if(!table) return;
-                        const headers = table.querySelectorAll('th');
-                        headers.forEach(th => {
-                            const resizer = th.querySelector('.resizer');
-                            if(!resizer) return;
-                            let x = 0; let w = 0;
-                            resizer.addEventListener('mousedown', function(e) {
-                                x = e.clientX; w = th.offsetWidth;
-                                document.addEventListener('mousemove', mm);
-                                document.addEventListener('mouseup', mu);
-                            });
-                            function mm(e) {
-                                const dir = document.documentElement.getAttribute('dir');
-                                const dx = e.clientX - x;
-                                th.style.width = (dir==='rtl' ? w-dx : w+dx) + 'px';
+                    window.onload = function() {
+                        try {
+                            // AUTO-FIT LOGIC (ZOOM-BASED)
+                            const container = document.getElementById('main-layout');
+                            const totalHeight = container.scrollHeight;
+                            
+                            // Safe available height for A4 (minus buffers) ~1100px
+                            const availableHeight = 1100; 
+                            
+                            if (totalHeight > availableHeight) {
+                                // Calculate Zoom Factor
+                                const zoom = (availableHeight / totalHeight) * 0.98;
+                                
+                                // Apply Zoom to shrink content to 1 page
+                                container.style.zoom = zoom;
+                                
+                                // Save Zoom level for PDF Generator
+                                container.setAttribute('data-zoom', zoom);
+                                console.log('Auto-zoomed to:', zoom);
+                            } else {
+                                container.setAttribute('data-zoom', '1');
                             }
-                            function mu() {
-                                document.removeEventListener('mousemove', mm);
-                                document.removeEventListener('mouseup', mu);
-                            }
-                        });
-                    })();
+                        } catch(e) { console.error('Auto-fit error', e); }
+                    };
                 <\/script>
             </body>
         </html>`;
         
-        // Use srcdoc for reliable rendering
         frame.srcdoc = html;
         
-        // Ensure iframe loads before we try to manipulate it
-        frame.onload = function() {
-            updatePreviewStyles();
-        };
+        // Re-enable buttons after render
+        // setTimeout(() => {
+        //     const pb = document.getElementById('quick-print-btn');
+        //     const db = document.getElementById('quick-download-btn');
+        //     if(pb) pb.disabled = false;
+        //     if(db) db.disabled = false;
+        // }, 500);
 
     } catch(e) {
         console.error("Render Crash", e);
         showToast("Preview Error: " + e.message, 'error');
+    }
+}
+
+function handleQuickAction(action) {
+    const frame = document.getElementById('previewFrame');
+    if (!frame) return;
+
+    if (action === 'print') {
+        frame.contentWindow.print();
+    } 
+    else if (action === 'download') {
+        const btn = document.getElementById('quick-download-btn');
+        const icon = btn.querySelector('i');
+        const originalClass = icon.className;
+        
+        // UI Feedback
+        icon.className = 'fas fa-spinner fa-spin';
+        btn.disabled = true;
+
+        try {
+            // 1. Get the computed zoom from the preview
+            const container = frame.contentDocument.getElementById('main-layout');
+            let zoom = container ? container.getAttribute('data-zoom') : '1';
+            
+            // 2. Clone the HTML
+            let htmlContent = frame.contentDocument.documentElement.outerHTML;
+
+            // 3. Inject CSS for PDF-Specific Behavior
+            // The Google PDF engine needs explicit CSS to replicate the zoom
+            if (zoom && zoom !== '1') {
+                const zoomCSS = `
+                    <style>
+                        #main-layout { 
+                            zoom: ${zoom} !important; 
+                        }
+                    </style>`;
+                // Insert before closing head tag
+                htmlContent = htmlContent.replace('</head>', zoomCSS + '</head>');
+            }
+
+            // 4. Call Backend
+            google.script.run
+                .withSuccessHandler(function(base64) {
+                    const link = document.createElement('a');
+                    link.href = 'data:application/pdf;base64,' + base64;
+                    
+                    // USE CONSISTENT FILENAME
+                    const fname = getConsistentFilename();
+                    link.download = `${fname}.pdf`;
+                    
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    // Reset UI
+                    icon.className = originalClass;
+                    btn.disabled = false;
+                })
+                .withFailureHandler(function(err) {
+                    showToast("Download failed: " + err.message, 'error');
+                    icon.className = originalClass;
+                    btn.disabled = false;
+                })
+                .generatePdfBase64(htmlContent);
+
+        } catch (e) {
+            console.error(e);
+            showToast("Error preparing PDF", 'error');
+            icon.className = originalClass;
+            btn.disabled = false;
+        }
     }
 }
 
@@ -2094,10 +2078,10 @@ function handleCashSalesToggle() {
     saveBtn.disabled = !isChecked;
     
     // Enable/disable quick actions
-    const printBtn = document.getElementById('quick-print-btn');
-    const downloadBtn = document.getElementById('quick-download-btn');
-    if (printBtn) printBtn.disabled = !isChecked;
-    if (downloadBtn) downloadBtn.disabled = !isChecked;
+    // const printBtn = document.getElementById('quick-print-btn');
+    // const downloadBtn = document.getElementById('quick-download-btn');
+    // if (printBtn) printBtn.disabled = !isChecked;
+    // if (downloadBtn) downloadBtn.disabled = !isChecked;
     
     // Re-render invoice with updated client name
     renderIframeContent();
