@@ -904,12 +904,23 @@ function handleBatchSaveAll() {
         if (!isValid) {
             skippedInvalidData.push(r.dismissNumber);
         } else {
-            // Check Date Constraint
+            // ==========================================================================================
+            // TEMPORARY TESTING FIX: Treat ALL valid records as "Ready", regardless of date.
+            // TO RESTORE PRODUCTION LOGIC: Uncomment the if/else block below and remove the direct push.
+            // ==========================================================================================
+            
+            // Production Logic (Currently Disabled):
+            /*
             if (r.loadingDate === today) {
                 readyToSave.push(r);
             } else {
                 skippedDateMismatch.push(r.dismissNumber);
             }
+            */
+
+            // Testing Logic (Active):
+            readyToSave.push(r); 
+            // ==========================================================================================
         }
     });
     
@@ -1569,10 +1580,6 @@ function updateAvailableStockDisplay() {
 }
 
 // =============================================================================
-// SAVE / UPDATE
-// =============================================================================
-
-// =============================================================================
 // SAVE / UPDATE WITH LOADING STATE
 // =============================================================================
 
@@ -1583,6 +1590,12 @@ function saveWarehouseCard(dismissNumber) {
 
     // --- DATE VALIDATION ---
     const today = getLocalTodayDate();
+    
+    // ==========================================================================================
+    // TEMPORARY TESTING FIX: Allow saving past/future dates during testing phase.
+    // TO RESTORE PRODUCTION LOGIC: Uncomment the block below.
+    // ==========================================================================================
+    /*
     if (record.loadingDate !== today) {
         showCustomConfirm(
             'تنبيه - اختلاف التاريخ',
@@ -1591,6 +1604,8 @@ function saveWarehouseCard(dismissNumber) {
         );
         return; 
     }
+    */
+    // ==========================================================================================
 
     // --- INPUT VALIDATION ---
     if (!validateCard(record)) {
@@ -1651,7 +1666,16 @@ function isRecordReady(record) {
     // FIX: Use local date helper
     const today = getLocalTodayDate();
     const isDraft = !record.pdfUrl || record.pdfUrl.trim() === '';
-    const isToday = record.loadingDate === today;
+    
+    // ==========================================================================================
+    // TEMPORARY TESTING FIX: Ignore date check for readiness visual.
+    // TO RESTORE PRODUCTION LOGIC: Uncomment the line below.
+    // ==========================================================================================
+    // const isToday = record.loadingDate === today; 
+    
+    // Testing Logic:
+    const isToday = true; // Always true during testing
+    // ==========================================================================================
     
     return isDraft && isToday && validateCard(record);
 }
