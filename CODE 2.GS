@@ -1276,10 +1276,10 @@ function saveNewOrder(formData, userEmail) {
  * SMART UPDATE: Compares new data vs old data.
  * INCLUDES: Cell-Level Audit Logs + File Appending Logic.
  * CHANGE: General Audit Note moved to Order ID Column (D).
+ * FIX: Explicitly clears columns for products removed from the order.
  */
 function updateExistingOrder(orderId, formData, userEmail) {
   Logger.log(`[Update] Starting update for Order #${orderId} by ${userEmail}`);
-  
   try {
     // --- 1. VALIDATION ---
     if (!userEmail) return { success: false, message: "Security Error: User email missing." };
@@ -1318,19 +1318,19 @@ function updateExistingOrder(orderId, formData, userEmail) {
     // --- 4. SMART SET HELPER ---
     // Updates value & adds specific cell note if value changed
     const smartSet = (col1Based, newVal) => {
-        const colIdx = col1Based - 1; 
+        const colIdx = col1Based - 1;
         if (colIdx < 0) return;
 
         let oldVal = (colIdx < oldValues.length) ? oldValues[colIdx] : "";
         let v1 = newVal;
         let v2 = oldVal;
         
-        if (v1 instanceof Date) v1 = v1.getTime(); 
+        if (v1 instanceof Date) v1 = v1.getTime();
         else if (v1 === null || v1 === undefined) v1 = ""; 
         else v1 = String(v1).trim();
-
+        
         if (v2 instanceof Date) v2 = v2.getTime(); 
-        else if (v2 === null || v2 === undefined) v2 = ""; 
+        else if (v2 === null || v2 === undefined) v2 = "";
         else v2 = String(v2).trim();
 
         if (v1 != v2) {
@@ -1345,10 +1345,9 @@ function updateExistingOrder(orderId, formData, userEmail) {
 
     // --- 5. HANDLE FILES ---
     let newFileUrls = [];
-    
     // A. Upload New
     if (formData.files && formData.files.length > 0) {
-        const uploadRes = uploadFilesToDrive(formData.files, orderId); 
+        const uploadRes = uploadFilesToDrive(formData.files, orderId);
         if (uploadRes.success) {
              newFileUrls = uploadRes.fileUrls;
         } else {
@@ -1367,7 +1366,7 @@ function updateExistingOrder(orderId, formData, userEmail) {
     
     // C. Combine & Slice
     const finalFiles = [...keptFiles, ...newFileUrls].slice(0, 3);
-
+    
     // D. Update File Columns (Cols 13, 14, 15)
     smartSet(13, finalFiles[0] || ''); // Col M
     smartSet(14, finalFiles[1] || ''); // Col N
@@ -1382,38 +1381,53 @@ function updateExistingOrder(orderId, formData, userEmail) {
     smartSet(12, formData.poPrivateLabel); // Col L
     smartSet(17, formData.internalComments); // Col Q
     smartSet(18, formData.externalComments); // Col R
-    smartSet(19, formData.orderSummary); // Col S
+    smartSet(19, formData.orderSummary); // Col S (Updates Summary Text)
     smartSet(24, formData.salesRep); // Col X
-    smartSet(27, formData.totalWeight); // Col AA
+    smartSet(27, formData.totalWeight); // Col AA (Updates Total Weight)
     smartSet(42, formData.orderType); // Col AP
 
-    // --- 7. GENERAL EDIT LOG (UPDATED LOCATION) ---
-    // Changed from Col 3 (Status) to Col 4 (Order ID)
-    const idCell = sheet.getRange(rowIndex, 4); 
+    // --- 7. GENERAL EDIT LOG ---
+    const idCell = sheet.getRange(rowIndex, 4);
     const idNote = idCell.getNote() || "";
     
-    // Only add timestamp if not already logged for this exact minute (cleaner logs)
+    // Only add timestamp if not already logged for this exact minute
     if (!idNote.includes(timestamp)) {
         idCell.setNote(idNote + `\n[Edit ${timestamp}] by ${userLabel}`);
     }
 
-    // --- 8. UPDATE PRODUCTS ---
-    if (formData.products && formData.products.length > 0) {
+    // --- 8. UPDATE PRODUCTS (Handle Adds, Edits AND Deletions) ---
+    // LOGIC: Map all products. If a product is in the Map but NOT in the new list, CLEAR IT.
+    if (formData.products) {
         const productColumnsMap = getProductColumnsMap(sheet);
-        formData.products.forEach(p => {
-            const cols = productColumnsMap[p.productName];
-            if (cols) {
+        // Create a Set of product names currently being saved
+        const incomingProductNames = new Set(formData.products.map(p => p.productName));
+
+        // Iterate through ALL mapped products known to the system
+        Object.keys(productColumnsMap).forEach(prodName => {
+            const cols = productColumnsMap[prodName];
+            if (!cols) return;
+
+            if (incomingProductNames.has(prodName)) {
+                // A. Product exists in the new list -> Update values
+                const p = formData.products.find(item => item.productName === prodName);
                 if (cols.qty) smartSet(cols.qty, p.qty);
                 if (cols.bonus) smartSet(cols.bonus, p.bonus);
                 if (cols.price) smartSet(cols.price, p.price);
                 if (cols.discount) smartSet(cols.discount, p.discount);
                 if (cols.invoiceDisc) smartSet(cols.invoiceDisc, p.invoiceDisc);
+            } else {
+                // B. Product removed from list -> Explicitly Clear columns
+                // smartSet will only log if there was actually data there ("5 -> ")
+                if (cols.qty) smartSet(cols.qty, "");
+                if (cols.bonus) smartSet(cols.bonus, "");
+                if (cols.price) smartSet(cols.price, "");
+                if (cols.discount) smartSet(cols.discount, "");
+                if (cols.invoiceDisc) smartSet(cols.invoiceDisc, "");
             }
         });
     }
 
     return { success: true, message: 'Order updated successfully.' };
-
   } catch (e) {
     Logger.log("[Update] FATAL ERROR: " + e.toString());
     return { success: false, message: e.toString() };
