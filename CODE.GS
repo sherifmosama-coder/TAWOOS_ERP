@@ -1420,10 +1420,6 @@ function saveDistributionPlan(loadingOrdersData, ordersToReset, loadingDateChang
 }
 
 // =============================================================================
-// SAVE DISMISS NUMBERS TO "صرف و ارتجاع" SHEET (OPTIMIZED)
-// =============================================================================
-
-// =============================================================================
 // SAVE DISMISS NUMBERS TO "صرف و ارتجاع" SHEET (FULLY OPTIMIZED)
 // =============================================================================
 
@@ -3015,6 +3011,19 @@ function getLastSavedInvoiceUrl(orderId, invoiceType, serialNumber) {
   }
 }
 
+
+/**
+ * Generates a PDF blob from HTML content and returns it as a Base64 string.
+ * Used for the "Quick actions" feature in the frontend.
+ */
+function generatePdfBase64(htmlContent) {
+  try {
+    var blob = Utilities.newBlob(htmlContent, MimeType.HTML).getAs(MimeType.PDF);
+    return Utilities.base64Encode(blob.getBytes());
+  } catch (e) {
+    throw new Error("PDF Generation Failed: " + e.message);
+  }
+}
 // =============================================================================
 // WAREHOUSE MODULE - RELEASE NOTE MANAGEMENT
 // =============================================================================
