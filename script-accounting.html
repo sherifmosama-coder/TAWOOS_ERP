@@ -22,7 +22,6 @@ let accountingData = {
 };
 
 // --- DASHBOARD STATE ---
-// --- DASHBOARD STATE ---
 let accFilterState = {
     // New Specific Search Params
     searchParams: {
@@ -35,6 +34,7 @@ let accFilterState = {
     
     // Existing Filters
     status: ['prepare'], 
+    confirmation: ['all'], // NEW: all, confirmed, not_confirmed
     types: ['all'],
     invoiceState: 'all',
     etaState: 'all',
@@ -171,6 +171,88 @@ function injectAccountingStyles() {
             font-weight: 700; color: #1e3a5f; font-size: 14px; display: flex; align-items: center; gap: 8px;
         }
         .acc-group-count { background: #e0e0e0; color: #555; font-size: 10px; padding: 2px 6px; border-radius: 10px; }
+
+        /* --- GRID LAYOUT (2 Columns) --- */
+        .accounting-orders-list {
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* 2 Equal Columns */
+            gap: 15px;
+            align-items: start;
+        }
+        /* Mobile/Tablet Fallback (Switch to 1 Column on smaller screens) */
+        @media (max-width: 1200px) {
+            .accounting-orders-list {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* --- COMPACT STRIPED CARD --- */
+        .accounting-card {
+            display: flex; background: white; border: 1px solid #e0e0e0; border-radius: 8px;
+            margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.03); overflow: visible; /* Allow popups */
+            transition: all 0.2s ease;
+        }
+        .accounting-card.inactive {
+            opacity: 0.6; background: #f9f9f9; border-color: #eee;
+        }
+        .accounting-card.inactive .acc-stripe { pointer-events: none; filter: grayscale(100%); }
+        /* Action Edge stays active so they can see inputs but maybe disabled? User said inactive.. */
+        .accounting-card.inactive .btn-generate-inline { pointer-events: none; opacity: 0.5; }
+
+        .acc-card-main { flex-grow: 1; display: flex; flex-direction: column; }
+        
+        /* Stripes */
+        .acc-stripe { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; }
+        .acc-stripe.top { border-bottom: 1px solid #f0f0f0; background: #fff; border-radius: 8px 0 0 0; }
+        .acc-stripe.mid { background: #fafafa; padding: 8px 12px; }
+        .acc-stripe.bot { border-top: 1px solid #f0f0f0; padding-top: 6px; padding-bottom: 6px; }
+
+        /* Stripe Elements */
+        .acc-id-badge { background: #e3f2fd; color: #1e3a5f; font-weight: 800; font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-left: 8px; }
+        /* UPDATED: Larger & Bolder Client Name */
+        .acc-client-name { font-weight: 800; color: #1e3a5f; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+        /* NEW: Larger Dates */
+        .acc-date-text { font-size: 12px; font-weight: 700; color: #444; }
+        
+        .status-badge-group { display: flex; gap: 5px; }
+        .st-badge { font-size: 9px; padding: 2px 6px; border-radius: 4px; font-weight: 700; text-transform: uppercase; border: 1px solid transparent; }
+        .st-badge.confirmed { background: #d4edda; color: #155724; border-color: #c3e6cb; }
+        .st-badge.revised { background: #fff3cd; color: #856404; border-color: #ffeeba; }
+        .st-badge.not-confirmed { background: #f8d7da; color: #721c24; border-color: #f5c6cb; }
+        .st-badge.status-std { background: #e2e3e5; color: #383d41; }
+        /* NEW: Yellow Prepare Status */
+        .st-badge.status-prepare { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+
+        /* Product Chips */
+        .prod-chip-container { display: flex; gap: 8px; justify-content: center; flex-grow: 1; }
+        .prod-chip { 
+            background: white; border: 1px solid #ddd; padding: 3px 10px; border-radius: 15px; 
+            font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+            display: flex; align-items: center; gap: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .prod-chip:hover { transform: translateY(-1px); box-shadow: 0 3px 6px rgba(0,0,0,0.1); }
+        .prod-chip.tawoos { border-color: #90caf9; color: #1e3a5f; }
+        .prod-chip.pl { border-color: #d1c4e9; color: #512da8; }
+        
+        /* Summary Popup */
+        .chip-popup-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 9999;
+            background: rgba(0,0,0,0.3); display: none; justify-content: center; align-items: center;
+        }
+        .chip-popup-content {
+            background: white; padding: 15px; border-radius: 8px; width: 300px; max-height: 80vh; overflow-y: auto;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2); direction: rtl; text-align: right;
+        }
+        .chip-popup-header { font-weight: 700; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1px solid #eee; display:flex; justify-content:space-between; align-items:center; }
+        .chip-popup-close { cursor: pointer; color: #999; }
+        .chip-list-item { font-size: 12px; padding: 4px 0; border-bottom: 1px dashed #eee; color: #333; }
+
+        /* Meta Bottom */
+        .acc-meta-left { display: flex; gap: 10px; align-items: center; }
+        .po-mini-chip { font-size: 9px; background: #eee; padding: 2px 5px; border-radius: 3px; color: #555; }
+        
+        .comment-trigger { color: #f0ad4e; cursor: pointer; font-size: 14px; position: relative; }
+        .comment-trigger:hover { color: #ec971f; }
     `;
     
     const style = document.createElement('style');
@@ -368,6 +450,20 @@ function getFilteredAndSortedOrders() {
         }
 
         // --- 3. SECONDARY FILTERS (Always Active) ---
+        
+        // Confirmation Filter (NEW)
+        if (!accFilterState.confirmation.includes('all')) {
+            const conf = (o.confirmationStatus || 'not confirmed').toLowerCase();
+            const wantsConfirmed = accFilterState.confirmation.includes('confirmed');
+            const wantsNotConfirmed = accFilterState.confirmation.includes('not_confirmed');
+            
+            // "Confirmed" usually includes "Revised" as valid
+            const isConfirmed = conf.includes('confirmed') || conf.includes('revised');
+            
+            if (wantsConfirmed && !isConfirmed) return false;
+            if (wantsNotConfirmed && isConfirmed) return false;
+        }
+
         // Type Filter
         if (!accFilterState.types.includes('all')) {
              const needs = determineInvoiceNeeds(o);
@@ -377,11 +473,39 @@ function getFilteredAndSortedOrders() {
              if (!matchesTawoos && !matchesPL && !matchesDN) return false;
         }
 
-        // Invoice State
-        if (accFilterState.invoiceState !== 'all') {
-            const hasInv = (o.tawoosInvoice || o.plInvoice || o.deliveryNote);
-            if (accFilterState.invoiceState === 'has_inv' && !hasInv) return false;
-            if (accFilterState.invoiceState === 'missing_inv' && hasInv) return false;
+        // 3. Invoice State Filter (Unsaved vs Partial vs Completed)
+        const invFilter = Array.isArray(accFilterState.invoiceState) ? 
+                          accFilterState.invoiceState[0] : accFilterState.invoiceState;
+
+        if (invFilter && invFilter !== 'all') {
+            // A. Determine what is needed
+            const needs = determineInvoiceNeeds(o);
+            
+            // B. Determine what is saved
+            const hasTawoos = !!o.tawoosInvoice;
+            const hasPL = !!o.plInvoice;
+            const hasDN = !!o.deliveryNote;
+            const hasAny = hasTawoos || hasPL || hasDN;
+            
+            // C. Check completeness
+            const isTawoosOK = !needs.tawoos || hasTawoos;
+            const isPLOK = !needs.pl || hasPL;
+            const isDNOK = !needs.deliveryNote || hasDN;
+            const isComplete = isTawoosOK && isPLOK && isDNOK;
+
+            // D. Apply Filters
+            if (invFilter === 'missing_inv') {
+                // "Unsaved": Has absolutely nothing
+                if (hasAny) return false;
+            }
+            else if (invFilter === 'partial_inv') {
+                // "Partial": Has something, but NOT complete
+                if (!hasAny || isComplete) return false;
+            }
+            else if (invFilter === 'full_inv') {
+                // "Completed": Has everything required
+                if (!isComplete) return false;
+            }
         }
 
         // ETA Filter
@@ -520,6 +644,15 @@ function buildDashboardHeader() {
                 </div>
 
                 <div class="filter-group">
+                    <div class="filter-label">${isAr ? 'حالة التأكيد' : 'Confirmation'}</div>
+                    <div class="chip-group">
+                        ${renderFilterChip('confirmation', 'all', 'All', isAr)}
+                        ${renderFilterChip('confirmation', 'confirmed', 'Confirmed', isAr)}
+                        ${renderFilterChip('confirmation', 'not_confirmed', 'Not Conf.', isAr)}
+                    </div>
+                </div>
+
+                <div class="filter-group">
                     <div class="filter-label">${isAr ? 'نوع الفاتورة' : 'Invoice Type'}</div>
                     <div class="chip-group">
                         ${renderFilterChip('types', 'all', 'All', isAr)}
@@ -530,11 +663,12 @@ function buildDashboardHeader() {
                 </div>
 
                 <div class="filter-group">
-                    <div class="filter-label">${isAr ? 'حالة الإصدار' : 'Invoice State'}</div>
+                    <div class="filter-label">${isAr ? 'حالة الفاتورة' : 'Invoice State'}</div>
                     <div class="chip-group">
                         ${renderFilterChip('invoiceState', 'all', 'All', isAr)}
-                        ${renderFilterChip('invoiceState', 'missing_inv', 'Missing', isAr)}
-                        ${renderFilterChip('invoiceState', 'has_inv', 'Done', isAr)}
+                        ${renderFilterChip('invoiceState', 'missing_inv', 'Unsaved', isAr)}
+                        ${renderFilterChip('invoiceState', 'partial_inv', 'Partial', isAr)}
+                        ${renderFilterChip('invoiceState', 'full_inv', 'Completed', isAr)}
                     </div>
                 </div>
             </div>
@@ -570,11 +704,23 @@ function buildDashboardHeader() {
 }
 
 function renderFilterChip(cat, val, label, isAr) {
-    // Basic mapping for AR labels
-    const arLabels = { 'Prepare': 'تجهيز', 'Delivered': 'تم التسليم', 'All': 'الكل' };
+    // 1. Expanded Translations
+    const arLabels = { 
+        'Prepare': 'تجهيز', 
+        'Delivered': 'تم التسليم', 
+        'All': 'الكل',
+        'Unsaved': 'غير محفوظ',
+        'Partial': 'جزئي',
+        'Completed': 'مكتمل',
+        'Confirmed': 'مؤكد',
+        'Not Conf.': 'غير مؤكد'
+    };
     const displayLabel = isAr && arLabels[label] ? arLabels[label] : label;
     
-    const isActive = accFilterState[cat].includes(val);
+    // 2. Robust Active Check (Handle Array vs String)
+    const curr = accFilterState[cat];
+    const isActive = Array.isArray(curr) ? curr.includes(val) : curr === val;
+    
     return `<div class="filter-chip ${isActive ? 'active' : ''}" onclick="toggleAccFilterChip('${cat}', '${val}')">${displayLabel}</div>`;
 }
 
@@ -610,93 +756,60 @@ function handleAccFilter(key, val) {
 }
 
 function toggleAccFilterChip(cat, val) {
-    const arr = accFilterState[cat];
-    // Update State Logic
-    if (Array.isArray(arr)) {
-         if (val === 'all') { accFilterState[cat] = ['all']; }
-         else {
-             if (arr.includes('all')) accFilterState[cat] = [val];
-             else if (arr.includes(val)) {
-                 accFilterState[cat] = arr.filter(x => x !== val);
-                 if (accFilterState[cat].length === 0) accFilterState[cat] = ['all'];
-             } else {
-                 accFilterState[cat].push(val);
-             }
-         }
-    } else {
+    const currentVal = accFilterState[cat];
+
+    // 1. Handle Multi-Select Arrays
+    if (Array.isArray(currentVal)) {
+        if (val === 'all') {
+            accFilterState[cat] = ['all'];
+        } else {
+            if (currentVal.includes('all')) {
+                accFilterState[cat] = [val];
+            } else {
+                if (currentVal.includes(val)) {
+                    const newVal = currentVal.filter(x => x !== val);
+                    accFilterState[cat] = newVal.length ? newVal : ['all'];
+                } else {
+                    accFilterState[cat].push(val);
+                }
+            }
+        }
+    } 
+    // 2. Handle Single-Select Strings
+    else {
         accFilterState[cat] = val;
     }
-    
-    // VISUAL FEEDBACK ONLY (Optional: update chip class without full render)
-    // For simplicity in this structure, we just wait for the Apply button.
-    // If you want chips to light up immediately, we need a mini-redraw of header.
-    // Let's do a header redraw only to show selection state:
-    renderAccountingUI(false); // Re-renders HEADER only (to show active chips), but NOT the grid? 
-    // Wait, renderAccountingUI(false) destroys everything.
-    // renderAccountingUI(true) keeps header, updates grid.
-    
-    // Strategy: We want to update the Header UI (chips) but NOT the Grid.
-    // Since we don't have a specific "renderHeader" function separated, 
-    // we will rely on the user clicking "Apply" to see the result.
-    // To show which chips are selected *before* applying, we need to update the DOM element class manually:
+
+    // A. Update Visuals Immediately (Fixes "Stuck" look)
     updateActiveChipsUI(cat);
+
+    // B. Refresh Grid Data
+    renderAccountingUI(true); 
 }
 
 // Helper to toggle classes without re-rendering everything
 function updateActiveChipsUI(cat) {
-    const container = document.querySelector(`.acc-filter-panel`);
-    if (!container) return;
-    // This is complex to target specifically without IDs. 
-    // FALLBACK: Just re-render the whole UI (Header + Grid) is actually safer for data consistency 
-    // BUT user specifically asked "rather than auto-rendering".
-    // So we will just update the state. The user clicks the chip, nothing happens visually until "Apply"? 
-    // That is bad UX.
-    
-    // BETTER FIX: Re-render the HEADER ONLY (Panel), ignore Grid.
-    // Since we merged them in renderAccountingUI, let's just make the Apply button logic 
-    // strictly about "Executing the expensive Grid Sort/Filter".
-    
-    // For now, to satisfy the prompt strictly:
-    // "ADD A BUTTON THAT WOULD APPLY... rather than auto-rendering"
-    // I will simply update the chip styling manually here.
+    // Find all chips belonging to this category
+    // Matches onclick="toggleAccFilterChip('category', ...
     const allChips = document.querySelectorAll(`.filter-chip[onclick*="'${cat}'"]`);
+    
     allChips.forEach(chip => {
-        // extract value from onclick string
+        // Extract the value from the onclick string
+        // Example: toggleAccFilterChip('status', 'prepare') -> 'prepare'
         const valMatch = chip.getAttribute('onclick').match(/'([^']+)'\)$/);
+        
         if (valMatch) {
             const val = valMatch[1];
-            const isActive = Array.isArray(accFilterState[cat]) 
-                ? accFilterState[cat].includes(val) 
-                : accFilterState[cat] === val;
+            const state = accFilterState[cat];
+            
+            // Check if this chip should be active
+            const isActive = Array.isArray(state) ? state.includes(val) : state === val;
             
             if (isActive) chip.classList.add('active');
             else chip.classList.remove('active');
         }
     });
 }
-
-function toggleAccFilterChip(cat, val) {
-    const arr = accFilterState[cat];
-    
-    if (val === 'all') {
-        accFilterState[cat] = ['all'];
-    } else {
-        // Remove 'all' if present
-        if (arr.includes('all')) {
-            accFilterState[cat] = [val];
-        } else {
-            // Toggle value
-            if (arr.includes(val)) {
-                accFilterState[cat] = arr.filter(x => x !== val);
-                if (accFilterState[cat].length === 0) accFilterState[cat] = ['all']; // Default back to all
-            } else {
-                accFilterState[cat].push(val);
-            }
-        }
-    }
-    renderAccountingUI();
-}
-
 
 // =============================================================================
 // UNIFIED SEQUENCE VALIDATION (Global + Live Input)
@@ -948,72 +1061,132 @@ function createTrackerHtml(type, lastVal) {
 
 function createAccountingOrderCard(order) {
     const trans = translations[currentLang];
+    const isAr = currentLang === 'ar';
     const needs = determineInvoiceNeeds(order);
-    const getLabel = (key) => translations[currentLang][key] || key;
+    
+    // --- 1. STATUS & INACTIVE LOGIC ---
+    const confStatus = (order.confirmationStatus || 'Not Confirmed');
+    const isConfirmed = confStatus.toLowerCase().includes('confirmed') || confStatus.toLowerCase().includes('revised');
+    const isCanceled = (order.status || '').toLowerCase() === 'canceled' || confStatus.toLowerCase() === 'canceled';
+    
+    // Card is INACTIVE if Canceled OR Not Confirmed
+    const isInactive = isCanceled || !isConfirmed;
+    const inactiveClass = isInactive ? 'inactive' : '';
+    
+    // Status Badges (Yellow for Prepare)
+    const stRaw = (order.status || 'Pending').toLowerCase();
+    const stClass = stRaw === 'prepare' ? 'status-prepare' : 'status-std';
+    const statusBadge = `<span class="st-badge ${stClass}">${order.status || 'Pending'}</span>`;
+    
+    let confBadgeClass = 'not-confirmed';
+    if (isConfirmed) confBadgeClass = 'confirmed';
+    if (confStatus.toLowerCase().includes('revised')) confBadgeClass = 'revised';
+    const confBadge = `<span class="st-badge ${confBadgeClass}">${confStatus}</span>`;
 
-    // REMOVED: Card-level saved check
-    // Each invoice now tracks its own saved state
-
-    const formattedDate = order.invoiceDate ? formatLoadingDate(order.invoiceDate).replace(/<[^>]*>/g, '') : '-';
-    const loadingDate = order.loadingDate ? formatLoadingDate(order.loadingDate).replace(/<[^>]*>/g, '') : '-';
+    // --- 2. FORMATTING ---
+    // Wrapped in acc-date-text for larger styling
+    const formattedDate = order.invoiceDate ? `<span class="acc-date-text">${formatLoadingDate(order.invoiceDate).replace(/<[^>]*>/g, '')}</span>` : '-';
+    const loadingDate = order.loadingDate ? `<span class="acc-date-text">${formatLoadingDate(order.loadingDate).replace(/<[^>]*>/g, '')}</span>` : '-';
     const formattedOrderId = formatOrderId(order.orderId);
+    
     const amountVal = parseFloat(order.amountIncludingTax) || 0;
     const amountFormatted = amountVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const amountColorClass = amountVal >= 0 ? 'positive' : 'negative';
+    const amountColor = amountVal >= 0 ? '#28a745' : '#dc3545';
 
-    const hasInternalComment = order.internalComments && order.internalComments.trim() !== '';
-    const commentIndicator = hasInternalComment ? `<div class="dist-comment-indicator has-tooltip" data-tooltip="${order.internalComments.replace(/"/g, '&quot;')}"><i class="fas fa-comment"></i></div>` : '';
+    // --- 3. CHIPS LOGIC (Box Icons + Labels + Sums) ---
+    const encodeSummary = (text) => text ? encodeURIComponent(text) : '';
+    const tLabel = isAr ? 'منتجات الطاووس' : 'Tawoos Products';
+    const plLabel = isAr ? 'منتجات PL' : 'PL Products';
+    
+    let chipsHtml = '';
+    if (order.tawoosCount > 0) {
+        chipsHtml += `<div class="prod-chip tawoos" title="${tLabel}" onclick="openSummaryPopup('${order.orderId}', 'Tawoos', '${encodeSummary(order.tawoosSummary)}')">
+            <span><i class="fas fa-box"></i></span> 
+            <span style="font-size:10px; margin:0 4px; opacity:0.8">${tLabel}:</span>
+            <strong>${order.tawoosCount}</strong>
+        </div>`;
+    }
+    if (order.plCount > 0) {
+        chipsHtml += `<div class="prod-chip pl" title="${plLabel}" onclick="openSummaryPopup('${order.orderId}', 'PL', '${encodeSummary(order.plSummary)}')">
+            <span><i class="fas fa-box"></i></span> 
+            <span style="font-size:10px; margin:0 4px; opacity:0.8">${plLabel}:</span>
+            <strong>${order.plCount}</strong>
+        </div>`;
+    }
+    if (chipsHtml === '') chipsHtml = `<span style="font-size:10px; color:#999;">No Products</span>`;
+
+    // --- 4. META (Comment, PO, Files) ---
+    const hasComment = order.internalComments && order.internalComments.trim() !== '';
+    const commentIcon = hasComment ? 
+        `<div class="comment-trigger has-tooltip" data-tooltip="${isAr ? 'انقر للعرض' : 'Click to show'}" 
+              onclick="openCommentPopup('${encodeSummary(order.internalComments)}')">
+            <i class="fas fa-comment-alt"></i>
+         </div>` : '';
+
+    let poHtml = '';
+    if (order.poTawoos) poHtml += `<span class="po-mini-chip">T:${order.poTawoos}</span>`;
+    if (order.poPrivateLabel) poHtml += `<span class="po-mini-chip">PL:${order.poPrivateLabel}</span>`;
 
     let attachmentsHtml = '';
     const attachments = [order.attachment1, order.attachment2, order.attachment3].filter(Boolean);
     if (attachments.length > 0) {
-        attachmentsHtml = '<div class="acc-attachments-row">';
         attachments.forEach(urlWithFilename => {
             const url = urlWithFilename.includes('|||') ? urlWithFilename.split('|||')[0] : urlWithFilename;
-            const icon = typeof getFileIcon === 'function' ? getFileIcon(urlWithFilename) : 'fa-file';
-            attachmentsHtml += `<a href="${url}" target="_blank" class="attachment-chip"><i class="fas ${icon}"></i> <span>${trans.viewBtn}</span></a>`;
+            attachmentsHtml += `<a href="${url}" target="_blank" class="attachment-chip" style="padding:2px 6px; font-size:10px;"><i class="fas fa-paperclip"></i></a>`;
         });
-        attachmentsHtml += '</div>';
     }
 
-    let poHtml = '';
-    if (order.poTawoos) poHtml += `<span class="po-chip"><i class="fas fa-file-contract"></i> T: ${order.poTawoos}</span>`;
-    if (order.poPrivateLabel) poHtml += `<span class="po-chip"><i class="fas fa-file-contract"></i> PL: ${order.poPrivateLabel}</span>`;
-
-    const orderType = order.orderType || 'توريد';
-    const typeColor = ({'توريد':'#90ee90','تحصيل':'#2e7d32','اداري':'#546e7a','ارتجاع و خصم القيمة':'#d32f2f'})[orderType] || '#e0e0e0';
     const vatBadge = getVatBadge(order.vat);
 
+    // --- 5. ACTION EDGE (Preserved) ---
     let inputsHtml = '';
+    const getLabel = (key) => translations[currentLang][key] || key;
     if (needs.deliveryNote) inputsHtml += createInvoiceInput('deliveryNote', getLabel('dnLabel'), order.deliveryNote, order.orderId, 'orange', 'note');
     if (needs.tawoos) inputsHtml += createInvoiceInput('tawoosInvoice', getLabel('tawoosLabel'), order.tawoosInvoice, order.orderId, 'blue', 'tax');
     if (needs.pl) inputsHtml += createInvoiceInput('plInvoice', getLabel('plLabel'), order.plInvoice, order.orderId, 'purple', 'tax');
 
-    // REMOVED: savedIndicator - each invoice shows its own saved state
-
-    // Determine validation type (Tawoos, PL, or Note)
-    let validationType = 'tawoos'; // Default
-    if (needs.deliveryNote) validationType = 'dn';
-    else if (needs.pl) validationType = 'pl';
+    // Determine validation type
+    let validationType = needs.deliveryNote ? 'dn' : (needs.pl ? 'pl' : 'tawoos');
 
     return `
-        <div class="accounting-card" id="acc-card-${order.orderId}" data-type="${validationType}" data-client="${order.clientName}" data-date="${order.invoiceDate}" data-internal-comment="${(order.internalComments || '').replace(/"/g, '&quot;')}">
-            ${commentIndicator}
+        <div class="accounting-card ${inactiveClass}" id="acc-card-${order.orderId}" data-type="${validationType}" data-client="${order.clientName}">
             <div class="acc-card-main">
-                <div class="acc-header-row">
-                    <div class="acc-client-section"><i class="fas fa-building client-icon"></i><span class="acc-client-name">${order.clientName}</span><span class="acc-id-badge">#${formattedOrderId}</span></div>
-                    <div class="acc-header-meta">${vatBadge}</div>
+                <div class="acc-stripe top">
+                    <div class="acc-client-section">
+                        <span class="acc-id-badge">#${formattedOrderId}</span>
+                        <span class="acc-client-name" title="${order.clientName}">${order.clientName}</span>
+                    </div>
+                    <div class="status-badge-group">
+                        ${statusBadge}
+                        ${confBadge}
+                    </div>
                 </div>
-                <div class="acc-info-row">
-                    <div class="acc-dates-group"><span class="date-badge"><i class="fas fa-file-invoice"></i> ${formattedDate}</span><span class="date-badge"><i class="fas fa-truck"></i> ${loadingDate}</span></div>
-                    <div class="amount-badge ${amountColorClass}"><i class="fas fa-money-bill-wave"></i> ${amountFormatted} EGP</div>
+
+                <div class="acc-stripe mid">
+                    <div style="font-size:10px; color:#666; display:flex; flex-direction:column; gap:2px;">
+                        <span><i class="fas fa-file-invoice" style="width:12px"></i> ${formattedDate}</span>
+                        <span><i class="fas fa-truck" style="width:12px"></i> ${loadingDate}</span>
+                    </div>
+                    
+                    <div class="prod-chip-container">
+                        ${chipsHtml}
+                    </div>
+
+                    <div style="font-weight:700; font-size:12px; color:${amountColor}; text-align:right;">
+                        ${amountFormatted} <span style="font-size:9px; color:#999;">EGP</span>
+                    </div>
                 </div>
-                ${(poHtml || attachmentsHtml) ? `<div class="acc-meta-container">${poHtml ? `<div class="acc-po-row">${poHtml}</div>` : ''}${attachmentsHtml}</div>` : ''}
-                <div class="acc-summary-box">
-                    <div class="acc-type-vertical" style="background-color: ${typeColor}">${orderType}</div>
-                    <div class="acc-summary-content"><div class="acc-summary-label"><i class="fas fa-list"></i> ${trans.summary}</div><div class="acc-summary-text">${(order.orderSummary || '-').replace(/\n/g, '<br>')}</div></div>
+
+                <div class="acc-stripe bot">
+                    <div class="acc-meta-left">
+                        ${vatBadge}
+                        ${poHtml}
+                        ${attachmentsHtml}
+                    </div>
+                    ${commentIcon}
                 </div>
             </div>
+
             <div class="acc-card-edge">
                 ${inputsHtml}
             </div>
@@ -1090,9 +1263,8 @@ function createInvoiceInput(field, label, value, orderId, colorClass, seqType) {
                 </button>
             </div>
             ${isSaved ? `
-                <div class="saved-file-link" onclick="handleOpenSavedInvoice('${orderId}', '${invoiceType}')">
-                    <i class="fas ${fileIcon}"></i>
-                    <span>${trans.viewSaved || 'View Saved Invoice'}</span>
+                <div class="saved-file-link" onclick="handleOpenSavedInvoice('${orderId}', '${invoiceType}')" title="${trans.viewSaved || 'View Saved Invoice'}" style="justify-content: center; padding: 6px; width: fit-content;">
+                    <i class="fas ${fileIcon}" style="margin:0;"></i>
                 </div>
             ` : ''}
         </div>
@@ -2559,6 +2731,65 @@ function determineInvoiceNeeds(order) {
         pl: isPLNeeded,
         deliveryNote: false
     };
+}
+
+// --- POPUP HELPERS ---
+
+function openSummaryPopup(orderId, type, encodedSummary) {
+    const summaryHtml = decodeURIComponent(encodedSummary);
+    
+    // Create Modal HTML if not exists
+    let modal = document.getElementById('acc-generic-modal');
+    if (!modal) {
+        const modalHtml = `
+            <div id="acc-generic-modal" class="chip-popup-overlay" onclick="closeAccPopup(event)">
+                <div class="chip-popup-content" onclick="event.stopPropagation()">
+                    <div class="chip-popup-header">
+                        <span id="acc-popup-title">Details</span>
+                        <i class="fas fa-times chip-popup-close" onclick="closeAccPopup(event)"></i>
+                    </div>
+                    <div id="acc-popup-body" style="line-height:1.6;"></div>
+                </div>
+            </div>`;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        modal = document.getElementById('acc-generic-modal');
+    }
+    
+    document.getElementById('acc-popup-title').innerText = `${type} Items (#${orderId})`;
+    document.getElementById('acc-popup-body').innerHTML = summaryHtml;
+    
+    modal.style.display = 'flex';
+}
+
+function openCommentPopup(encodedComment) {
+    const comment = decodeURIComponent(encodedComment);
+    
+    let modal = document.getElementById('acc-generic-modal');
+    if (!modal) { /* (Same creation logic as above, ideally deduplicate but inline is safe) */
+         const modalHtml = `
+            <div id="acc-generic-modal" class="chip-popup-overlay" onclick="closeAccPopup(event)">
+                <div class="chip-popup-content" onclick="event.stopPropagation()">
+                    <div class="chip-popup-header">
+                        <span id="acc-popup-title">Details</span>
+                        <i class="fas fa-times chip-popup-close" onclick="closeAccPopup(event)"></i>
+                    </div>
+                    <div id="acc-popup-body" style="line-height:1.6;"></div>
+                </div>
+            </div>`;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        modal = document.getElementById('acc-generic-modal');
+    }
+    
+    document.getElementById('acc-popup-title').innerText = `Internal Note`;
+    document.getElementById('acc-popup-body').innerHTML = `<div style="white-space: pre-wrap; font-size:13px;">${comment}</div>`;
+    
+    modal.style.display = 'flex';
+}
+
+function closeAccPopup(e) {
+    if (e) e.stopPropagation();
+    const modal = document.getElementById('acc-generic-modal');
+    if (modal) modal.style.display = 'none';
 }
 
 // Global debounce timer
