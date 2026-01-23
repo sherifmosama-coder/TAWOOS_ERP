@@ -60,7 +60,46 @@ function injectAccountingStyles() {
             margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);
         }
         .health-group { display: flex; align-items: center; gap: 15px; }
-        .seq-tracker { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #555; background: #f8f9fa; padding: 4px 10px; border-radius: 20px; border: 1px solid #eee; }
+        /* UPDATED: Clickable Tracker */
+        .seq-tracker { 
+            display: flex; align-items: center; gap: 8px; font-size: 13px; color: #555; 
+            background: #f8f9fa; padding: 4px 10px; border-radius: 20px; border: 1px solid #eee; 
+            cursor: pointer; transition: all 0.2s; position: relative;
+        }
+        .seq-tracker:hover { background: #e9ecef; border-color: #ddd; }
+
+        /* --- HISTORY POPUP --- */
+        .tracker-history-popup {
+            position: absolute; top: 35px; left: 0; z-index: 1000;
+            background: white; border: 1px solid #ccc; border-radius: 6px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            width: 320px; display: none; flex-direction: column;
+            overflow: hidden; animation: fadeIn 0.2s;
+        }
+        .tracker-history-popup.active { display: flex; }
+        
+        .history-header {
+            padding: 8px 12px; background: #f8f9fa; border-bottom: 1px solid #eee;
+            font-weight: 700; font-size: 12px; display: flex; justify-content: space-between; align-items: center;
+        }
+        .history-list {
+            max-height: 300px; overflow-y: auto;
+        }
+        .history-row {
+            display: flex; align-items: center; padding: 8px 12px; 
+            border-bottom: 1px solid #f0f0f0; transition: background 0.1s;
+        }
+        .history-row:hover { background: #f0f8ff; }
+        
+        .h-serial { font-weight: 700; font-size: 12px; color: #333; width: 50px; }
+        .h-client { flex: 1; font-size: 11px; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; cursor: pointer; }
+        .h-client:hover { color: #007bff; text-decoration: underline; }
+        
+        .h-file-btn { 
+            color: #28a745; /* GREEN ICON as requested */
+            cursor: pointer; padding: 4px; font-size: 14px;
+        }
+        .h-file-btn:hover { color: #1e7e34; transform: scale(1.1); }
         .seq-tracker strong { color: #333; font-weight: 700; }
         .health-status { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 4px; }
         .health-status.ok { background: #e8f5e9; color: #2e7d32; }
@@ -102,9 +141,22 @@ function injectAccountingStyles() {
         .global-search-toggle {
             display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: #1e3a5f;
             background: #e3f2fd; padding: 6px 10px; border-radius: 4px; border: 1px solid #90caf9;
-            height: 29px; cursor: pointer; white-space: nowrap; justify-content: center;
+            height: 29px; cursor: pointer; white-space: nowrap; justify-content: center; flex: 1;
         }
         .global-search-toggle input { cursor: pointer; }
+
+        /* NEW: Reset Button */
+        .acc-reset-btn {
+            height: 29px; padding: 0 12px; border: 1px solid #ddd; background: #fff; border-radius: 4px;
+            color: #d9534f; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;
+        }
+        .acc-reset-btn:hover { background: #fff5f5; border-color: #d9534f; }
+
+        /* NEW: Popup Type Badges */
+        .h-type-badge { font-size: 9px; padding: 2px 6px; border-radius: 4px; font-weight: 700; margin-left: 6px; text-transform: uppercase; }
+        .h-type-badge.Tawoos { background: #e3f2fd; color: #0d47a1; border: 1px solid #90caf9; }
+        .h-type-badge.PL { background: #f3e5f5; color: #4a148c; border: 1px solid #ce93d8; }
+        .h-type-badge.DN { background: #fff3e0; color: #e65100; border: 1px solid #ffcc80; }
 
         /* --- FILTER PANEL (Secondary Section) --- */
         .acc-filter-panel {
@@ -553,21 +605,24 @@ function buildDashboardHeader() {
     // 1. Health Bar (Unchanged)
     const healthBar = `
         <div class="acc-health-bar">
-            <div class="health-group">
-                <div class="seq-tracker" title="Tax Invoice Sequence">
+            <div class="health-group" style="position: relative;">
+                <div class="seq-tracker" title="Click to view history" onclick="toggleTrackerHistory('tax')">
                     <i class="fas fa-file-invoice-dollar" style="color:#007bff"></i>
                     <span>Tax:</span>
                     <strong id="disp-tax-last">${s.taxLast}</strong>
                     <i class="fas ${arrowIcon}" style="font-size:10px"></i>
                     <strong id="disp-tax-next" style="color:#007bff">${s.taxLast + 1}</strong>
                 </div>
-                 <div class="seq-tracker" title="Delivery Note Sequence">
+                <div id="history-popup-tax" class="tracker-history-popup"></div>
+
+                <div class="seq-tracker" title="Click to view history" onclick="toggleTrackerHistory('note')">
                     <i class="fas fa-truck-loading" style="color:#fd7e14"></i>
                     <span>Note:</span>
                     <strong id="disp-note-last">${s.noteLast}</strong>
                     <i class="fas ${arrowIcon}" style="font-size:10px"></i>
                     <strong id="disp-note-next" style="color:#fd7e14">${s.noteLast + 1}</strong>
                 </div>
+                <div id="history-popup-note" class="tracker-history-popup" style="left: 160px;"></div>
             </div>
             <div class="health-group">
                 <div id="seq-health-indicator" class="health-status ok"></div>
@@ -615,6 +670,10 @@ function buildDashboardHeader() {
                        ${accFilterState.globalSearch ? 'checked' : ''}>
                 <i class="fas fa-globe"></i> ${isAr ? 'بحث شامل' : 'Global Search'}
             </label>
+            
+            <button class="acc-reset-btn" onclick="resetAccountingView()" title="${isAr ? 'إعادة ضبط العرض' : 'Reset View'}">
+                <i class="fas fa-undo"></i>
+            </button>
         </div>
     `;
 
@@ -671,6 +730,15 @@ function buildDashboardHeader() {
                         ${renderFilterChip('invoiceState', 'full_inv', 'Completed', isAr)}
                     </div>
                 </div>
+
+                <div class="filter-group">
+                    <div class="filter-label">${isAr ? 'الفاتورة الإلكترونية' : 'E-Invoice'}</div>
+                    <div class="chip-group">
+                        ${renderFilterChip('etaState', 'all', 'All', isAr)}
+                        ${renderFilterChip('etaState', 'has_eta', 'Signed', isAr)}
+                        ${renderFilterChip('etaState', 'no_eta', 'Unsigned', isAr)}
+                    </div>
+                </div>
             </div>
 
             <div class="filter-section-secondary">
@@ -709,6 +777,8 @@ function renderFilterChip(cat, val, label, isAr) {
         'Prepare': 'تجهيز', 
         'Delivered': 'تم التسليم', 
         'All': 'الكل',
+        'Signed': 'مسجل',
+        'Unsigned': 'غير مسجل',
         'Unsaved': 'غير محفوظ',
         'Partial': 'جزئي',
         'Completed': 'مكتمل',
@@ -1198,13 +1268,14 @@ function createInvoiceInput(field, label, value, orderId, colorClass, seqType) {
     const trans = translations[currentLang];
     const safeVal = value || '';
     
+    // 1. Determine Type
     let invoiceType = '';
     if (field === 'tawoosInvoice') invoiceType = 'Tawoos';
     if (field === 'plInvoice') invoiceType = 'PL';
     if (field === 'deliveryNote') invoiceType = 'DeliveryNote';
     
+    // 2. Check if Saved (PDF/Image exists)
     let isSaved = false;
-    
     if (safeVal && accountingData.invoices) {
         const savedInvoice = accountingData.invoices.find(inv => 
             inv.orderId.toString() === orderId.toString() && 
@@ -1216,7 +1287,7 @@ function createInvoiceInput(field, label, value, orderId, colorClass, seqType) {
     
     const isLocked = isSaved;
     
-    // Determine icon based on saved file name
+    // 3. Determine File Icon (PDF vs Image)
     let fileIcon = 'fa-file-alt';
     if (isSaved && accountingData.invoices) {
         const invoice = accountingData.invoices.find(inv => 
@@ -1231,7 +1302,29 @@ function createInvoiceInput(field, label, value, orderId, colorClass, seqType) {
             }
         }
     }
+
+    // 4. Generate ETA Link HTML (Direct URL from Columns AI/AJ)
+    let etaLinkHtml = '';
+    const orderObj = accountingData.orders.find(o => o.orderId.toString() === orderId.toString());
     
+    if (orderObj) {
+        let rawUrl = '';
+        // Map types to backend properties (Columns AI/AJ)
+        if (invoiceType === 'Tawoos') rawUrl = orderObj.tawoosEtaUuid; 
+        if (invoiceType === 'PL') rawUrl = orderObj.plEtaUuid;
+        
+        // Render if a valid URL string exists
+        if (rawUrl && rawUrl.toString().trim().length > 5) {
+            etaLinkHtml = `
+                <a href="${rawUrl}" target="_blank" title="E-Invoice Portal" 
+                   style="text-decoration:none; color:#17a2b8; padding:6px; display:flex; align-items:center;">
+                   <i class="fas fa-globe" style="font-size:16px;"></i>
+                </a>
+            `;
+        }
+    }
+    
+    // 5. Return Full HTML
     return `
         <div class="invoice-input-group ${colorClass} ${isSaved ? 'invoice-saved' : ''}">
             <label>${label}</label>
@@ -1262,11 +1355,18 @@ function createInvoiceInput(field, label, value, orderId, colorClass, seqType) {
                     <i class="fas fa-cog"></i>
                 </button>
             </div>
-            ${isSaved ? `
-                <div class="saved-file-link" onclick="handleOpenSavedInvoice('${orderId}', '${invoiceType}')" title="${trans.viewSaved || 'View Saved Invoice'}" style="justify-content: center; padding: 6px; width: fit-content;">
-                    <i class="fas ${fileIcon}" style="margin:0;"></i>
-                </div>
-            ` : ''}
+            
+            <div style="display:flex; justify-content:flex-end; align-items:center; gap:0; margin-top:4px;">
+                ${etaLinkHtml}
+                
+                ${isSaved ? `
+                    <div class="saved-file-link" onclick="handleOpenSavedInvoice('${orderId}', '${invoiceType}')" 
+                         title="${trans.viewSaved || 'View Saved Invoice'}" 
+                         style="justify-content: center; padding: 6px; width: fit-content; margin:0; cursor:pointer;">
+                        <i class="fas ${fileIcon}" style="font-size:16px; margin:0; color:#d9534f;"></i>
+                    </div>
+                ` : ''}
+            </div>
         </div>
     `;
 }
@@ -2826,5 +2926,149 @@ function handleCashSalesToggle() {
     
     // Re-render invoice with updated client name
     renderIframeContent();
+}
+
+// =============================================================================
+// INTERACTIVE SEQUENCE TRACKERS
+// =============================================================================
+
+function toggleTrackerHistory(type) {
+    const popupId = `history-popup-${type}`;
+    const popup = document.getElementById(popupId);
+    
+    // Close other popup if open
+    const otherType = type === 'tax' ? 'note' : 'tax';
+    const otherPopup = document.getElementById(`history-popup-${otherType}`);
+    if (otherPopup) otherPopup.classList.remove('active');
+    
+    if (popup.classList.contains('active')) {
+        popup.classList.remove('active');
+        return;
+    }
+
+    // Build Content
+    const isTax = type === 'tax';
+    const title = isTax ? 'Tax Invoices History' : 'Delivery Notes History';
+    
+    // Filter Invoices
+    const history = (accountingData.invoices || []).filter(inv => {
+        if (isTax) return inv.invoiceType === 'Tawoos' || inv.invoiceType === 'PL';
+        return inv.invoiceType === 'DeliveryNote';
+    });
+
+    // Sort Descending (Newest First)
+    history.sort((a, b) => parseInt(b.serialNumber) - parseInt(a.serialNumber));
+
+    let listHtml = '';
+    if (history.length === 0) {
+        listHtml = '<div style="padding:15px; text-align:center; color:#999; font-size:11px;">No records found</div>';
+    } else {
+        history.forEach(inv => {
+            // Find Client Name & ETA URL from Order Data
+            const order = accountingData.orders.find(o => o.orderId.toString() === inv.orderId.toString());
+            const clientName = order ? order.clientName : 'Unknown Client';
+            const invTypeLabel = inv.invoiceType === 'DeliveryNote' ? 'DN' : inv.invoiceType;
+            
+            // Map Type to Badge Class
+            let typeClass = 'Tawoos';
+            if(inv.invoiceType === 'PL') typeClass = 'PL';
+            if(inv.invoiceType === 'DeliveryNote') typeClass = 'DN';
+
+            // --- ETA BUTTON LOGIC (Direct URL) ---
+            let etaBtn = '';
+            if (order) {
+                // Get the Direct URL from the backend data
+                const rawUrl = (inv.invoiceType === 'Tawoos') ? order.tawoosEtaUuid : (inv.invoiceType === 'PL' ? order.plEtaUuid : null);
+                
+                // Only show if we have a valid link
+                if (rawUrl && rawUrl.toString().trim().length > 5) {
+                    etaBtn = `<a href="${rawUrl}" target="_blank" title="E-Invoice" 
+                                style="color:#17a2b8; margin-right:6px; text-decoration:none; cursor:pointer;">
+                                <i class="fas fa-globe"></i>
+                              </a>`;
+                }
+            }
+
+            listHtml += `
+                <div class="history-row">
+                    <div class="h-serial" onclick="navigateToOrderHistory('${inv.orderId}')">#${inv.serialNumber}</div>
+                    <div class="h-client" onclick="navigateToOrderHistory('${inv.orderId}')" title="${clientName}">
+                        ${clientName} 
+                        <span class="h-type-badge ${typeClass}">${invTypeLabel}</span>
+                    </div>
+                    <div style="display:flex; align-items:center;">
+                        ${etaBtn}
+                        <div class="h-file-btn" onclick="window.open('${inv.fileUrl}', '_blank')" title="Open File">
+                            <i class="fas fa-file-pdf"></i>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    popup.innerHTML = `
+        <div class="history-header">
+            <span>${title}</span>
+            <i class="fas fa-times" style="cursor:pointer;" onclick="this.parentElement.parentElement.classList.remove('active')"></i>
+        </div>
+        <div class="history-list custom-scrollbar">
+            ${listHtml}
+        </div>
+    `;
+    
+    popup.classList.add('active');
+}
+
+
+function resetAccountingView() {
+    // 1. Clear Search Params
+    accFilterState.searchParams = { client: '', tax: '', note: '', order: '' };
+    
+    // 2. Turn off Global Search
+    accFilterState.globalSearch = false;
+    
+    // 3. Reset Status to Default (Prepare)
+    accFilterState.status = ['prepare'];
+    
+    // 4. Reset Filters to 'All'
+    accFilterState.invoiceState = 'all';
+    accFilterState.confirmation = ['all'];
+    accFilterState.types = ['all'];
+    
+    // 5. Render
+    renderAccountingUI(true); // Keeping header structure, just updating values
+    showToast('View reset to default', 'info');
+}
+
+function navigateToOrderHistory(orderId) {
+    // 1. Close Popups
+    document.querySelectorAll('.tracker-history-popup').forEach(el => el.classList.remove('active'));
+
+    // 2. Set Global Search to Find this Order
+    accFilterState.globalSearch = true; // Force global on
+    accFilterState.searchParams.order = orderId; // Set order ID
+    
+    // Clear other specific filters to avoid conflicts
+    accFilterState.searchParams.client = '';
+    accFilterState.searchParams.tax = '';
+    accFilterState.searchParams.note = '';
+
+    // 3. Render Dashboard
+    renderAccountingUI(true);
+
+    // 4. Scroll to Card
+    setTimeout(() => {
+        const card = document.getElementById(`acc-card-${orderId}`);
+        if (card) {
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Highlight effect
+            card.style.transition = 'box-shadow 0.5s';
+            card.style.boxShadow = '0 0 15px rgba(33, 150, 243, 0.5)';
+            setTimeout(() => { card.style.boxShadow = ''; }, 2000);
+        } else {
+            showToast('Order found but not visible in current view', 'info');
+        }
+    }, 300);
 }
 </script>
