@@ -21,8 +21,162 @@ let accountingData = {
     }
 };
 
+// --- DASHBOARD STATE ---
+// --- DASHBOARD STATE ---
+let accFilterState = {
+    // New Specific Search Params
+    searchParams: {
+        client: '',
+        tax: '',   // VAT Serial
+        note: '',  // Note Serial
+        order: ''  // Order ID
+    },
+    globalSearch: false, // Toggle: Search all data vs Filtered data
+    
+    // Existing Filters
+    status: ['prepare'], 
+    types: ['all'],
+    invoiceState: 'all',
+    etaState: 'all',
+    sort: 'date_desc',   
+    group: 'none',       
+    showFilters: false
+};
+
 function initializeAccountingModule() {
+    injectAccountingStyles(); // Inject CSS for new dashboard
     loadAccountingData();
+}
+
+function injectAccountingStyles() {
+    const styleId = 'acc-dashboard-styles';
+    if (document.getElementById(styleId)) return;
+    
+    const css = `
+        /* --- SEQUENCE HEALTH BAR --- */
+        .acc-health-bar {
+            background: white; border-bottom: 1px solid #e0e0e0; padding: 10px 15px;
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        .health-group { display: flex; align-items: center; gap: 15px; }
+        .seq-tracker { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #555; background: #f8f9fa; padding: 4px 10px; border-radius: 20px; border: 1px solid #eee; }
+        .seq-tracker strong { color: #333; font-weight: 700; }
+        .health-status { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 4px; }
+        .health-status.ok { background: #e8f5e9; color: #2e7d32; }
+        .health-status.warn { background: #fff3e0; color: #ef6c00; cursor: pointer; }
+        
+        /* --- SEARCH & TOGGLE BAR --- */
+        .acc-controls-bar {
+            display: flex; gap: 10px; margin-bottom: 10px; align-items: center;
+        }
+        .acc-search-wrapper { flex-grow: 1; }
+        .acc-toggle-btn {
+            background: #fff; border: 1px solid #ddd; padding: 5px 12px; border-radius: 4px; 
+            cursor: pointer; font-size: 12px; font-weight: 600; color: #555; white-space: nowrap;
+            display: flex; align-items: center; gap: 6px; height: 32px;
+        }
+        .acc-toggle-btn:hover { background: #f8f9fa; }
+
+        /* --- MULTI-SEARCH GRID --- */
+        .acc-search-grid {
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); 
+            gap: 8px; 
+            background: white; 
+            padding: 10px; 
+            border: 1px solid #ddd; 
+            border-radius: 6px;
+            margin-bottom: 10px;
+            align-items: end;
+        }
+        .search-field-group { display: flex; flex-direction: column; gap: 4px; }
+        .search-field-label { font-size: 10px; font-weight: 700; color: #555; text-transform: uppercase; }
+        .acc-field-input { 
+            padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; width: 100%; 
+            transition: border-color 0.2s;
+        }
+        .acc-field-input:focus { border-color: #1e3a5f; outline: none; }
+        
+        /* Global Search Toggle */
+        .global-search-toggle {
+            display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: #1e3a5f;
+            background: #e3f2fd; padding: 6px 10px; border-radius: 4px; border: 1px solid #90caf9;
+            height: 29px; cursor: pointer; white-space: nowrap; justify-content: center;
+        }
+        .global-search-toggle input { cursor: pointer; }
+
+        /* --- FILTER PANEL (Secondary Section) --- */
+        .acc-filter-panel {
+            background: #FAF3E6; 
+            border: 1px solid #e0e0e0; border-radius: 8px;
+            margin-bottom: 15px; overflow: hidden; transition: all 0.3s ease;
+        }
+        
+        .filter-section-primary {
+            padding: 15px; 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); 
+            gap: 15px; 
+        }
+
+        .filter-section-secondary {
+            background: rgba(0,0,0,0.03); 
+            border-top: 1px solid #e0e0e0;
+            padding: 10px 15px;
+            display: flex; gap: 15px; flex-wrap: wrap; align-items: center;
+        }
+
+        .secondary-label { font-size: 11px; font-weight: 700; color: #777; margin-right: 5px; }
+        .secondary-select { font-size: 11px; padding: 4px; border-radius: 4px; border: 1px solid #ccc; }
+        .acc-filter-panel {
+            background: #FAF3E6; /* User Requested Color */
+            border: 1px solid #e0e0e0; border-radius: 8px;
+            margin-bottom: 15px; overflow: hidden; transition: all 0.3s ease;
+        }
+        
+        .filter-body { 
+            padding: 10px 15px; 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); 
+            gap: 12px; 
+            background: #FAF3E6; /* Ensure grid matches container */
+        }
+
+        .acc-apply-btn {
+            grid-column: 1 / -1; /* Full width */
+            background: #1e3a5f; color: white; border: none; padding: 6px 0; border-radius: 4px;
+            font-size: 13px; font-weight: 700; cursor: pointer; text-align: center; margin-top: 5px;
+        }
+        .acc-apply-btn:hover { background: #162c4b; }
+        
+        .filter-group { display: flex; flex-direction: column; gap: 2px; }
+        .filter-label { font-size: 9px; font-weight: 700; text-transform: uppercase; color: #999; letter-spacing: 0.5px; }
+        
+        .chip-group { display: flex; flex-wrap: wrap; gap: 3px; }
+        .filter-chip {
+            font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #eee; background: #f8f9fa; 
+            cursor: pointer; color: #666; transition: all 0.1s;
+        }
+        .filter-chip:hover { border-color: #ccc; }
+        .filter-chip.active { background: #1e3a5f; color: white; border-color: #1e3a5f; font-weight: 600; }
+        
+        .acc-search-input {
+            width: 100%; padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; height: 26px;
+        }
+
+        /* --- GROUP HEADERS --- */
+        .acc-group-header {
+            grid-column: 1 / -1; margin: 15px 0 5px 0; padding-bottom: 5px; border-bottom: 2px solid #eee;
+            font-weight: 700; color: #1e3a5f; font-size: 14px; display: flex; align-items: center; gap: 8px;
+        }
+        .acc-group-count { background: #e0e0e0; color: #555; font-size: 10px; padding: 2px 6px; border-radius: 10px; }
+    `;
+    
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.innerHTML = css;
+    document.head.appendChild(style);
 }
 
 function loadAccountingData() {
@@ -56,18 +210,9 @@ function loadAccountingData() {
                 const serials = results.serials || { taxSerial: 0, noteSerial: 0, taxMin: 0, noteMin: 0 };
                 const invoices = results.invoices || [];
                 
-                console.log('Filtering orders...');
-                accountingData.orders = orders.filter(o => {
-                    if (!o) {
-                        console.warn('Null order found');
-                        return false;
-                    }
-                    if (!o.status) {
-                        console.warn('Order without status:', o);
-                        return false;
-                    }
-                    return o.status.toLowerCase() === 'prepare';
-                });
+                console.log('Processing orders...');
+                // CHANGE: Store ALL orders, even those with missing status
+                accountingData.orders = orders.filter(o => o);
                 
                 console.log('Filtered orders count:', accountingData.orders.length);
                 
@@ -133,62 +278,644 @@ function calculateAccountingStats() {
     };
 }
 
-function renderAccountingUI() {
+function renderAccountingUI(preserveHeader = false) {
     const container = document.getElementById('subtab-accounting');
-    const trans = translations[currentLang];
-    const stats = accountingData.stats;
     
-    let html = `
-        <div class="accounting-compact-bar">
-            <div class="compact-stat-group">
-                <div class="compact-stat ${stats.ordersComplete ? 'complete' : ''}" title="${trans.ordersToPrepare}">
-                    <i class="fas fa-hourglass-half"></i> <span>${stats.ordersCountStr}</span>
-                </div>
-                <div class="compact-stat ${stats.invoicesComplete ? 'complete' : ''}" title="${trans.invoicesNeeded}">
-                    <i class="fas fa-file-invoice"></i> <span>${stats.invoicesCountStr}</span>
-                </div>
-            </div>
-            <div class="compact-divider"></div>
-            <div class="compact-tracker-group">
-                ${createTrackerHtml('tax', accountingData.serials.taxLast)}
-                <div class="compact-divider-small"></div>
-                ${createTrackerHtml('note', accountingData.serials.noteLast)}
-            </div>
-        </div>
-        
-        <div id="missing-alert-container" style="display:none;">
-             <div class="missing-alert-bar">
-                <i class="fas fa-exclamation-triangle"></i>
-                <span>${trans.missingSerialsLabel}:</span>
-                <div id="missing-badges" class="missing-badges-inline"></div>
-             </div>
-        </div>
-
-        <div class="accounting-orders-list">
-    `;
-
-    if (accountingData.orders.length === 0) {
-        html += `<div class="empty-state"><i class="fas fa-check-circle"></i><h4>All caught up!</h4></div>`;
-    } else {
-            // Sort orders: Primary by invoiceDate, Secondary by loadingOrder
-    const sortedOrders = [...accountingData.orders].sort((a, b) => {
-        const dateA = a.invoiceDate || '';
-        const dateB = b.invoiceDate || '';
-        if (dateA !== dateB) return dateA.localeCompare(dateB);
-        
-        const loadA = parseInt(a.loadingOrder) || 0;
-        const loadB = parseInt(b.loadingOrder) || 0;
-        return loadA - loadB;
-    });
-    
-    sortedOrders.forEach(order => {
-        html += createAccountingOrderCard(order);
-    });
+    // 1. Initial Scaffold (Only run once or if forced)
+    if (!preserveHeader || !document.getElementById('acc-orders-container')) {
+        const headerHtml = buildDashboardHeader();
+        // FIX: Removed missing-alert-container from here (it is now inside headerHtml)
+        container.innerHTML = `
+            ${headerHtml}
+            <div id="acc-orders-container" class="accounting-orders-list"></div>
+        `;
     }
 
-    html += `</div>`;
-    container.innerHTML = html;
-    attachInputListeners();
+    // 2. Render ONLY the Orders Grid (This keeps the Header/Search intact)
+    renderOrdersGrid();
+
+    // 3. Post-Render Actions
+    // FIX: Always re-attach listeners because renderOrdersGrid recreates the inputs
+    attachInputListeners(); 
+    validateSequences();
+}
+
+function renderOrdersGrid() {
+    const gridContainer = document.getElementById('acc-orders-container');
+    if (!gridContainer) return;
+
+    const displayOrders = getFilteredAndSortedOrders();
+    let html = '';
+
+    if (displayOrders.length === 0) {
+        html = `<div class="empty-state" style="padding:20px; text-align:center; color:#999;">
+                    <i class="fas fa-filter" style="font-size:24px; margin-bottom:10px;"></i>
+                    <div>No orders match current filters</div>
+                </div>`;
+    } else {
+        if (accFilterState.group !== 'none') {
+            const groups = groupOrders(displayOrders, accFilterState.group);
+            Object.keys(groups).forEach(groupKey => {
+                html += `
+                    <div class="acc-group-header">
+                        <i class="fas fa-layer-group"></i> ${groupKey} 
+                        <span class="acc-group-count">${groups[groupKey].length}</span>
+                    </div>`;
+                groups[groupKey].forEach(order => html += createAccountingOrderCard(order));
+            });
+        } else {
+            displayOrders.forEach(order => html += createAccountingOrderCard(order));
+        }
+    }
+    gridContainer.innerHTML = html;
+}
+
+// --- FILTER & SORT LOGIC ---
+
+function getFilteredAndSortedOrders() {
+    const s = accFilterState.searchParams;
+    // Check if user is actually searching for something
+    const hasSearch = s.client || s.tax || s.note || s.order;
+
+    let result = accountingData.orders.filter(o => {
+        
+        // --- 1. GLOBAL SEARCH LOGIC ---
+        // If Global Search is ON and user is typing, IGNORE the Status Filter.
+        const ignoreStatusFilter = (accFilterState.globalSearch && hasSearch);
+        
+        if (!ignoreStatusFilter) {
+            // Apply Standard Status Filter (e.g., only show 'prepare')
+            if (!accFilterState.status.includes('all')) {
+                const status = (o.status || '').toLowerCase();
+                if (!accFilterState.status.some(filterS => status.includes(filterS))) return false;
+            }
+        }
+
+        // --- 2. PRECISE FIELD SEARCH ---
+        if (s.client) {
+            if (!o.clientName || !o.clientName.toLowerCase().includes(s.client.toLowerCase())) return false;
+        }
+        if (s.order) {
+            if (!o.orderId || !o.orderId.toString().includes(s.order)) return false;
+        }
+        if (s.tax) {
+            const tax1 = o.tawoosInvoice ? o.tawoosInvoice.toString() : '';
+            const tax2 = o.plInvoice ? o.plInvoice.toString() : '';
+            if (!tax1.includes(s.tax) && !tax2.includes(s.tax)) return false;
+        }
+        if (s.note) {
+            if (!o.deliveryNote || !o.deliveryNote.toString().includes(s.note)) return false;
+        }
+
+        // --- 3. SECONDARY FILTERS (Always Active) ---
+        // Type Filter
+        if (!accFilterState.types.includes('all')) {
+             const needs = determineInvoiceNeeds(o);
+             const matchesTawoos = accFilterState.types.includes('tawoos') && needs.tawoos;
+             const matchesPL = accFilterState.types.includes('pl') && needs.pl;
+             const matchesDN = accFilterState.types.includes('dn') && needs.deliveryNote;
+             if (!matchesTawoos && !matchesPL && !matchesDN) return false;
+        }
+
+        // Invoice State
+        if (accFilterState.invoiceState !== 'all') {
+            const hasInv = (o.tawoosInvoice || o.plInvoice || o.deliveryNote);
+            if (accFilterState.invoiceState === 'has_inv' && !hasInv) return false;
+            if (accFilterState.invoiceState === 'missing_inv' && hasInv) return false;
+        }
+
+        // ETA Filter
+        if (accFilterState.etaState !== 'all') {
+            const hasEta = (o.tawoosEtaUuid || o.plEtaUuid); 
+            if (accFilterState.etaState === 'has_eta' && !hasEta) return false;
+            if (accFilterState.etaState === 'no_eta' && hasEta) return false;
+        }
+        
+        return true;
+    });
+    
+    // --- 4. SORTING ---
+    result.sort((a, b) => {
+        if (accFilterState.sort === 'date_desc') return new Date(b.invoiceDate) - new Date(a.invoiceDate);
+        if (accFilterState.sort === 'date_asc') return new Date(a.invoiceDate) - new Date(b.invoiceDate);
+        if (accFilterState.sort === 'serial_desc') return parseInt(b.orderId) - parseInt(a.orderId);
+        if (accFilterState.sort === 'load_asc') return (parseInt(a.loadingOrder)||0) - (parseInt(b.loadingOrder)||0);
+        return 0;
+    });
+    
+    return result;
+}
+
+function groupOrders(orders, groupBy) {
+    const groups = {};
+    orders.forEach(o => {
+        let key = 'Other';
+        if (groupBy === 'date') key = o.invoiceDate ? formatLoadingDate(o.invoiceDate).replace(/<[^>]*>/g, '') : 'No Date';
+        if (groupBy === 'type') key = o.orderType || 'Standard';
+        
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(o);
+    });
+    return groups;
+}
+
+// --- DASHBOARD UI BUILDER ---
+
+function buildDashboardHeader() {
+    const isAr = currentLang === 'ar';
+    const s = accountingData.serials;
+    const arrowIcon = isAr ? 'fa-arrow-left' : 'fa-arrow-right';
+
+    // 1. Health Bar (Unchanged)
+    const healthBar = `
+        <div class="acc-health-bar">
+            <div class="health-group">
+                <div class="seq-tracker" title="Tax Invoice Sequence">
+                    <i class="fas fa-file-invoice-dollar" style="color:#007bff"></i>
+                    <span>Tax:</span>
+                    <strong id="disp-tax-last">${s.taxLast}</strong>
+                    <i class="fas ${arrowIcon}" style="font-size:10px"></i>
+                    <strong id="disp-tax-next" style="color:#007bff">${s.taxLast + 1}</strong>
+                </div>
+                 <div class="seq-tracker" title="Delivery Note Sequence">
+                    <i class="fas fa-truck-loading" style="color:#fd7e14"></i>
+                    <span>Note:</span>
+                    <strong id="disp-note-last">${s.noteLast}</strong>
+                    <i class="fas ${arrowIcon}" style="font-size:10px"></i>
+                    <strong id="disp-note-next" style="color:#fd7e14">${s.noteLast + 1}</strong>
+                </div>
+            </div>
+            <div class="health-group">
+                <div id="seq-health-indicator" class="health-status ok"></div>
+            </div>
+        </div>
+    `;
+
+    // 2. Missing Alerts Container
+    const missingAlerts = `
+        <div id="missing-alert-container" style="display:none; margin-bottom: 10px;">
+            <div id="sequence-badges" style="display:flex; flex-wrap:wrap; gap:5px;"></div>
+        </div>
+    `;
+
+    // 3. NEW: Multi-Field Search Grid (Always Visible)
+    const searchGrid = `
+        <div class="acc-search-grid">
+            <div class="search-field-group">
+                <div class="search-field-label">${isAr ? 'اسم العميل' : 'Client Name'}</div>
+                <input type="text" class="acc-field-input" placeholder="..." 
+                       value="${accFilterState.searchParams.client}" 
+                       onkeyup="handleAccSpecificSearch('client', this.value)">
+            </div>
+            <div class="search-field-group">
+                <div class="search-field-label">${isAr ? 'سيريال ضريبي' : 'VAT Serial'}</div>
+                <input type="text" class="acc-field-input" placeholder="100..." 
+                       value="${accFilterState.searchParams.tax}" 
+                       onkeyup="handleAccSpecificSearch('tax', this.value)">
+            </div>
+            <div class="search-field-group">
+                <div class="search-field-label">${isAr ? 'سيريال إذن' : 'Note Serial'}</div>
+                <input type="text" class="acc-field-input" placeholder="50..." 
+                       value="${accFilterState.searchParams.note}" 
+                       onkeyup="handleAccSpecificSearch('note', this.value)">
+            </div>
+            <div class="search-field-group">
+                <div class="search-field-label">${isAr ? 'رقم الطلب' : 'Order ID'}</div>
+                <input type="text" class="acc-field-input" placeholder="#" 
+                       value="${accFilterState.searchParams.order}" 
+                       onkeyup="handleAccSpecificSearch('order', this.value)">
+            </div>
+            
+            <label class="global-search-toggle" title="Search entire database ignoring status tabs">
+                <input type="checkbox" onchange="toggleGlobalSearch(this.checked)" 
+                       ${accFilterState.globalSearch ? 'checked' : ''}>
+                <i class="fas fa-globe"></i> ${isAr ? 'بحث شامل' : 'Global Search'}
+            </label>
+        </div>
+    `;
+
+    // 4. Panel Toggle Button
+    const toggleIcon = accFilterState.showFilters ? 'fa-chevron-up' : 'fa-chevron-down';
+    const panelToggle = `
+        <div style="text-align: right; margin-bottom: 5px;">
+            <button class="acc-toggle-btn" onclick="toggleAccFilters()">
+                <i class="fas fa-filter"></i> 
+                ${isAr ? 'تصفية وترتيب' : 'Filters & Sorting'}
+                <i class="fas ${toggleIcon}"></i>
+            </button>
+        </div>
+    `;
+
+    // 5. Collapsible Filter Panel (Reorganized)
+    const filterPanel = `
+        <div class="acc-filter-panel" style="display: ${accFilterState.showFilters ? 'block' : 'none'}">
+            
+            <div class="filter-section-primary">
+                <div class="filter-group">
+                    <div class="filter-label">${isAr ? 'حالة الطلب' : 'Order Status'}</div>
+                    <div class="chip-group">
+                        ${renderFilterChip('status', 'prepare', 'Prep', isAr)}
+                        ${renderFilterChip('status', 'all', 'All', isAr)}
+                    </div>
+                </div>
+
+                <div class="filter-group">
+                    <div class="filter-label">${isAr ? 'نوع الفاتورة' : 'Invoice Type'}</div>
+                    <div class="chip-group">
+                        ${renderFilterChip('types', 'all', 'All', isAr)}
+                        ${renderFilterChip('types', 'tawoos', 'Tawoos', isAr)}
+                        ${renderFilterChip('types', 'pl', 'PL', isAr)}
+                        ${renderFilterChip('types', 'dn', 'Note', isAr)}
+                    </div>
+                </div>
+
+                <div class="filter-group">
+                    <div class="filter-label">${isAr ? 'حالة الإصدار' : 'Invoice State'}</div>
+                    <div class="chip-group">
+                        ${renderFilterChip('invoiceState', 'all', 'All', isAr)}
+                        ${renderFilterChip('invoiceState', 'missing_inv', 'Missing', isAr)}
+                        ${renderFilterChip('invoiceState', 'has_inv', 'Done', isAr)}
+                    </div>
+                </div>
+            </div>
+
+            <div class="filter-section-secondary">
+                <span class="secondary-label"><i class="fas fa-sort"></i> ${isAr ? 'ترتيب:' : 'Sort:'}</span>
+                <select class="secondary-select" onchange="handleAccFilter('sort', this.value)">
+                    <option value="date_desc" ${accFilterState.sort==='date_desc'?'selected':''}>Date (New)</option>
+                    <option value="date_asc" ${accFilterState.sort==='date_asc'?'selected':''}>Date (Old)</option>
+                    <option value="serial_desc" ${accFilterState.sort==='serial_desc'?'selected':''}>Order ID</option>
+                    <option value="load_asc" ${accFilterState.sort==='load_asc'?'selected':''}>Load Seq</option>
+                </select>
+
+                <div style="width: 15px;"></div>
+
+                <span class="secondary-label"><i class="fas fa-layer-group"></i> ${isAr ? 'تجميع:' : 'Group:'}</span>
+                <select class="secondary-select" onchange="handleAccFilter('group', this.value)">
+                    <option value="none" ${accFilterState.group==='none'?'selected':''}>None</option>
+                    <option value="date" ${accFilterState.group==='date'?'selected':''}>Date</option>
+                    <option value="type" ${accFilterState.group==='type'?'selected':''}>Type</option>
+                </select>
+
+                <div style="flex-grow: 1;"></div>
+                
+                <button class="acc-apply-btn" style="width: auto; padding: 4px 15px; margin: 0;" onclick="applyAccFilters()">
+                    <i class="fas fa-check"></i> ${isAr ? 'تطبيق' : 'Apply'}
+                </button>
+            </div>
+        </div>
+    `;
+
+    return healthBar + missingAlerts + searchGrid + panelToggle + filterPanel;
+}
+
+function renderFilterChip(cat, val, label, isAr) {
+    // Basic mapping for AR labels
+    const arLabels = { 'Prepare': 'تجهيز', 'Delivered': 'تم التسليم', 'All': 'الكل' };
+    const displayLabel = isAr && arLabels[label] ? arLabels[label] : label;
+    
+    const isActive = accFilterState[cat].includes(val);
+    return `<div class="filter-chip ${isActive ? 'active' : ''}" onclick="toggleAccFilterChip('${cat}', '${val}')">${displayLabel}</div>`;
+}
+
+function toggleAccFilters() {
+    accFilterState.showFilters = !accFilterState.showFilters;
+    // Full render needed here to expand/collapse the DOM panel height properly
+    renderAccountingUI(false); 
+}
+
+// NEW: Handle specific search fields
+function handleAccSpecificSearch(field, val) {
+    accFilterState.searchParams[field] = val;
+    renderAccountingUI(true); // Partial render (keeps header & focus)
+}
+
+// NEW: Toggle Global Search
+function toggleGlobalSearch(isChecked) {
+    accFilterState.globalSearch = isChecked;
+    renderAccountingUI(true);
+}
+
+// DEPRECATED: Old handleAccSearch (can be removed or left unused)
+function handleAccSearch(val) { /* Legacy */ }
+
+// New Function: Actually triggers the update
+function applyAccFilters() {
+    renderAccountingUI(true); // Partial render (keeps header)
+}
+
+function handleAccFilter(key, val) {
+    // Update state ONLY. Do not render.
+    accFilterState[key] = val;
+}
+
+function toggleAccFilterChip(cat, val) {
+    const arr = accFilterState[cat];
+    // Update State Logic
+    if (Array.isArray(arr)) {
+         if (val === 'all') { accFilterState[cat] = ['all']; }
+         else {
+             if (arr.includes('all')) accFilterState[cat] = [val];
+             else if (arr.includes(val)) {
+                 accFilterState[cat] = arr.filter(x => x !== val);
+                 if (accFilterState[cat].length === 0) accFilterState[cat] = ['all'];
+             } else {
+                 accFilterState[cat].push(val);
+             }
+         }
+    } else {
+        accFilterState[cat] = val;
+    }
+    
+    // VISUAL FEEDBACK ONLY (Optional: update chip class without full render)
+    // For simplicity in this structure, we just wait for the Apply button.
+    // If you want chips to light up immediately, we need a mini-redraw of header.
+    // Let's do a header redraw only to show selection state:
+    renderAccountingUI(false); // Re-renders HEADER only (to show active chips), but NOT the grid? 
+    // Wait, renderAccountingUI(false) destroys everything.
+    // renderAccountingUI(true) keeps header, updates grid.
+    
+    // Strategy: We want to update the Header UI (chips) but NOT the Grid.
+    // Since we don't have a specific "renderHeader" function separated, 
+    // we will rely on the user clicking "Apply" to see the result.
+    // To show which chips are selected *before* applying, we need to update the DOM element class manually:
+    updateActiveChipsUI(cat);
+}
+
+// Helper to toggle classes without re-rendering everything
+function updateActiveChipsUI(cat) {
+    const container = document.querySelector(`.acc-filter-panel`);
+    if (!container) return;
+    // This is complex to target specifically without IDs. 
+    // FALLBACK: Just re-render the whole UI (Header + Grid) is actually safer for data consistency 
+    // BUT user specifically asked "rather than auto-rendering".
+    // So we will just update the state. The user clicks the chip, nothing happens visually until "Apply"? 
+    // That is bad UX.
+    
+    // BETTER FIX: Re-render the HEADER ONLY (Panel), ignore Grid.
+    // Since we merged them in renderAccountingUI, let's just make the Apply button logic 
+    // strictly about "Executing the expensive Grid Sort/Filter".
+    
+    // For now, to satisfy the prompt strictly:
+    // "ADD A BUTTON THAT WOULD APPLY... rather than auto-rendering"
+    // I will simply update the chip styling manually here.
+    const allChips = document.querySelectorAll(`.filter-chip[onclick*="'${cat}'"]`);
+    allChips.forEach(chip => {
+        // extract value from onclick string
+        const valMatch = chip.getAttribute('onclick').match(/'([^']+)'\)$/);
+        if (valMatch) {
+            const val = valMatch[1];
+            const isActive = Array.isArray(accFilterState[cat]) 
+                ? accFilterState[cat].includes(val) 
+                : accFilterState[cat] === val;
+            
+            if (isActive) chip.classList.add('active');
+            else chip.classList.remove('active');
+        }
+    });
+}
+
+function toggleAccFilterChip(cat, val) {
+    const arr = accFilterState[cat];
+    
+    if (val === 'all') {
+        accFilterState[cat] = ['all'];
+    } else {
+        // Remove 'all' if present
+        if (arr.includes('all')) {
+            accFilterState[cat] = [val];
+        } else {
+            // Toggle value
+            if (arr.includes(val)) {
+                accFilterState[cat] = arr.filter(x => x !== val);
+                if (accFilterState[cat].length === 0) accFilterState[cat] = ['all']; // Default back to all
+            } else {
+                accFilterState[cat].push(val);
+            }
+        }
+    }
+    renderAccountingUI();
+}
+
+
+// =============================================================================
+// UNIFIED SEQUENCE VALIDATION (Global + Live Input)
+// =============================================================================
+
+/**
+ * Main Validation Logic
+ * 1. Audits Global Data for the Health Bar (Top of Dashboard).
+ * 2. Validates Live Inputs against Global Data (Red/Green borders).
+ */
+function validateSequences() {
+    if (!accountingData || !accountingData.orders) return;
+
+    // --- STEP 1: BUILD GLOBAL MAPS (Source of Truth) ---
+    // We scan ALL orders to know which numbers are already used.
+    const taxMap = new Map();  // Serial -> [{id, field}]
+    const noteMap = new Map(); // Serial -> [{id, field}]
+    const taxList = [];
+    const noteList = [];
+
+    accountingData.orders.forEach(o => {
+        // A. Tax Invoices (Tawoos + PL share the same sequence)
+        const taxVals = [];
+        if (o.tawoosInvoice) taxVals.push({ val: o.tawoosInvoice, field: 'tawoosInvoice' });
+        if (o.plInvoice) taxVals.push({ val: o.plInvoice, field: 'plInvoice' });
+
+        taxVals.forEach(item => {
+            const v = parseInt(item.val);
+            if (!isNaN(v) && v > 0) {
+                if (!taxMap.has(v)) taxMap.set(v, []);
+                taxMap.get(v).push({ id: o.orderId, field: item.field });
+                
+                if (!taxList.includes(v)) taxList.push(v);
+            }
+        });
+
+        // B. Delivery Notes
+        if (o.deliveryNote) {
+            const v = parseInt(o.deliveryNote);
+            if (!isNaN(v) && v > 0) {
+                if (!noteMap.has(v)) noteMap.set(v, []);
+                noteMap.get(v).push({ id: o.orderId, field: 'deliveryNote' });
+                
+                if (!noteList.includes(v)) noteList.push(v);
+            }
+        }
+    });
+
+    // --- STEP 2: ANALYZE GLOBAL HEALTH (For the Top Bar) ---
+    taxList.sort((a, b) => a - b);
+    noteList.sort((a, b) => a - b);
+
+    const taxIssues = analyzeSequence(taxList, taxMap);
+    const noteIssues = analyzeSequence(noteList, noteMap);
+    const totalIssues = taxIssues.gaps.length + taxIssues.duplicates.length + 
+                        noteIssues.gaps.length + noteIssues.duplicates.length;
+
+    // Update Health Bar Elements
+    const healthEl = document.getElementById('seq-health-indicator');
+    const badgeContainer = document.getElementById('sequence-badges');
+    const alertContainer = document.getElementById('missing-alert-container');
+
+    if (healthEl) {
+        if (totalIssues > 0) {
+            healthEl.className = 'health-status warn';
+            const msg = (typeof currentLang !== 'undefined' && currentLang === 'ar') ? 'يوجد أخطاء في التسلسل' : 'Sequence Issues Found';
+            healthEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${msg}`;
+            
+            // Tooltip details
+            let tooltips = [];
+            if (taxIssues.duplicates.length) tooltips.push(`Tax Dups: ${taxIssues.duplicates.join(', ')}`);
+            if (taxIssues.gaps.length) tooltips.push(`Tax Gaps: ${taxIssues.gaps.join(', ')}`);
+            if (noteIssues.duplicates.length) tooltips.push(`Note Dups: ${noteIssues.duplicates.join(', ')}`);
+            if (noteIssues.gaps.length) tooltips.push(`Note Gaps: ${noteIssues.gaps.join(', ')}`);
+            healthEl.title = tooltips.join('\n');
+
+            // Legacy Badge Container (if used)
+            if (badgeContainer) {
+                badgeContainer.innerHTML = '';
+                [...taxIssues.gaps, ...noteIssues.gaps].forEach(gap => {
+                     badgeContainer.innerHTML += `<span class="badge bg-danger">Missing ${gap}</span>`;
+                });
+            }
+            if (alertContainer) alertContainer.style.display = 'block';
+
+        } else {
+            healthEl.className = 'health-status ok';
+            healthEl.innerHTML = `<i class="fas fa-check-circle"></i> ${(typeof currentLang !== 'undefined' && currentLang === 'ar') ? 'التسلسل سليم' : 'Sequence Healthy'}`;
+            healthEl.title = "No gaps or duplicates found.";
+            if (alertContainer) alertContainer.style.display = 'none';
+        }
+    }
+
+    // --- STEP 3: VALIDATE VISIBLE INPUTS (Live Check) ---
+    // This checks what you are currently typing against the Global Data
+    const visibleInputs = document.querySelectorAll('.invoice-input');
+    visibleInputs.forEach(input => {
+        const val = parseInt(input.value);
+        if (isNaN(val)) return;
+
+        const currentOrderId = input.dataset.orderId;
+        const currentField = input.dataset.field;
+        const seqType = input.dataset.seqType || 'tax'; // 'tax' or 'note'
+
+        const mapToCheck = seqType === 'note' ? noteMap : taxMap;
+        let isDup = false;
+
+        // Check: Is this value used by ANY OTHER order?
+        const entries = mapToCheck.get(val);
+        if (entries) {
+            // Filter out "myself" (in case we are editing an existing saved value)
+            const otherEntries = entries.filter(e => e.id.toString() !== currentOrderId.toString());
+            
+            if (otherEntries.length > 0) {
+                // Conflict found! Check if it's a valid Split Load
+                // Construct a hypothetical entry list: [Others] + [Self]
+                const allEntries = [...otherEntries, { id: currentOrderId, field: currentField }];
+                
+                // Use isSplitLoad if available
+                const isSplit = typeof isSplitLoad === 'function' ? isSplitLoad(null, val, allEntries) : false;
+                
+                if (!isSplit) isDup = true;
+            }
+        }
+
+        // Apply Visuals (Red/Green)
+        const card = input.closest('.acc-order-card');
+        const badge = card ? card.querySelector('.serial-badge') : null;
+
+        if (isDup) {
+            // DUPLICATE FOUND
+            input.classList.add('is-invalid');
+            input.style.borderColor = '#dc3545';
+            input.style.backgroundColor = '#fff8f8';
+            if (badge) {
+                badge.className = 'serial-badge bg-danger text-white';
+                badge.innerHTML = `<i class="fas fa-exclamation-circle"></i> ${val}`;
+            }
+        } else {
+            // VALID
+            input.classList.remove('is-invalid');
+            input.style.borderColor = '#ddd';
+            input.style.backgroundColor = '#fff';
+            if (badge) {
+                badge.className = 'serial-badge';
+                if (seqType === 'note') badge.classList.add('bg-warning', 'text-dark');
+                else badge.classList.add('bg-success', 'text-white');
+            }
+        }
+    });
+
+    // Update Global State for Save Check
+    window.currentValidationState = {
+        hasDuplicates: (taxIssues.duplicates.length > 0 || noteIssues.duplicates.length > 0),
+        hasGaps: (taxIssues.gaps.length > 0 || noteIssues.gaps.length > 0) 
+    };
+}
+
+/**
+ * Helper: Analyzes a list for Gaps and Duplicates
+ */
+function analyzeSequence(sortedList, valueMap) {
+    const gaps = [];
+    const duplicates = [];
+
+    // Duplicates Check
+    valueMap.forEach((entries, serial) => {
+        if (entries.length > 1) {
+            const isSplit = typeof isSplitLoad === 'function' ? isSplitLoad(null, serial, entries) : false;
+            if (!isSplit) duplicates.push(serial);
+        }
+    });
+
+    // Gaps Check
+    if (sortedList.length > 1) {
+        for (let i = 0; i < sortedList.length - 1; i++) {
+            const current = sortedList[i];
+            const next = sortedList[i+1];
+            // If gap > 1 but < 100 (ignore massive jumps)
+            if (next - current > 1 && (next - current) < 100) {
+                for (let j = 1; j < (next - current); j++) {
+                    gaps.push(current + j);
+                }
+            }
+        }
+    }
+    return { gaps, duplicates };
+}
+
+// =============================================================================
+// COMPATIBILITY FUNCTIONS (Fixes ReferenceError)
+// =============================================================================
+
+/**
+ * Wrapper for handleGenerateSingle.
+ * Triggers the main validation and returns the result object expected by legacy code.
+ */
+function updateSerialValidationUI() {
+    // 1. Run the main validation logic to ensure data is fresh
+    validateSequences();
+    
+    // 2. Retrieve the calculated state (or default to safe values)
+    const state = window.currentValidationState || { hasDuplicates: false, hasGaps: false };
+    
+    // 3. Return the exact format handleGenerateSingle expects
+    return {
+        hasDuplicates: state.hasDuplicates,
+        hasGaps: state.hasGaps
+    };
+}
+
+/**
+ * Wrapper for Save Buttons.
+ * Ensures we don't save if there are critical duplicates.
+ */
+function canSaveInvoice() {
+    const validation = updateSerialValidationUI();
+    // Block saving ONLY if duplicates exist (Gaps are just warnings)
+    return !validation.hasDuplicates;
 }
 
 function createTrackerHtml(type, lastVal) {
@@ -264,8 +991,13 @@ function createAccountingOrderCard(order) {
 
     // REMOVED: savedIndicator - each invoice shows its own saved state
 
+    // Determine validation type (Tawoos, PL, or Note)
+    let validationType = 'tawoos'; // Default
+    if (needs.deliveryNote) validationType = 'dn';
+    else if (needs.pl) validationType = 'pl';
+
     return `
-        <div class="accounting-card" id="acc-card-${order.orderId}" data-client="${order.clientName}" data-date="${order.invoiceDate}" data-internal-comment="${(order.internalComments || '').replace(/"/g, '&quot;')}">
+        <div class="accounting-card" id="acc-card-${order.orderId}" data-type="${validationType}" data-client="${order.clientName}" data-date="${order.invoiceDate}" data-internal-comment="${(order.internalComments || '').replace(/"/g, '&quot;')}">
             ${commentIndicator}
             <div class="acc-card-main">
                 <div class="acc-header-row">
@@ -376,12 +1108,15 @@ function handleGenerateSingle(orderId, invoiceType, field) {
         return;
     }
     
-    // Validate no gaps/duplicates
+    // Validate no duplicates (Gaps are warnings, Duplicates are errors)
     const validation = updateSerialValidationUI();
-    if (validation.hasGaps || validation.hasDuplicates) {
-        showToast('Cannot generate: Fix serial gaps or duplicates first', 'error');
+    
+    // FIX: Only block if there are Duplicates. Gaps are allowed.
+    if (validation.hasDuplicates) {
+        showToast('Cannot generate: duplicate serial detected', 'error');
         return;
     }
+    // Note: We ignore validation.hasGaps here to allow saving
     
     const btn = event.target.closest('.btn-generate-inline');
     const originalHtml = btn.innerHTML;
@@ -807,165 +1542,79 @@ function handleStartSerial(type, value) {
 }
 
 function attachInputListeners() {
+    // Remove old listeners to prevent duplicates if called multiple times
     const inputs = document.querySelectorAll('.invoice-input');
     
     inputs.forEach(input => {
-        // Update validation on input change
-        input.addEventListener('input', function() {
-            validateSequences(); // Your sophisticated validation handles everything
-        });
+        // Store original value for "Dirty Check" (if not already stored)
+        if (!input.dataset.original) {
+            input.dataset.original = input.value;
+        }
+
+        // Remove old listeners (cloning is a quick way, or just overwriting oninput)
+        input.oninput = function() {
+            handleInvoiceInput(this);
+        };
         
-        // Handle edit attempts
-        input.addEventListener('focus', function() {
-            handleEditAttempt(this);
-        });
+        // Handle "Enter" key to save
+        input.onkeydown = function(e) {
+            if (e.key === 'Enter') {
+                // FIX: Traverse up to the wrapper to find the sibling button
+                const wrapper = this.closest('.input-controls-wrapper');
+                const btn = wrapper ? wrapper.querySelector('.btn-generate-inline') : null;
+                
+                if (btn && !btn.disabled) btn.click();
+            }
+        };
     });
 }
 
-function validateSequences() {
-    // 1. Map all inputs
-    const inputs = Array.from(document.querySelectorAll('.invoice-input'));
-    const allValues = inputs.map(input => ({
-        val: parseInt(input.value),
-        dom: input,
-        id: input.dataset.orderId,
-        type: input.dataset.seqType,
-        field: input.dataset.field,
-        original: parseInt(input.dataset.original) || null
-    })).filter(item => !isNaN(item.val) && item.val > 0);
+/**
+ * Handles real-time input logic
+ * 1. triggers Global Validation (to color inputs)
+ * 2. Updates the specific row's button state
+ */
+function handleInvoiceInput(input) {
+    // 1. Run Global Validation
+    validateSequences();
 
-    // Reset Visual States
-    document.querySelectorAll('.invoice-input-group').forEach(el => 
-        el.className = el.className.replace(/ has-error| has-warning| has-split| has-low/g, '')
-    );
+    // 2. Button Logic - Robust Selector
+    const wrapper = input.closest('.input-controls-wrapper');
+    const btn = wrapper ? wrapper.querySelector('.btn-generate-inline') : null;
     
-    const alertContainer = document.getElementById('missing-alert-container');
-    const badgesContainer = document.getElementById('missing-badges');
-    badgesContainer.innerHTML = '';
-    let globalBlock = false;
+    if (!btn) return;
 
-    // Iterate Types (Tax / Note)
-    ['tax', 'note'].forEach(type => {
-        const typeInputs = inputs.filter(input => input.dataset.seqType === type);
-        const currentValues = allValues.filter(x => x.type === type);
-        
-        // A. Determine Boundaries
-        const dbLast = (type === 'tax') ? accountingData.serials.taxLast : accountingData.serials.noteLast;
-        const userStart = (type === 'tax') ? accountingData.serials.taxStart : accountingData.serials.noteStart;
-        const sysMin = (type === 'tax') ? accountingData.serials.taxMin : accountingData.serials.noteMin;
-        
-        const absoluteStart = sysMin > 0 ? sysMin : (userStart || 1);
-        const maxInput = currentValues.length > 0 ? Math.max(...currentValues.map(x => x.val)) : 0;
-        
-        // We scan up to the highest number we know about (DB or Input) + 1 to find the next slot
-        const scanEnd = Math.max(dbLast, maxInput) + 1;
-
-        // B. Identify "Fluid" History
-        // Numbers in DB that belong to cards currently on screen (can be moved/edited)
-        const originalSet = new Set(currentValues.map(x => x.original).filter(x => x !== null));
-
-        let trackerNext = null; // This will hold the FIRST gap we find
-
-        // C. Main Validation Loop (Scan every number)
-        for (let i = absoluteStart; i <= scanEnd; i++) {
-            const isHistory = (i <= dbLast);
-            const isOriginalOnScreen = originalSet.has(i);
-            
-            // A number is "Occupied History" if it's in the DB range AND NOT on screen for editing
-            const isHistoryOccupied = isHistory && !isOriginalOnScreen; 
-            
-            const entries = currentValues.filter(x => x.val === i);
-            const isInput = entries.length > 0;
-
-            // --- LOGIC: IS THIS NUMBER ACCOUNTED FOR? ---
-            const isAccountedFor = isHistoryOccupied || isInput;
-
-            if (!isAccountedFor) {
-                // FOUND A GAP (or the end of the sequence)
-                if (trackerNext === null) trackerNext = i; // Lock tracker to the FIRST missing number
-
-                // If this gap is below the highest number user typed, it's a SKIP error
-                if (i < maxInput) {
-                    const b = document.createElement('span');
-                    b.className = `missing-badge ${type === 'tax' ? 'blue' : 'orange'}`;
-                    b.innerText = i;
-                    badgesContainer.appendChild(b);
-                    
-                    // Flag the input that caused the jump (the smallest input > i)
-                    const jumper = currentValues.sort((a,b) => a.val - b.val).find(x => x.val > i);
-                    if (jumper) {
-                        jumper.dom.closest('.invoice-input-group').classList.add('has-warning');
-                    }
-                    globalBlock = true;
-                }
-            }
-
-            // --- VALIDATION CHECKS FOR ENTRIES ---
-            if (isInput) {
-                // 1. History Conflict (Typing a number that belongs to a closed order)
-                if (isHistoryOccupied) {
-                    entries.forEach(entry => entry.dom.closest('.invoice-input-group').classList.add('has-error'));
-                    globalBlock = true;
-                }
-
-                // 2. Duplicates
-                if (entries.length > 1) {
-                    if (isSplitLoad(null, i, entries)) {
-                        entries.forEach(e => e.dom.closest('.invoice-input-group').classList.add('has-split'));
-                    } else {
-                        entries.forEach(e => e.dom.closest('.invoice-input-group').classList.add('has-error'));
-                        globalBlock = true;
-                    }
-                }
-            }
-        }
-
-        // D. Below Minimum Check
-        currentValues.forEach(item => {
-            if (item.val < absoluteStart) {
-                item.dom.closest('.invoice-input-group').classList.add('has-low');
-                globalBlock = true;
-            }
-        });
-
-        // E. Update Tracker
-        // If we found a gap/next, use it. Otherwise fallback to start.
-        const finalNext = trackerNext || absoluteStart;
-        updateTrackerUI(type, finalNext - 1, finalNext);
-
-        // F. Smart Placeholders (Broadcast Next)
-        // If validation failed (globalBlock), we might stop placeholders or keep them live?
-        // Req: "If it doesn't follow sequence... use '#'"
-        // We will broadcast the *trackerNext* (which represents the first hole).
-        typeInputs.forEach(input => {
-            if (!input.readOnly && !input.classList.contains('locked-input') && !input.value) {
-                input.placeholder = globalBlock ? "#" : finalNext;
-            }
-        });
-    });
-
-    // UI Finalization
-    alertContainer.style.display = badgesContainer.children.length > 0 ? 'block' : 'none';
+    const val = input.value.trim();
+    const original = input.dataset.original || '';
     
-    // Update inline generate buttons
-document.querySelectorAll('.btn-generate-inline').forEach(btn => {
-    const btnId = btn.id;
-    if (!btnId) return;
+    // Condition A: Value must be different from saved (Dirty)
+    const isChanged = (val !== original);
     
-    const parts = btnId.replace('btn-gen-', '').split('-');
-    if (parts.length < 2) return;
+    // Condition B: Must be a valid number
+    const isValidFormat = (val !== '' && !isNaN(val) && parseInt(val) > 0);
     
-    const field = parts[0];
-    const orderId = parts.slice(1).join('-');
-    
-    const input = document.querySelector(`[data-order-id="${orderId}"][data-field="${field}"]`);
-    if (!input) return;
-    
-    const hasValue = input.value && input.value !== '';
-    const isLocked = input.readOnly || input.classList.contains('locked-input');
-    
-    btn.disabled = !hasValue || isLocked || globalBlock;
-});
+    // Condition C: Must NOT be a duplicate (Red Border / .is-invalid)
+    // validateSequences() adds 'is-invalid' class or red border to duplicates
+    const isDuplicate = input.classList.contains('is-invalid') || input.style.borderColor === 'rgb(220, 53, 69)'; // rgb(220, 53, 69) is #dc3545
+
+    if (isChanged && isValidFormat && !isDuplicate) {
+        // ENABLE BUTTON
+        btn.disabled = false;
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-primary');
+        btn.style.opacity = '1';
+        btn.style.cursor = 'pointer';
+        btn.title = "Click to Save";
+    } else {
+        // DISABLE BUTTON
+        btn.disabled = true;
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-secondary');
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'not-allowed';
+        if (isDuplicate) btn.title = "Cannot save: Duplicate Serial";
+        else if (!isChanged) btn.title = "No changes to save";
+    }
 }
 
 function updateTrackerUI(type, lastVal, nextVal) {
@@ -1008,96 +1657,6 @@ function handleEditAttempt(input) {
 
 // Global variable for current preview data
 let currentPreviewData = null;
-
-// =============================================================================
-// SERIAL VALIDATION FUNCTIONS
-// =============================================================================
-function validateSerialSequence(type) {
-    // type = 'tax' or 'note'
-    const inputs = document.querySelectorAll(`.invoice-input[data-seq-type="${type}"]`);
-    const serials = [];
-    const serialMap = {};
-    
-    inputs.forEach(input => {
-        const val = parseInt(input.value);
-        if (!isNaN(val) && val > 0) {
-            const orderId = input.dataset.orderId;
-            const field = input.dataset.field;
-            const key = `${orderId}-${field}`;
-            
-            if (!serialMap[val]) {
-                serialMap[val] = [];
-            }
-            serialMap[val].push({input, key});
-            serials.push(val);
-        }
-    });
-    
-    serials.sort((a, b) => a - b);
-    
-    const min = Math.min(...serials);
-    const max = Math.max(...serials);
-    
-    const gaps = [];
-    const duplicates = [];
-    
-    // Check for gaps
-    for (let i = min; i <= max; i++) {
-        if (!serials.includes(i)) {
-            gaps.push(i);
-        }
-    }
-    
-    // Check for duplicates
-    Object.entries(serialMap).forEach(([serial, entries]) => {
-        if (entries.length > 1) {
-            // Check if it's a valid split load
-            const isSplit = isSplitLoad(null, serial, entries.map(e => ({
-                id: e.input.dataset.orderId,
-                field: e.input.dataset.field
-            })));
-            
-            if (!isSplit) {
-                duplicates.push({serial: parseInt(serial), entries});
-            }
-        }
-    });
-    
-    return {gaps, duplicates, min, max};
-}
-
-function updateSerialValidationUI() {
-    const allInputs = document.querySelectorAll('.invoice-input');
-    const taxSerials = [];
-    const noteSerials = [];
-    
-    allInputs.forEach(input => {
-        const val = parseInt(input.value);
-        const type = input.dataset.seqType;
-        
-        if (!isNaN(val) && val > 0) {
-            if (type === 'tax') {
-                taxSerials.push(val);
-            } else if (type === 'note') {
-                noteSerials.push(val);
-            }
-        }
-    });
-    
-    const taxValidation = checkSequence(taxSerials);
-    const noteValidation = checkSequence(noteSerials);
-    
-    return {
-        hasGaps: taxValidation.hasGaps || noteValidation.hasGaps,
-        hasDuplicates: taxValidation.hasDuplicates || noteValidation.hasDuplicates
-    };
-}
-
-
-function canSaveInvoice() {
-    const validation = updateSerialValidationUI();
-    return !validation.hasGaps && !validation.hasDuplicates;
-}
 
 // =============================================================================
 // UPDATED injectInvoiceToggleBar - Into action bar
@@ -1903,94 +2462,6 @@ function closePreview() {
 }
 
 
-function checkSequence(serials) {
-    if (serials.length === 0) return { hasGaps: false, hasDuplicates: false };
-    
-    serials.sort((a, b) => a - b);
-    const min = serials[0];
-    const max = serials[serials.length - 1];
-    
-    let hasGaps = false;
-    for (let i = min; i <= max; i++) {
-        if (!serials.includes(i)) {
-            hasGaps = true;
-            break;
-        }
-    }
-    
-    const hasDuplicates = serials.length !== new Set(serials).size;
-    
-    return { hasGaps, hasDuplicates };
-}
-
-// Call this when serial is edited
-// function handleSerialEdit(newSerial) {
-//     const currentInvoice = multiInvoiceState.invoices[multiInvoiceState.currentIndex];
-    
-//     currentInvoice.serial = newSerial;
-//     currentPreviewData.serial = newSerial;
-    
-//     const card = document.getElementById(`acc-card-${multiInvoiceState.orderId}`);
-//     const input = card.querySelector(`[data-field="${currentInvoice.field}"]`);
-//     if (input) {
-//         input.value = newSerial;
-//     }
-    
-//     // Validate
-//     const validation = updateSerialValidationUI();
-//     const validationIcon = document.getElementById('serial-validation-icon');
-    
-//     if (validationIcon) {
-//         if (!validation.hasGaps && !validation.hasDuplicates) {
-//             validationIcon.innerHTML = '<i class="fas fa-check-circle" style="color: #28a745;"></i>';
-//         } else if (validation.hasGaps) {
-//             validationIcon.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: #ffc107;"></i>';
-//         } else {
-//             validationIcon.innerHTML = '<i class="fas fa-times-circle" style="color: #dc3545;"></i>';
-//         }
-//     }
-    
-//     updateActionButtons();
-//     updateToggleBarUI();
-    
-//     const toggleBtn = document.querySelector(`.invoice-toggle-chip[data-index="${multiInvoiceState.currentIndex}"]`);
-//     if (toggleBtn) {
-//         toggleBtn.querySelector('.chip-serial').textContent = `#${newSerial}`;
-//     }
-    
-//     debouncedRender(300); // DEBOUNCED - wait 300ms after typing stops
-// }
-
-// function handleRejectInvoice() {
-//     const currentInvoice = multiInvoiceState.invoices[multiInvoiceState.currentIndex];
-    
-//     // Simple confirm instead of showCustomConfirm
-//     const confirmed = confirm(
-//         `Reject ${getInvoiceTypeLabel(currentInvoice.type)} #${currentInvoice.serial}?\n\nThis will free the serial number.`
-//     );
-    
-//     if (confirmed) {
-//         // Mark as rejected
-//         currentInvoice.state = 'rejected';
-        
-//         // Clear serial from card input
-//         const card = document.getElementById(`acc-card-${multiInvoiceState.orderId}`);
-//         const input = card.querySelector(`[data-field="${currentInvoice.field}"]`);
-//         if (input) {
-//             input.value = '';
-//             input.classList.remove('locked-input');
-//             input.removeAttribute('readonly');
-//         }
-        
-//         // Update UI
-//         updateToggleBarUI();
-//         updateActionButtons();
-//         updateSerialValidationUI();
-        
-//         showToast('Invoice rejected', 'info');
-//     }
-// }
-
 function markCardAsSaved(orderId, invoiceData) {
     const card = document.getElementById(`acc-card-${orderId}`);
     const btn = document.getElementById(`btn-gen-${orderId}`);
@@ -2036,16 +2507,32 @@ function updateDashboardStatsUI() {
     if(invDiv) stats.invoicesComplete ? invDiv.classList.add('complete') : invDiv.classList.remove('complete');
 }
 
+/**
+ * Checks if multiple orders sharing a serial are a valid "Split Load".
+ * UPDATED: Checks Global Data (Memory) instead of DOM Elements to prevent crashes on filtered items.
+ */
 function isSplitLoad(dummyId, serialVal, entries) {
     if (entries.length < 2) return false;
-    const baseCard = document.getElementById(`acc-card-${entries[0].id}`);
-    const baseClient = baseCard.dataset.client;
-    const baseDate = baseCard.dataset.date;
-    const baseType = entries[0].field;
 
+    // Helper to find order object in memory
+    const findOrder = (id) => accountingData.orders.find(o => o.orderId.toString() === id.toString());
+
+    // Get the first order as the "Base" for comparison
+    const baseOrder = findOrder(entries[0].id);
+    if (!baseOrder) return false; // Safety check
+
+    const baseClient = baseOrder.clientName;
+    const baseDate = baseOrder.invoiceDate;
+    const baseType = entries[0].field; // e.g., 'tawoosInvoice'
+
+    // Check if ALL entries match the Base Client, Date, and Invoice Type
     return entries.every(entry => {
-        const c = document.getElementById(`acc-card-${entry.id}`);
-        return c.dataset.client === baseClient && c.dataset.date === baseDate && entry.field === baseType;
+        const order = findOrder(entry.id);
+        if (!order) return false;
+        
+        return order.clientName === baseClient && 
+               order.invoiceDate === baseDate && 
+               entry.field === baseType;
     });
 }
 
