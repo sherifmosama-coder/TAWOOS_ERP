@@ -118,7 +118,7 @@ function getUserPermissions(userEmail) {
   }
 }
 
-function getOrders() {
+function getOrders(fetchAll) {
   try {
     const salesSpreadsheet = SpreadsheetApp.openById(SALES_SPREADSHEET_ID);
     const ordersSheet = salesSpreadsheet.getSheetByName('Orders');
@@ -167,9 +167,11 @@ function getOrders() {
       if (invoiceDate && !(invoiceDate instanceof Date)) invoiceDate = new Date(invoiceDate);
       if (loadingDate && !(loadingDate instanceof Date)) loadingDate = new Date(loadingDate);
       
-      const hasRecentDate = (invoiceDate && invoiceDate >= today) || (loadingDate && loadingDate >= today);
+      const hasRecentDate = (invoiceDate && invoiceDate >= today) ||
+                            (loadingDate && loadingDate >= today);
       
-      if (isUnfulfilled || hasRecentDate) {
+      // MODIFIED: If fetchAll is true, we ignore the status filter
+      if (fetchAll || isUnfulfilled || hasRecentDate) {
         // --- DETERMINE PRODUCT MIX ---
         let hasTawoos = false;
         let hasPL = false;
@@ -2061,33 +2063,46 @@ function calculateAndPrepareInvoiceData(ORDER_ID, INVOICE_TYPE, SERIAL_NUMBER) {
     // 3. Client Data
     const clientNameOrder = orderRow[8] ? orderRow[8].toString() : '';
     let clientInfo = { name: clientNameOrder, branch: '', address: '', vat: '' };
-    if (clientsSheet && clientsSheet.getLastRow() >= 4) {
-        const cData = clientsSheet.getRange(4, 1, clientsSheet.getLastRow()-3, 26).getValues();
-        const clientRow = cData.find(r => 
-            (r[3] && r[3].toString() === clientNameOrder) || 
-            (r[25] && r[25].toString() === clientNameOrder)
-        );
-        if (clientRow) {
-            clientInfo.name = clientRow[20] || clientNameOrder;
-            clientInfo.branch = clientRow[5] || '';
-            clientInfo.address = (clientRow[16] || '') + ' ' + (clientRow[17] || ''); 
-            clientInfo.vat = clientRow[22] || '';
-        }
-    }
-
-    // Get client ID and pricing strategy
+    // --- SMART CLIENT LOOKUP (Parent/Branch Logic) ---
     let clientIdForDiscounts = '';
     let pricingStrategy = '';
-    
+    let resolvedClientName = clientNameOrder; // Default to order name
+
     if (clientsSheet && clientsSheet.getLastRow() >= 4) {
+        // Read up to Col AA (Client ID)
         const cData = clientsSheet.getRange(4, 1, clientsSheet.getLastRow()-3, 27).getValues();
-        const clientRow = cData.find(r => 
+        
+        // 1. Try EXACT Match first
+        let clientRow = cData.find(r => 
             (r[3] && r[3].toString() === clientNameOrder) || 
             (r[25] && r[25].toString() === clientNameOrder)
         );
+
+        // 2. If no exact match, try PARENT/BRANCH Match
+        // Look for a registered client name that is contained within the order's client name
+        // e.g. Order: "Hyper One - Zayed", Database: "Hyper One" -> MATCH
+        if (!clientRow) {
+            // Sort by length (descending) to match "Hyper One Market" before "Hyper One" if both exist
+            const potentialParents = cData.filter(r => r[3] && clientNameOrder.includes(r[3].toString()));
+            potentialParents.sort((a, b) => b[3].toString().length - a[3].toString().length);
+            
+            if (potentialParents.length > 0) {
+                clientRow = potentialParents[0];
+                Logger.log(`Smart Lookup: Mapped branch "${clientNameOrder}" to parent "${clientRow[3]}"`);
+            }
+        }
+
         if (clientRow) {
+            // Basic Info
+            clientInfo.name = clientRow[20] || clientNameOrder; // Official Name
+            clientInfo.branch = clientRow[5] || '';
+            clientInfo.address = (clientRow[16] || '') + ' ' + (clientRow[17] || '');
+            clientInfo.vat = clientRow[22] || '';
+            
+            // Critical: Capture the ID and Strategy of the PARENT
             clientIdForDiscounts = clientRow[26] ? clientRow[26].toString() : '';
             pricingStrategy = clientRow[8] ? clientRow[8].toString() : '';
+            resolvedClientName = clientRow[3].toString(); // Use Parent Name for discount lookup
         }
     }
     
@@ -2098,7 +2113,8 @@ function calculateAndPrepareInvoiceData(ORDER_ID, INVOICE_TYPE, SERIAL_NUMBER) {
     let contractDiscounts = {};
     try { 
         if (typeof getInvoiceDiscounts === 'function') {
-            contractDiscounts = getInvoiceDiscounts(clientNameOrder, invoiceDateStr);
+            // Pass the RESOLVED name (Parent) to find the contract
+            contractDiscounts = getInvoiceDiscounts(resolvedClientName, invoiceDateStr);
         }
     } catch(e) {
         Logger.log('Contract discount error: ' + e.toString());
@@ -2142,7 +2158,8 @@ function calculateAndPrepareInvoiceData(ORDER_ID, INVOICE_TYPE, SERIAL_NUMBER) {
        let hasPromotionalDiscount = false;
        
        try {
-         const priceData = detectPromotionalDiscount(clientNameOrder, prodName, invoiceDateStr, branchName, clientIdForDiscounts, pricingStrategy);
+         // Pass resolvedClientName to ensure Name-based strategies work for the parent
+         const priceData = detectPromotionalDiscount(resolvedClientName, prodName, invoiceDateStr, branchName, clientIdForDiscounts, pricingStrategy);
          if (priceData.hasPromotion) {
            hasPromotionalDiscount = true;
            officialPrice = priceData.officialPrice;
@@ -2406,7 +2423,8 @@ function getAccountingDashboardData() {
     // 1. Fetch orders
     Logger.log('Step 1: Fetching orders...');
     try {
-      const ordersResult = getOrders();
+      // MODIFIED: Pass 'true' to load ALL history for Global Search
+      const ordersResult = getOrders(true);
       Logger.log('Orders result type: ' + typeof ordersResult);
       Logger.log('Orders result: ' + JSON.stringify(ordersResult).substring(0, 200));
       
@@ -3027,23 +3045,6 @@ function generatePdfBase64(htmlContent) {
 // =============================================================================
 // WAREHOUSE MODULE - RELEASE NOTE MANAGEMENT
 // =============================================================================
-
-/**
- * Get all warehouse release records from صرف و ارتجاع sheet
- */
-/**
- * Optimized Warehouse Data Fetcher
- * - Batch resolves client names
- * - Compresses payload (sparse products)
- * - Filters old history server-side
- */
-/**
- * Optimized Warehouse Data Fetcher
- * - Default: Returns Unsaved (Drafts) + Today's Records only.
- * - History Mode: If targetDate provided, returns Unsaved + Records for that specific date.
- * - Performance: Batch resolves client names and compresses product data (only sends non-zero values).
- * * @param {string} targetDate - Optional 'YYYY-MM-DD' to load specific history.
- */
 /**
  * Optimized Warehouse Data Fetcher
  * - Default: Returns Unsaved (Drafts) + Today's Records only.
@@ -4019,6 +4020,284 @@ function saveHtmlDocument(dismissNumber, htmlContent) {
     return { success: false, message: e.toString() };
   }
 }
+// =============================================================================
+// ADMIN RETURN EDIT FEATURES
+// =============================================================================
+
+function getReturnOrderDetails(orderIdsStr) {
+  try {
+    // 1. Robust ID Extraction
+    // Convert input to string and extract only numeric sequences (digits)
+    // This handles "1001 - 1002", "1001, 1002", or "Order 1001" automatically.
+    const rawStr = String(orderIdsStr || '');
+    const targetIds = rawStr.match(/\d+/g); 
+
+    if (!targetIds || targetIds.length === 0) {
+        return JSON.stringify({ success: true, orders: [] });
+    }
+
+    if (targetIds.length === 0) return JSON.stringify({ success: true, orders: [] });
+
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('Orders');
+    
+    // 2. Map Columns (Start at AQ = Index 42)
+    // We assume Headers are at Row 3
+    const headerRow = sheet.getRange(3, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const productMap = {};
+    for (let c = 42; c < headerRow.length; c += 5) {
+        const prodName = headerRow[c];
+        if (prodName) {
+            productMap[String(prodName).trim()] = {
+                qtyCol: c + 1,   // 1-based index
+                bonusCol: c + 2
+            };
+        }
+    }
+
+    // 3. Fetch Data
+    const lastRow = getOrdersLastRow(sheet);
+    if (lastRow < 7) {
+        Logger.log("Error: Orders sheet has less than 7 rows");
+        return JSON.stringify({ success: true, orders: [] });
+    }
+
+    // Getting ALL data to ensure we don't miss anything (Rows 7 to Last)
+    const data = sheet.getRange(7, 1, lastRow - 6, sheet.getLastColumn()).getValues();
+    Logger.log(`Searching through ${data.length} rows in 'Orders' sheet`);
+
+    const resultOrders = [];
+
+    targetIds.forEach(targetId => {
+        // NUMERIC MATCHING: Handles "0001" vs 1 vs "1"
+        const row = data.find(r => {
+             // r[3] is Column D
+             // Convert both to Integers (Base 10) so 0001 == 1
+             const sheetId = parseInt(r[3], 10);
+             const searchId = parseInt(targetId, 10);
+             return !isNaN(sheetId) && !isNaN(searchId) && sheetId === searchId;
+        });
+
+        if (row) {
+            Logger.log(`FOUND Match for ID: ${targetId}`);
+            const products = [];
+            Object.keys(productMap).forEach(prodName => {
+                const cols = productMap[prodName];
+                const qtyVal = row[cols.qtyCol - 1];
+                const bonusVal = row[cols.bonusCol - 1];
+                
+                // Include if it has values (number or string)
+                if ((qtyVal !== "" && qtyVal !== null) || (bonusVal !== "" && bonusVal !== null)) {
+                     // Check if greater than 0
+                    if (Number(qtyVal) > 0 || Number(bonusVal) > 0) {
+                        products.push({
+                            name: prodName,
+                            qty: Number(qtyVal) || 0,
+                            bonus: Number(bonusVal) || 0
+                        });
+                    }
+                }
+            });
+            resultOrders.push({
+                orderId: targetId,
+                clientName: row[8], // Col I
+                products: products
+            });
+        } else {
+            Logger.log(`WARNING: Could NOT find ID '${targetId}' in Column D`);
+        }
+    });
+
+    Logger.log(`Final Result: Found ${resultOrders.length} orders`);
+    return JSON.stringify({ success: true, orders: resultOrders });
+
+  } catch (e) {
+    Logger.log("FATAL ERROR: " + e.toString());
+    return JSON.stringify({ success: false, message: e.toString() });
+  }
+}
+
+/**
+ * Updates Qty and Bonus (Accepts JSON String, Returns JSON String)
+ * AUTO-UPDATES: Order Summary (Col S) and Total Weight (Col AA)
+ * ADVANCED VALIDATION: Checks specific product types (Tawoos vs PL) against their respective invoices.
+ */
+function updateOriginalOrderQuantities(updatesJson, userEmail) {
+  try {
+    const updates = JSON.parse(updatesJson); 
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('Orders');
+    const productsSheet = ss.getSheetByName('Products'); 
+
+    const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM HH:mm');
+    const userLabel = userEmail ? userEmail.split('@')[0] : 'Admin';
+    
+    // Default Success Message
+    let returnMessage = "تم تحديث الكميات والوزن وملخص الطلب بنجاح"; 
+    let hasWarnings = false;
+
+    // 1. Build Product Meta Map (Weight & PL Status)
+    const productMeta = {};
+    if (productsSheet) {
+        const pLastRow = productsSheet.getLastRow();
+        if (pLastRow >= 3) {
+            // Col A=Name, Col G=Weight(6), Col I=IsPrivateLabel(8)
+            // Reading up to Column I (9 columns)
+            const pData = productsSheet.getRange(3, 1, pLastRow - 2, 9).getValues();
+            pData.forEach(r => {
+                if(r[0]) {
+                    productMeta[String(r[0]).trim()] = {
+                        weight: parseFloat(r[6]) || 0,
+                        isPL: (r[8] === true) // Checkbox in Col I
+                    };
+                }
+            });
+        }
+    }
+
+    // 2. Map Product Columns in Orders Sheet
+    const headerRow = sheet.getRange(3, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const productMap = {};
+    for (let c = 42; c < headerRow.length; c += 5) {
+        const prodName = headerRow[c];
+        if (prodName) {
+            productMap[String(prodName).trim()] = {
+                qtyCol: c + 1,
+                bonusCol: c + 2
+            };
+        }
+    }
+
+    const lastRow = getOrdersLastRow(sheet);
+    if (lastRow < 7) return JSON.stringify({ success: false, message: 'No orders found' });
+
+    const orderIdsData = sheet.getRange(7, 4, lastRow - 6, 1).getValues(); 
+    
+    updates.forEach(update => {
+        const rowIndex = orderIdsData.findIndex(r => {
+            const sheetId = parseInt(r[0], 10);
+            const searchId = parseInt(update.orderId, 10);
+            return !isNaN(sheetId) && !isNaN(searchId) && sheetId === searchId;
+        });
+
+        if (rowIndex !== -1) {
+            const sheetRow = rowIndex + 7;
+            const fullRowRange = sheet.getRange(sheetRow, 1, 1, sheet.getLastColumn());
+            const rowValues = fullRowRange.getValues()[0]; 
+
+            // TRACKING FLAGS
+            let tawoosChanged = false;
+            let plChanged = false;
+
+            // A. Apply Updates
+            update.products.forEach(p => {
+                const prodName = String(p.name).trim();
+                const cols = productMap[prodName];
+                
+                // Determine Type
+                const isPL = productMeta[prodName] ? productMeta[prodName].isPL : false;
+
+                if (cols) {
+                    let changed = false;
+                    // Update Qty
+                    const currentQty = rowValues[cols.qtyCol - 1]; 
+                    if (currentQty != p.qty) {
+                        sheet.getRange(sheetRow, cols.qtyCol).setValue(p.qty);
+                        const n = sheet.getRange(sheetRow, cols.qtyCol).getNote();
+                        sheet.getRange(sheetRow, cols.qtyCol).setNote((n?n+"\n":"") + `[${timestamp} ${userLabel}] Qty -> ${p.qty}`);
+                        rowValues[cols.qtyCol - 1] = p.qty;
+                        changed = true;
+                    }
+                    // Update Bonus
+                    const currentBonus = rowValues[cols.bonusCol - 1];
+                    if (currentBonus != p.bonus) {
+                        sheet.getRange(sheetRow, cols.bonusCol).setValue(p.bonus);
+                        const n = sheet.getRange(sheetRow, cols.bonusCol).getNote();
+                        sheet.getRange(sheetRow, cols.bonusCol).setNote((n?n+"\n":"") + `[${timestamp} ${userLabel}] Bonus -> ${p.bonus}`);
+                        rowValues[cols.bonusCol - 1] = p.bonus;
+                        changed = true;
+                    }
+
+                    // Mark flag if changed
+                    if (changed) {
+                        if (isPL) plChanged = true;
+                        else tawoosChanged = true;
+                    }
+                }
+            });
+
+            // B. Recalculate Summary & Weight
+            let newSummary = [];
+            let newWeight = 0;
+
+            Object.keys(productMap).forEach(pName => {
+                const cols = productMap[pName];
+                const q = parseFloat(rowValues[cols.qtyCol - 1]) || 0;
+                const b = parseFloat(rowValues[cols.bonusCol - 1]) || 0;
+                const total = q + b;
+                
+                if (total > 0) {
+                    newSummary.push(`${total} ${pName}`);
+                    const w = productMeta[pName] ? productMeta[pName].weight : 0;
+                    newWeight += (total * w);
+                }
+            });
+
+            const summaryStr = newSummary.join('\n');
+            if (rowValues[18] !== summaryStr) sheet.getRange(sheetRow, 19).setValue(summaryStr); 
+            if (parseFloat(rowValues[26]) !== newWeight) sheet.getRange(sheetRow, 27).setValue(newWeight);
+
+            // ==========================================================================================
+            // C. PRECISE INVOICE VALIDATION
+            // ==========================================================================================
+            const alerts = [];
+
+            // 1. Validate TAWOOS Changes
+            if (tawoosChanged) {
+                const hasTawoosInv = rowValues[29] && String(rowValues[29]).trim() !== ""; // Col AD
+                const hasTawoosETA = rowValues[34] && String(rowValues[34]).trim() !== ""; // Col AI (ETA UUID)
+
+                if (hasTawoosETA) {
+                    alerts.push("⚠️ منتجات (الطاووس): الفاتورة الإلكترونية معتمدة. يجب عمل إشعار خصم/إضافة (Credit Note).");
+                } else if (hasTawoosInv) {
+                    alerts.push("⚠️ منتجات (الطاووس): توجد فاتورة داخلية. يجب إعادة حفظ الفاتورة بنفس الرقم.");
+                }
+            }
+
+            // 2. Validate PL Changes
+            if (plChanged) {
+                const hasPLInv = rowValues[30] && String(rowValues[30]).trim() !== ""; // Col AE
+                const hasPLETA = rowValues[35] && String(rowValues[35]).trim() !== ""; // Col AJ (ETA UUID)
+
+                if (hasPLETA) {
+                    alerts.push("⚠️ منتجات (Private Label): الفاتورة الإلكترونية معتمدة. يجب عمل إشعار خصم/إضافة (Credit Note).");
+                } else if (hasPLInv) {
+                    alerts.push("⚠️ منتجات (Private Label): توجد فاتورة داخلية. يجب إعادة حفظ الفاتورة بنفس الرقم.");
+                }
+            }
+
+            // 3. General Fallback (Delivery Note Check)
+            if (alerts.length === 0 && (tawoosChanged || plChanged)) {
+                 const hasDN = rowValues[28] && String(rowValues[28]).trim() !== ""; // Col AC
+                 if (hasDN) {
+                     alerts.push("⚠️ إذن التسليم: يجب إعادة الحفظ لتحديث القيم.");
+                 }
+            }
+
+            if (alerts.length > 0) {
+                hasWarnings = true;
+                returnMessage = "تم التحديث. يرجى الانتباه للإجراءات التالية:\n\n" + alerts.join("\n");
+            }
+        }
+    });
+
+    return JSON.stringify({ success: true, message: returnMessage });
+
+  } catch (e) {
+    return JSON.stringify({ success: false, message: e.toString() });
+  }
+}
+
 // =============================================================================
 // END OF WAREHOUSE MODULE
 // =============================================================================
