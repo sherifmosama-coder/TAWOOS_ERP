@@ -243,6 +243,9 @@ function getOrders(fetchAll) {
           deduction1Percent: row[39],
           amountIncludingTax: row[40],
           orderType: row[41],
+          // NEW: ETA UUIDs (Columns AI=34, AJ=35)
+          tawoosEtaUuid: row[34] ? row[34].toString() : '',
+          plEtaUuid: row[35] ? row[35].toString() : '',
           // NEW FLAGS & COUNTS
           hasTawoos: hasTawoos || tawoosCount > 0,
           hasPL: hasPL || plCount > 0,
