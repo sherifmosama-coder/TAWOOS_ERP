@@ -172,39 +172,50 @@ function getOrders(fetchAll) {
       
       // MODIFIED: If fetchAll is true, we ignore the status filter
       if (fetchAll || isUnfulfilled || hasRecentDate) {
-        // --- DETERMINE PRODUCT MIX ---
-        let hasTawoos = false;
-        let hasPL = false;
+        // --- DETERMINE PRODUCT MIX & COUNTS ---
+        let tawoosCount = 0;
+        let plCount = 0;
+        let tawoosItems = [];
+        let plItems = [];
         
         // Scan product columns starting at AQ (Index 42)
-        // Pattern: QTY, BONUS, PRICE, DISCOUNT, INV_DISC
         for (let c = 42; c < row.length; c += 5) {
             const qty = parseFloat(row[c]) || 0;
             const bonus = parseFloat(row[c+1]) || 0;
+            const total = qty + bonus;
             
-            if (qty > 0 || bonus > 0) {
+            if (total > 0) {
                 const prodName = headerRow[c] ? headerRow[c].toString().trim() : '';
                 if (prodName) {
+                    const itemSummary = `${total} ${prodName}`;
                     // Check map (Default to Tawoos if not found or false)
                     if (productMap[prodName] === true) {
-                        hasPL = true;
+                        plCount += total; // Sum of Qty + Bonus
+                        plItems.push(itemSummary);
                     } else {
-                        hasTawoos = true;
+                        tawoosCount += total; // Sum of Qty + Bonus
+                        tawoosItems.push(itemSummary);
                     }
                 }
             }
-            // Optimization: If both found, stop scanning
-            if (hasTawoos && hasPL) break;
         }
         
-        // Fallback: If no products found but summary exists (legacy/error), assume Tawoos
-        if (!hasTawoos && !hasPL && row[18]) hasTawoos = true;
+        const hasTawoos = tawoosCount > 0;
+        const hasPL = plCount > 0;
+        
+        // Fallback for legacy data
+        if (!hasTawoos && !hasPL && row[18]) {
+             // If summary exists but no product columns, treat as 1 generic Tawoos item
+             tawoosCount = 1;
+             tawoosItems.push(row[18]); 
+        }
 
         orders.push({
           rowIndex: i + 7,
           status: row[2],
           orderId: row[3],
-          version: row[4],
+          // Version/Confirmation Status (Col E)
+          confirmationStatus: row[4] ? row[4].toString() : '', 
           invoiceDate: invoiceDate ? Utilities.formatDate(invoiceDate, Session.getScriptTimeZone(), 'yyyy-MM-dd') : '',
           loadingDate: loadingDate ? Utilities.formatDate(loadingDate, Session.getScriptTimeZone(), 'yyyy-MM-dd') : '',
           clientName: row[8],
@@ -232,9 +243,13 @@ function getOrders(fetchAll) {
           deduction1Percent: row[39],
           amountIncludingTax: row[40],
           orderType: row[41],
-          // NEW FLAGS
-          hasTawoos: hasTawoos,
-          hasPL: hasPL
+          // NEW FLAGS & COUNTS
+          hasTawoos: hasTawoos || tawoosCount > 0,
+          hasPL: hasPL || plCount > 0,
+          tawoosCount: tawoosCount,
+          plCount: plCount,
+          tawoosSummary: tawoosItems.join('<br>'),
+          plSummary: plItems.join('<br>')
         });
       }
     }
