@@ -1,0 +1,530 @@
+<script>
+/**
+ * PURCHASES MODULE - MODERN UI V5.0
+ * Theme: Petroleum (Dark Blue/Grey)
+ * Features: Global Supplier, Context Filters, Dynamic Tax, Auto-Units
+ */
+
+let purchasesState = {
+    warehouses: [],
+    materialsGrouped: [],
+    units: [],
+    operations: [],
+    allTransactions: []
+};
+
+function initPurchasesModule() {
+    const container = document.getElementById('purchasesTabContent');
+    if (!container) return;
+
+    // --- 1. CSS STYLES ---
+    if (!document.getElementById('purchases-styles')) {
+        const style = document.createElement('style');
+        style.id = 'purchases-styles';
+        style.innerHTML = `
+            :root {
+                --p-dark: #1e293b;       /* Dark Petroleum */
+                --p-primary: #334155;    /* Slate */
+                --p-accent: #2563eb;     /* Blue */
+                --p-light: #f1f5f9;      /* Light BG */
+                --p-border: #cbd5e1;
+            }
+            .purchases-container { direction: rtl; font-family: 'Tajawal', sans-serif; padding: 25px; background: var(--p-light); min-height: 90vh; animation: fadeUp 0.3s ease-out; }
+            @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+            /* Tabs */
+            .purch-tabs-wrapper { background: white; padding: 8px 12px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: inline-flex; gap: 8px; margin-bottom: 20px; }
+            .purch-tab-btn { border: none; background: transparent; padding: 8px 20px; border-radius: 8px; font-weight: 600; color: var(--p-primary); transition: 0.2s; }
+            .purch-tab-btn.active { background: var(--p-dark); color: white; box-shadow: 0 4px 6px rgba(30, 41, 59, 0.3); }
+
+            /* Buttons */
+            .btn-action { border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; gap: 8px; }
+            .btn-create { background: var(--p-accent); color: white; }
+            .btn-create:hover { background: #1d4ed8; transform: translateY(-1px); }
+
+            /* Modal Styling */
+            .modal { direction: rtl; }
+            .modal-content { border-radius: 16px; border: none; box-shadow: 0 20px 40px rgba(0,0,0,0.2); text-align: right; overflow: hidden; }
+            
+            /* Modal Header Area */
+            .modal-header-custom { background: var(--p-dark); padding: 20px; color: white; display: flex; justify-content: space-between; align-items: center; }
+            .modal-title-custom { font-size: 1.2rem; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+            .modal-header-fields { background: #f8fafc; padding: 20px; border-bottom: 1px solid var(--p-border); display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+
+            /* Form Elements */
+            .field-group label { display: block; font-size: 0.8rem; font-weight: 700; color: #64748b; margin-bottom: 5px; }
+            .form-control-custom { width: 100%; padding: 9px 12px; border: 1px solid var(--p-border); border-radius: 6px; font-size: 0.95rem; background: white; transition: 0.2s; }
+            .form-control-custom:focus { border-color: var(--p-accent); outline: none; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+            .form-control-custom[readonly] { background: #f1f5f9; color: #94a3b8; }
+
+            /* Table */
+            .items-table-container { padding: 0 20px 20px 20px; background: white; }
+            .items-table { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--p-border); border-radius: 8px; overflow: hidden; margin-top: 15px; }
+            .items-table th { background: #f1f5f9; padding: 10px; font-size: 0.85rem; font-weight: 700; color: var(--p-primary); border-bottom: 1px solid var(--p-border); }
+            .items-table td { padding: 8px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+            
+            /* Compact inputs in table */
+            .tbl-input { width: 100%; padding: 6px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.9rem; }
+            .tbl-input:focus { border-color: var(--p-accent); outline: none; }
+            
+            /* Custom Checkbox */
+            .check-wrapper { display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: #64748b; }
+            .check-label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+            .check-label input { accent-color: var(--p-accent); }
+            .modal-xl-custom { max-width: 95%; width: 95%; }
+            .items-table th { font-size: 0.8rem; white-space: nowrap; }
+
+            /* Card Layout Styles */
+            .item-card { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; margin-bottom: 15px; position: relative; box-shadow: 0 2px 4px rgba(0,0,0,0.02); transition: all 0.2s; border-left: 4px solid var(--p-accent); }
+            .item-card:hover { box-shadow: 0 8px 15px rgba(0,0,0,0.05); transform: translateY(-1px); }
+            .card-remove-btn { position: absolute; top: 10px; left: 10px; width: 24px; height: 24px; border-radius: 50%; background: #fee2e2; color: #ef4444; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; z-index: 2; }
+            .card-remove-btn:hover { background: #ef4444; color: white; transform: rotate(90deg); }
+            
+            .card-grid-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; align-items: end; margin-bottom: 10px; }
+            .card-label { font-size: 0.75rem; font-weight: 700; color: #64748b; margin-bottom: 5px; display: block; white-space: nowrap; }
+            
+            .card-input-group { display: flex; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; }
+            .card-input-group input { border: none; padding: 6px 8px; font-size: 0.9rem; width: 100%; outline: none; }
+            .card-input-group span { background: #f1f5f9; padding: 6px 8px; font-size: 0.8rem; font-weight: 600; color: #64748b; border-right: 1px solid #e2e8f0; display: flex; align-items: center; }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // --- 2. LAYOUT ---
+    container.innerHTML = `
+        <div class="purchases-container">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div class="purch-tabs-wrapper">
+                    <button class="purch-tab-btn active" onclick="showPurchTab('inout', this)"><i class="fas fa-boxes"></i> المخزن</button>
+                    <button class="purch-tab-btn" onclick="showPurchTab('po', this)"><i class="fas fa-file-contract"></i> التوريد</button>
+                    <button class="purch-tab-btn" onclick="showPurchTab('payments', this)"><i class="fas fa-wallet"></i> المدفوعات</button>
+                </div>
+            </div>
+
+            <div id="tab-inout" class="tab-content-panel">
+                <div class="history-card" style="background:white; border-radius:12px; padding:20px; box-shadow:0 4px 10px rgba(0,0,0,0.05);">
+                    <div class="d-flex justify-content-between mb-3">
+                        <h4 style="font-weight:700; color:var(--p-dark);"><i class="fas fa-list"></i> سجل الحركات</h4>
+                        <div class="d-flex gap-2">
+                            <input type="text" id="f-search" class="form-control-custom" placeholder="بحث سريع..." style="width:200px;" onkeyup="applyFilter()">
+                            <button class="btn-action btn-create" onclick="openPurchaseModal()"><i class="fas fa-plus"></i> حركة جديدة</button>
+                        </div>
+                    </div>
+                    <table class="table table-hover" id="p-history-table">
+                        <thead style="background:#f8fafc;"><tr><th>#</th><th>التاريخ</th><th>النوع</th><th>المورد</th><th>الصنف</th><th>الإجمالي</th><th></th></tr></thead>
+                        <tbody><tr><td colspan="7" class="text-center p-4">جاري التحميل...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div id="tab-po" class="tab-content-panel" style="display:none; text-align:center; padding:50px;"><h3 class="text-muted">قريباً...</h3></div>
+            <div id="tab-payments" class="tab-content-panel" style="display:none; text-align:center; padding:50px;"><h3 class="text-muted">قريباً...</h3></div>
+        </div>
+
+        <div class="modal fade" id="transactionModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-fullscreen-lg-down">
+                <div class="modal-content">
+                    
+                    <div class="modal-header-custom">
+                        <div class="modal-title-custom"><i class="fas fa-dolly"></i> تسجيل حركة مخزنية</div>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+
+                    <form id="purchaseForm">
+                        <div class="modal-header-fields">
+                            <div class="field-group">
+                                <label>التاريخ</label>
+                                <input type="date" id="p-date" class="form-control-custom" readonly>
+                            </div>
+                            <div class="field-group">
+                                <label>نوع العملية</label>
+                                <select id="p-operation" class="form-control-custom" required></select>
+                            </div>
+                            <div class="field-group">
+                                <label style="color:var(--p-accent);">المورد (فلتر الأصناف)</label>
+                                <select id="p-supplier-global" class="form-control-custom" onchange="onGlobalSupplierChange()" required>
+                                    <option value="">اختر المورد أولاً...</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="items-table-container">
+                            <div class="items-table-container" style="background: #f8fafc; border: 1px solid var(--p-border); padding: 20px; min-height: 200px;">
+                            <div id="p-items-list">
+                                </div>
+                            
+                            <div class="d-flex justify-content-between align-items-center mt-4 pt-3" style="border-top: 1px dashed #cbd5e1;">
+                                <button type="button" class="btn-action" style="background:white; border:1px solid var(--p-border); color:var(--p-dark);" onclick="addPurchaseRow()">
+                                    <i class="fas fa-plus-circle text-success"></i> إضافة صنف جديد
+                                </button>
+                                
+                                <div class="d-flex align-items-center gap-3">
+                                    <div style="text-align:left;">
+                                        <label style="font-size:0.75rem; font-weight:700; color:#64748b; display:block;">نولون / نقل</label>
+                                        <input type="number" id="p-shipping-fee" class="form-control-custom" value="0" min="0" placeholder="0.00" style="width:120px; font-weight:bold; color:var(--p-accent);">
+                                    </div>
+                                    
+                                    <div style="font-weight:800; font-size:1.2rem; color:var(--p-dark); background:white; padding:10px 20px; border-radius:8px; border:1px solid var(--p-border);">
+                                        الإجمالي: <span id="p-grand-total" style="color:var(--p-accent);">0.00</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row mt-4">
+                                <div class="col-md-8">
+                                    <label class="filter-label">ملاحظات</label>
+                                    <input type="text" id="p-notes" class="form-control-custom" placeholder="أية تفاصيل إضافية...">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="filter-label">رقم مرجعي / PO</label>
+                                    <input type="text" id="p-po" class="form-control-custom">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="modal-footer" style="border-top:1px solid #e2e8f0; padding:15px;">
+                            <button type="button" class="btn btn-light" data-bs-dismiss="modal">إلغاء</button>
+                            <button type="button" class="btn-action btn-create" onclick="savePurchase()">
+                                <i class="fas fa-save"></i> حفظ الحركة
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <datalist id="list-units"></datalist>
+    `;
+
+    loadPurchasesData();
+}
+
+// --- LOGIC ---
+
+function openPurchaseModal() {
+    const el = document.getElementById('transactionModal');
+    let modal = bootstrap.Modal.getInstance(el);
+    if (!modal) modal = new bootstrap.Modal(el);
+    modal.show();
+}
+
+function showPurchTab(id, btn) {
+    document.querySelectorAll('.tab-content-panel').forEach(e => e.style.display='none');
+    document.getElementById('tab-'+id).style.display='block';
+    document.querySelectorAll('.purch-tab-btn').forEach(e => e.classList.remove('active'));
+    if(btn) btn.classList.add('active');
+}
+
+function loadPurchasesData() {
+    google.script.run.withSuccessHandler(res => {
+        if(res.success) {
+            purchasesState = { ...purchasesState, ...res, allTransactions: res.history };
+            
+            // 1. Setup Global Supplier List
+            const allSuppliers = new Set();
+            res.materialsGrouped.forEach(group => {
+                group.variations.forEach(v => {
+                    if(v.supplier) allSuppliers.add(v.supplier);
+                });
+            });
+            const supSel = document.getElementById('p-supplier-global');
+            supSel.innerHTML = '<option value="">اختر المورد...</option>';
+            Array.from(allSuppliers).sort().forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s; opt.innerText = s;
+                supSel.appendChild(opt);
+            });
+
+            // 2. Setup Unit Datalist
+            const dl = document.getElementById('list-units');
+            dl.innerHTML = '';
+            res.units.forEach(u => {
+                const opt = document.createElement('option');
+                opt.value = u;
+                dl.appendChild(opt);
+            });
+
+            // 3. Date & Ops
+            const d = document.getElementById('p-date');
+            d.valueAsDate = new Date();
+            if(res.isAdmin) d.removeAttribute('readonly');
+
+            populateSelect('p-operation', res.operations, 'استلام');
+            // populateSelectObj('p-warehouse', res.warehouses); // REMOVED to fix error
+            
+            renderHistory(res.history);
+        }
+    }).getPurchasesInitialData();
+}
+
+function populateSelect(id, list, def) {
+    const el = document.getElementById(id);
+    el.innerHTML = '<option value="">اختر...</option>';
+    list.forEach(i => {
+        const opt = document.createElement('option');
+        opt.value = i; opt.innerText = i;
+        if(i===def) opt.selected=true;
+        el.appendChild(opt);
+    });
+}
+function populateSelectObj(id, list) {
+    const el = document.getElementById(id);
+    el.innerHTML = '<option value="">اختر...</option>';
+    list.forEach(i => {
+        const opt = document.createElement('option');
+        opt.value = i.id; opt.innerText = i.name;
+        el.appendChild(opt);
+    });
+}
+
+function renderHistory(data) {
+    const tb = document.querySelector('#p-history-table tbody');
+    if(!data || data.length===0) { tb.innerHTML='<tr><td colspan="7" class="text-center text-muted p-4">لا توجد بيانات</td></tr>'; return; }
+    let h = '';
+    data.slice(0,50).forEach(r => {
+        h += `<tr><td>#${r.id}</td><td>${r.date}</td><td>${r.op}</td><td>${r.supplier}</td><td>${r.item}</td><td>${parseFloat(r.total).toLocaleString()}</td><td><i class="fas fa-check text-success"></i></td></tr>`;
+    });
+    tb.innerHTML = h;
+}
+
+function onGlobalSupplierChange() {
+    const container = document.getElementById('p-items-list');
+    if(container.children.length > 0) {
+        if(confirm('تغيير المورد سيقوم بمسح الأصناف الحالية. هل أنت متأكد؟')) {
+            container.innerHTML = '';
+            addPurchaseRow();
+        }
+    } else {
+        addPurchaseRow();
+    }
+}
+
+function addPurchaseRow() {
+    const supplier = document.getElementById('p-supplier-global').value;
+    if(!supplier) { alert('يرجى اختيار المورد أولاً من أعلى القائمة'); return; }
+
+    // Filter Basic Items
+    let basicOpts = '<option value="">اختر...</option>';
+    purchasesState.materialsGrouped.forEach((group, idx) => {
+        const hasSupplier = group.variations.some(v => v.supplier === supplier);
+        if(hasSupplier) basicOpts += `<option value="${idx}">${group.name}</option>`;
+    });
+
+    // Warehouse Options
+    let whOpts = '';
+    purchasesState.warehouses.forEach(w => whOpts += `<option value="${w.id}">${w.name}</option>`);
+
+    const container = document.getElementById('p-items-list');
+    const div = document.createElement('div');
+    div.className = 'item-card';
+    div.innerHTML = `
+        <button type="button" class="card-remove-btn" onclick="removeRow(this)"><i class="fas fa-times"></i></button>
+        
+        <div class="card-grid-row">
+            <div>
+                <label class="card-label">المخزن</label>
+                <select class="form-control-custom p-warehouse-row" style="padding:6px;">${whOpts}</select>
+            </div>
+            <div>
+                <label class="card-label">الصنف الأساسي</label>
+                <select class="form-control-custom p-basic" onchange="onBasicChange(this)" style="padding:6px;">${basicOpts}</select>
+            </div>
+            <div style="grid-column: span 2;">
+                <label class="card-label">النوع المحدد</label>
+                <select class="form-control-custom p-specific" disabled onchange="onSpecificChange(this)" style="padding:6px; background:#f8fafc;"></select>
+            </div>
+        </div>
+
+        <div class="card-grid-row" style="background: #f8fafc; padding: 10px; border-radius: 8px; border: 1px dashed #e2e8f0;">
+            <div>
+                <label class="card-label">الكمية الكبرى</label>
+                <div class="card-input-group">
+                    <input type="number" class="p-qty-major" value="0" min="0" onchange="calcRow(this)" placeholder="0">
+                    <input type="text" class="p-unit-major" list="list-units" placeholder="وحدة" style="width:50px; text-align:center; border-left:1px solid #e2e8f0;">
+                </div>
+            </div>
+            <div>
+                <label class="card-label">سعة العبوة</label> <div class="card-input-group">
+                    <input type="number" class="p-pack-qty" value="1" min="0" onchange="calcRow(this)" placeholder="1"> <input type="text" class="p-unit-minor" list="list-units" placeholder="وحدة" style="width:50px; text-align:center; border-left:1px solid #e2e8f0;">
+                </div>
+            </div>
+            <div>
+                <label class="card-label">إجمالي الوحدات</label>
+                <input type="text" class="form-control-custom p-qty-total" readonly style="background:#e2e8f0; font-weight:700; text-align:center;" value="0">
+            </div>
+            <div>
+                <label class="card-label">سعر الوحدة</label>
+                <input type="number" class="form-control-custom p-price" placeholder="0.00" onchange="calcRow(this)">
+            </div>
+            <div>
+                <label class="card-label">الضرائب</label>
+                <div class="check-wrapper">
+                    <label class="check-label"><input type="checkbox" class="p-tax" data-rate="0.14" checked onchange="calcRow(this)"> ض.ق.م (14%)</label>
+                    <label class="check-label"><input type="checkbox" class="p-wht" data-rate="0.01" onchange="calcRow(this)"> ض.أ.ت (1%)</label>
+                </div>
+            </div>
+            <div>
+                <label class="card-label">الإجمالي</label>
+                <input type="text" class="form-control-custom p-line-total" readonly style="background:#1e293b; color:white; font-weight:700; text-align:center;">
+            </div>
+        </div>
+    `;
+    container.appendChild(div);
+}
+
+function onBasicChange(el) {
+    const card = el.closest('.item-card');
+    const groupIdx = el.value;
+    const supplier = document.getElementById('p-supplier-global').value;
+    const specSel = card.querySelector('.p-specific');
+    
+    specSel.innerHTML = '<option value="">اختر...</option>';
+    specSel.disabled = true;
+
+    if(groupIdx !== "") {
+        const group = purchasesState.materialsGrouped[groupIdx];
+        const vars = group.variations.filter(v => v.supplier === supplier);
+        vars.forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v.id; 
+            opt.innerText = v.specificName;
+            opt.dataset.pack = v.pack;
+            opt.dataset.sunit = v.smallUnit;
+            opt.dataset.lunit = v.largeUnit;
+            opt.dataset.sign = v.specialSign; // NEW
+            opt.dataset.vat = v.vatRate;
+            opt.dataset.wht = v.whtRate;
+            specSel.appendChild(opt);
+        });
+        specSel.disabled = false;
+    }
+}
+
+function onSpecificChange(el) {
+    const card = el.closest('.item-card');
+    const opt = el.selectedOptions[0];
+    if(!opt || !opt.value) return;
+
+    card.querySelector('.p-unit-major').value = opt.dataset.lunit || '';
+    card.querySelector('.p-unit-minor').value = opt.dataset.sunit || '';
+    
+    // NEW: Auto-fill Pack Size (Editable)
+    card.querySelector('.p-pack-qty').value = opt.dataset.pack || 1;
+
+    const vatBox = card.querySelector('.p-tax');
+    const whtBox = card.querySelector('.p-wht');
+    vatBox.dataset.rate = opt.dataset.vat;
+    whtBox.dataset.rate = opt.dataset.wht;
+
+    calcRow(el);
+}
+
+function calcRow(el) {
+    const card = el.closest('.item-card');
+    
+    const qMajor = parseFloat(card.querySelector('.p-qty-major').value) || 0;
+    const price = parseFloat(card.querySelector('.p-price').value) || 0;
+    
+    // NEW: Get Pack Size from the Editable Input (instead of dataset)
+    const packSize = parseFloat(card.querySelector('.p-pack-qty').value) || 1;
+
+    // NEW Formula: Large Units * Pack Size (No independent small qty)
+    const totalQty = qMajor * packSize;
+    
+    card.querySelector('.p-qty-total').value = totalQty;
+
+    const preTax = totalQty * price;
+    // ... (rest of the function remains the same: taxes, final, updateGrandTotal)
+    const vatRate = card.querySelector('.p-tax').checked ? parseFloat(card.querySelector('.p-tax').dataset.rate) : 0;
+    const whtRate = card.querySelector('.p-wht').checked ? parseFloat(card.querySelector('.p-wht').dataset.rate) : 0;
+
+    const final = preTax + (preTax * vatRate) - (preTax * whtRate);
+    card.querySelector('.p-line-total').value = final.toFixed(2);
+    
+    updateGrandTotal();
+}
+
+function updateGrandTotal() {
+    let sum = 0;
+    document.querySelectorAll('.p-line-total').forEach(i => sum += parseFloat(i.value)||0);
+    document.getElementById('p-grand-total').innerText = sum.toLocaleString(undefined, {minimumFractionDigits:2});
+}
+
+function removeRow(btn) {
+    btn.closest('.item-card').remove();
+    updateGrandTotal();
+}
+
+function savePurchase() {
+    const btn = document.querySelector('.btn-create');
+    const original = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> حفظ...'; btn.disabled = true;
+
+    const payload = {
+        date: document.getElementById('p-date').value,
+        operation: document.getElementById('p-operation').value,
+        supplier: document.getElementById('p-supplier-global').value,
+        transportationFee: document.getElementById('p-shipping-fee').value, // NEW
+        notes: document.getElementById('p-notes').value,
+        poNumber: document.getElementById('p-po').value,
+        items: []
+    };
+
+    const cards = document.querySelectorAll('.item-card');
+    cards.forEach(card => {
+        const spec = card.querySelector('.p-specific');
+        if(spec.value) {
+            const basic = card.querySelector('.p-basic');
+            const group = purchasesState.materialsGrouped[basic.value];
+            const wh = card.querySelector('.p-warehouse-row');
+            const qMaj = card.querySelector('.p-qty-major').value;
+            const packVal = card.querySelector('.p-pack-qty').value; // Get Editable Pack Size
+            const price = card.querySelector('.p-price').value;
+            
+            const pack = parseFloat(packVal) || 1;
+            const totQty = parseFloat(qMaj) * pack; // Recalculate to be safe
+            
+            const preTax = totQty * parseFloat(price);
+            const vatCheck = card.querySelector('.p-tax');
+            const whtCheck = card.querySelector('.p-wht');
+
+            payload.items.push({
+                refId: spec.value,
+                basicName: group.name,
+                specificName: spec.selectedOptions[0].text,
+                specialSign: spec.selectedOptions[0].dataset.sign, // NEW
+                warehouseId: wh.value,
+                warehouseName: wh.selectedOptions[0].text,
+                qtyMajor: qMaj,
+                unitMajor: card.querySelector('.p-unit-major').value,
+                qtyMinor: packVal, // Save Pack Size in 'Minor Qty' column
+                unitMinor: card.querySelector('.p-unit-minor').value,
+                totalQty: totQty,
+                price: price,
+                isTax: vatCheck.checked,
+                isDisc1: whtCheck.checked,
+                preTaxTotal: preTax,
+                taxValue: vatCheck.checked ? preTax * parseFloat(vatCheck.dataset.rate) : 0,
+                discountValue: whtCheck.checked ? preTax * parseFloat(whtCheck.dataset.rate) : 0,
+                lineTotal: parseFloat(card.querySelector('.p-line-total').value)
+            });
+        }
+    });
+
+    if(payload.items.length===0) { alert('أضف صنفاً واحداً'); btn.innerHTML=original; btn.disabled=false; return; }
+
+    google.script.run.withSuccessHandler(res => {
+        btn.innerHTML = original; btn.disabled = false;
+        if(res.success) {
+            bootstrap.Modal.getInstance(document.getElementById('transactionModal')).hide();
+            alert('✅ تم الحفظ: ' + res.transactionId);
+            document.getElementById('purchaseForm').reset();
+            document.getElementById('p-items-list').innerHTML = '';
+            document.getElementById('p-grand-total').innerText = '0.00';
+            loadPurchasesData();
+        } else {
+            alert('❌ خطأ: ' + res.message);
+        }
+    }).savePurchaseTransaction(payload);
+}
+</script>
