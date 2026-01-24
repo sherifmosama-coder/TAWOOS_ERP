@@ -779,24 +779,35 @@ function getTrucksData() {
       return { success: true, trucks: [] };
     }
     
-    const truckNames = trucksSheet.getRange(2, 1, lastRow - 1, 1).getValues();
-    const drivers = trucksSheet.getRange(2, 2, lastRow - 1, 1).getValues();
-    const capacities = trucksSheet.getRange(2, 7, lastRow - 1, 1).getValues();
-    
+    // [UPDATED] Fetch columns A to I (Indexes 0 to 8) for detailed capacity logic
+    const truckData = trucksSheet.getRange(2, 1, lastRow - 1, 9).getValues();
     const trucks = [];
     
-    for (let i = 0; i < truckNames.length; i++) {
-      const truckName = truckNames[i][0];
+    for (let i = 0; i < truckData.length; i++) {
+      const row = truckData[i];
+      const truckName = row[0]; // Col A
       if (!truckName || truckName.toString().trim() === '') continue;
       
-      const driver = drivers[i][0] ? drivers[i][0].toString().trim() : '';
-      const capacity = capacities[i][0] && !isNaN(capacities[i][0]) ? parseFloat(capacities[i][0]) : 0;
+      const driver = row[1] ? row[1].toString().trim() : '';
       
-      if (capacity > 0) {
+      // Parse detailed weights
+      const optimum = parseFloat(row[4]) || 0; // Col E
+      const minWeight = parseFloat(row[5]) || 0; // Col F
+      const maxWeight = parseFloat(row[6]) || 0; // Col G
+      const minMargin = parseFloat(row[7]) || 0; // Col H (Percentage)
+      const maxMargin = parseFloat(row[8]) || 0; // Col I (Percentage)
+      
+      // Use MaxWeight as fallback for legacy 'capacity' property
+      if (maxWeight > 0) {
         trucks.push({
           name: truckName.toString().trim(),
           driver: driver,
-          capacity: capacity
+          capacity: maxWeight, // Legacy support
+          optimum: optimum,
+          min: minWeight,
+          max: maxWeight,
+          minMargin: minMargin,
+          maxMargin: maxMargin
         });
       }
     }
