@@ -1101,6 +1101,7 @@ function getAllUndeliveredOrders() {
           driver: row[21] ? row[21].toString() : '',
           deliveryRep: row[22] ? row[22].toString() : '',
           dismissNumber: row[24] ? row[24].toString().trim() : '', // Column Y (index 24)
+          orderSummary: row[18] ? row[18].toString() : '', // [UPDATED] Column S
           isDelivered: status.toLowerCase() === 'delivered',
           isPaid: status.toLowerCase() === 'paid'
         });
