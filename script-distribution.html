@@ -433,8 +433,8 @@ function createAvailableOrderCard(order) {
                     </div>
                 ${order.clientRegion ? `<div class="dist-client-region"><i class="fas fa-map-marker-alt"></i> ${order.clientRegion}</div>` : ''}
                 <div class="dist-order-meta">
-                    <span class="weight-badge" title="Total Weight: ${order.totalWeight || 0} kg">
-                        <i class="fas fa-weight-hanging"></i> ${order.totalWeight || 0} kg
+                    <span class="weight-badge" title="Total Weight: ${Math.round(order.totalWeight || 0)} kg">
+                        <i class="fas fa-weight-hanging"></i> ${Math.round(order.totalWeight || 0)} kg
                     </span>
                     <span class="distance-badge ${distanceColor}" title="Distance from Base: ${distance} km">
                         <i class="fas fa-map-marker-alt"></i> ${distance} km
@@ -860,7 +860,123 @@ const isExisting = loadingOrder !== null;
     const truckCapacity = getTruckCapacity(truck);
     const weightPercent = truckCapacity > 0 ? (totalWeight / truckCapacity) * 100 : 0;
     const weightColor = weightPercent > 100 ? 'red' : weightPercent > 80 ? 'yellow' : 'green';
+
+    // [UPDATED] Removed legacy weightColor logic
     
+    // --- 1. Dynamic Truck Capacity Gauge Logic (Starts from Min Lower Limit) ---
+    let gaugeHTML = '';
+    const truckObj = distributionData.trucksData.find(t => t.name === truck);
+    
+    if (truckObj && truckObj.optimum > 0) {
+        // Boundaries
+        const yellowStart = truckObj.min * (1 - truckObj.minMargin); // START POINT
+        const yellowEnd = truckObj.min;
+        const greenStart = truckObj.optimum * 0.9;
+        const greenEnd = truckObj.optimum * 1.1;
+        const redStart = truckObj.max;
+        const redEnd = truckObj.max * (1 + truckObj.maxMargin);
+        
+        // Scale Settings
+        const scaleMin = yellowStart; // Scale starts strictly at Min Margin Lower Limit
+        const absoluteMax = Math.max(redEnd, totalWeight * 1.05); 
+        const scaleMax = absoluteMax;
+        
+        // Convert Weight to % on Scale
+        const toPct = (val) => {
+            if (val <= scaleMin) return 0; // Clamp start to 0%
+            return Math.min(((val - scaleMin) / (scaleMax - scaleMin)) * 100, 100);
+        };
+        
+        // Percentages for Gradient Stops
+        const pYellowStart = 0; // Starts at 0% by definition
+        const pYellowEnd = toPct(yellowEnd);
+        const pGreenStart = toPct(greenStart);
+        const pGreenEnd = toPct(greenEnd);
+        const pRedStart = toPct(redStart);
+        const pRedEnd = toPct(redEnd);
+        
+        const pointerLeft = toPct(totalWeight);
+        
+        // Determine Status for Graphic Signal
+        let statusIcon = 'fa-arrow-down';
+        let statusColor = '#ffc107'; 
+        let statusText = 'Low Load / حمولة منخفضة';
+        
+        if (totalWeight < yellowStart) {
+             statusIcon = 'fa-arrow-down'; statusColor = '#adb5bd'; statusText = 'Low / منخفض';
+        } else if (totalWeight <= yellowEnd) {
+             statusIcon = 'fa-check'; statusColor = '#ffc107'; statusText = 'Min (Cost Covered)';
+        } else if (totalWeight < greenStart) {
+             statusIcon = 'fa-exclamation-circle'; statusColor = '#ffda6a'; statusText = 'Approaching Opt';
+        } else if (totalWeight <= greenEnd) {
+             statusIcon = 'fa-check-circle'; statusColor = '#28a745'; statusText = 'Optimal / مثالي';
+        } else if (totalWeight < redStart) {
+             statusIcon = 'fa-exclamation-triangle'; statusColor = '#fd7e14'; statusText = 'Heavy / ثقيل';
+        } else if (totalWeight <= redEnd) {
+             statusIcon = 'fa-exclamation-triangle'; statusColor = '#dc3545'; statusText = 'Max Safe / أقصى حمولة';
+        } else {
+             statusIcon = 'fa-times-circle'; statusColor = '#8b0000'; statusText = 'Overloaded / حمولة زائدة!';
+        }
+
+        gaugeHTML = `
+            <div class="capacity-gauge-container">
+                <div class="gauge-header">
+                    <span class="gauge-title">Weight Gauge / مؤشر الحمولة</span>
+                    <span class="gauge-signal" style="color: ${statusColor}">
+                        <i class="fas ${statusIcon}"></i> ${statusText}
+                    </span>
+                </div>
+                
+                <div class="gauge-bar-wrapper">
+                    <div class="gauge-labels">
+                        <span style="left: ${pYellowEnd}%">${Math.round(yellowEnd)}<br><small>Min</small></span>
+                        <span style="left: ${pGreenStart}%">${Math.round(greenStart)}<br><small>Opt</small></span>
+                        <span style="left: ${pRedStart}%">${Math.round(redStart)}<br><small>Max</small></span>
+                    </div>
+
+                    <div class="gauge-bar" style="background: linear-gradient(to right, 
+                        #ffc107 0%, 
+                        #ffc107 ${pYellowEnd}%, 
+                        #ffc107 ${pYellowEnd}%, 
+                        #28a745 ${pGreenStart}%, 
+                        #28a745 ${pGreenEnd}%, 
+                        #28a745 ${pGreenEnd}%, 
+                        #dc3545 ${pRedStart}%, 
+                        #dc3545 ${pRedEnd}%, 
+                        #8b0000 ${pRedEnd}%, 
+                        #8b0000 100%
+                    );"></div>
+                    
+                    <div class="gauge-pointer" style="left: ${pointerLeft}%; background-color: ${statusColor}; border-color: ${statusColor};">
+                        <div class="pointer-value">${Math.round(totalWeight)}</div>
+                    </div>
+                </div>
+            </div>`;
+    } else {
+        gaugeHTML = `<div class="capacity-gauge-placeholder"><i class="fas fa-truck"></i> Select a truck</div>`;
+    }
+
+    // --- 2. Build Custom Order Dropdown HTML ---
+    let orderOptionsHTML = `<div class="custom-order-dropdown" id="dropdown-${index}" style="display:none;">`;
+    orderOptionsHTML += `<div class="dropdown-item header">Select Order to Add...</div>`;
+    const availableOrders = distributionData.allOrders.filter(o => !o.loadingOrderNumber);
+    
+    if (availableOrders.length === 0) {
+        orderOptionsHTML += `<div class="dropdown-item empty">No available orders</div>`;
+    } else {
+        availableOrders.forEach(order => {
+            orderOptionsHTML += `
+                <div class="dropdown-item" onclick="event.stopPropagation(); addOrderToLoadingOrder(${index}, '${order.orderId}')">
+                    <div class="d-flex justify-content-between">
+                        <span><strong>#${formatOrderId(order.orderId)}</strong> ${order.clientName}</span>
+                        <span class="badge badge-light border">${Math.round(order.totalWeight || 0)}kg</span>
+                    </div>
+                </div>`;
+        });
+    }
+    orderOptionsHTML += `</div>`;
+    
+    // --- 3. Build Box HTML (Updated) ---
     box.innerHTML = `
         <div class="loading-order-header-row">
             <div class="lo-header-date-display">
@@ -911,17 +1027,21 @@ const isExisting = loadingOrder !== null;
             ` : ''}
             
             <div class="loading-order-orders">
-                ${!isDisabled ? `
-                    <div class="order-selector">
-                        <i class="fas fa-plus-circle"></i>
-                        <select class="form-control-compact" id="orderSelect-${index}">
-                            <option value="">Add Order</option>
-                        </select>
-                    </div>
-                ` : ''}
+                <div class="gauge-section">
+                    ${gaugeHTML}
+                </div>
                 
                 <div class="orders-chips-container" id="ordersChips-${index}">
                     ${orders.map((order, orderIdx) => createOrderChip(order, index, orderIdx, isDisabled, loadingOrder)).join('')}
+                    
+                    ${!isDisabled ? `
+                    <div class="add-order-wrapper">
+                        <button class="btn-add-order-circle" onclick="toggleOrderDropdown(${index})" title="Add Order">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                        ${orderOptionsHTML}
+                    </div>
+                    ` : ''}
                 </div>
             </div>
             <div class="loading-order-main">
@@ -964,10 +1084,6 @@ const isExisting = loadingOrder !== null;
                 
                 ${hasContent ? `
                     <div class="loading-order-stats">
-                        <div class="stat-item">
-                            <i class="fas fa-weight-hanging"></i>
-                            <span class="weight-indicator ${weightColor}">${totalWeight.toFixed(1)} / ${truckCapacity} kg</span>
-                        </div>
                         ${orders.length > 1 ? `
                             <div class="stat-item">
                                 <i class="fas fa-route"></i>
@@ -1244,17 +1360,17 @@ function setupLoadingOrderBoxHandlers(index, isDisabled) {
         };
     }
     
-    // Order select
-    const orderSelect = document.getElementById(`orderSelect-${index}`);
-    if (orderSelect) {
-        populateOrderSelect(index);
-        orderSelect.onchange = function() {
-            if (this.value) {
-                addOrderToLoadingOrder(index, this.value);
-                this.value = '';
-            }
-        };
-    }
+    // // Order select
+    // const orderSelect = document.getElementById(`orderSelect-${index}`);
+    // if (orderSelect) {
+    //     populateOrderSelect(index);
+    //     orderSelect.onchange = function() {
+    //         if (this.value) {
+    //             addOrderToLoadingOrder(index, this.value);
+    //             this.value = '';
+    //         }
+    //     };
+    // }
     
     // Chips container drop
     const chipsContainer = document.getElementById(`ordersChips-${index}`);
@@ -2326,6 +2442,75 @@ function validateDismissNumber(calculated, fromSheet) {
     // Compare values
     const match = calculated === fromSheet;
     return { valid: match, mismatch: !match };
+}
+
+/* --- NEW HELPERS FOR UI --- */
+/* --- NEW HELPERS FOR UI --- */
+function toggleOrderDropdown(index) {
+    const dropdown = document.getElementById(`dropdown-${index}`);
+    if (!dropdown) return;
+
+    const isVisible = dropdown.style.display === 'block';
+    
+    // 1. Close ALL dropdowns & Reset Z-Index
+    document.querySelectorAll('.custom-order-dropdown').forEach(d => {
+        d.style.display = 'none';
+        d.classList.remove('drop-up'); // Reset position
+    });
+    document.querySelectorAll('.loading-order-box').forEach(box => box.style.zIndex = 'auto'); 
+
+    // 2. Toggle Current
+    if (!isVisible) {
+        // Calculate Position relative to Viewport
+        const button = dropdown.parentElement; // .add-order-wrapper
+        const rect = button.getBoundingClientRect();
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const dropdownHeight = 300; // Approx max-height
+        
+        // If space below is tight, open upwards
+        if (spaceBelow < dropdownHeight) {
+            dropdown.classList.add('drop-up');
+        } else {
+            dropdown.classList.remove('drop-up');
+        }
+
+        dropdown.style.display = 'block';
+        
+        // Raise z-index of the parent box
+        const parentBox = dropdown.closest('.loading-order-box');
+        if (parentBox) parentBox.style.zIndex = '1000';
+    }
+}
+
+// Close dropdowns when clicking outside & Reset Z-Index
+document.addEventListener('click', function(event) {
+    if (!event.target.closest('.add-order-wrapper')) {
+        document.querySelectorAll('.custom-order-dropdown').forEach(d => d.style.display = 'none');
+        document.querySelectorAll('.loading-order-box').forEach(box => box.style.zIndex = 'auto');
+    }
+});
+
+// Helper for select options
+function generateTruckOptions(selectedTruck) {
+    if (!distributionData.trucksData) return '';
+    return distributionData.trucksData.map(t => {
+        const isSelected = t.name === selectedTruck ? 'selected' : '';
+        return `<option value="${t.name}" ${isSelected}>${t.name}</option>`;
+    }).join('');
+}
+function generateDriverOptions(selectedDriver, selectedTruck) {
+    if (!distributionData.driversList) return '';
+    return distributionData.driversList.map(d => {
+        const isSelected = d === selectedDriver ? 'selected' : '';
+        return `<option value="${d}" ${isSelected}>${d}</option>`;
+    }).join('');
+}
+function generateRepOptions(selectedRep) {
+    if (!distributionData.deliveryReps) return '';
+    return distributionData.deliveryReps.map(r => {
+        const isSelected = r === selectedRep ? 'selected' : '';
+        return `<option value="${r}" ${isSelected}>${r}</option>`;
+    }).join('');
 }
 // =============================================================================
 // END OF PART 5 - ACTIONS & UTILITIES
