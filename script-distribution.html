@@ -433,7 +433,7 @@ function createAvailableOrderCard(order) {
                     </div>
                 ${order.clientRegion ? `<div class="dist-client-region"><i class="fas fa-map-marker-alt"></i> ${order.clientRegion}</div>` : ''}
                 <div class="dist-order-meta">
-                    <span class="weight-badge" title="Total Weight: ${Math.round(order.totalWeight || 0)} kg">
+                    <span class="weight-badge interactive-badge" onclick="toggleOrderSummaryPopup(event, '${order.orderId}')" title="Click to view Order Summary">
                         <i class="fas fa-weight-hanging"></i> ${Math.round(order.totalWeight || 0)} kg
                     </span>
                     <span class="distance-badge ${distanceColor}" title="Distance from Base: ${distance} km">
@@ -2512,6 +2512,68 @@ function generateRepOptions(selectedRep) {
         return `<option value="${r}" ${isSelected}>${r}</option>`;
     }).join('');
 }
+
+/* --- ORDER SUMMARY POPUP (BODY LEVEL) --- */
+function toggleOrderSummaryPopup(event, orderId) {
+    event.stopPropagation();
+    const badge = event.currentTarget;
+    
+    // 1. Check if a popup for THIS order is already open
+    const existing = document.querySelector(`.order-summary-popup[data-id="${orderId}"]`);
+    if (existing) {
+        existing.remove();
+        return;
+    }
+
+    // 2. Close ALL other popups
+    document.querySelectorAll('.order-summary-popup').forEach(p => p.remove());
+
+    // 3. Find Order Data (Check both lists just in case)
+    const order = distributionData.allOrders.find(o => o.orderId === orderId) || 
+                  distributionData.orders.find(o => o.orderId === orderId);
+    
+    if (!order) return;
+
+    // 4. Create Popup Element
+    const popup = document.createElement('div');
+    popup.className = 'order-summary-popup';
+    popup.dataset.id = orderId; // Mark for toggling
+    popup.onclick = (e) => e.stopPropagation();
+    
+    const summaryText = (order.orderSummary || 'No summary available').replace(/\n/g, '<br>');
+
+    popup.innerHTML = `
+        <div class="popup-header">${order.clientName}</div>
+        <div class="popup-body">${summaryText}</div>
+    `;
+
+    // 5. Append to BODY (Escapes Parent Opacity)
+    document.body.appendChild(popup);
+
+    // 6. Calculate Position
+    const rect = badge.getBoundingClientRect();
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+    
+    // Position below the badge, aligned to the right (RTL friendly)
+    // We set Top and Left based on absolute page coordinates
+    popup.style.top = (rect.bottom + scrollTop + 5) + 'px';
+    
+    // Align Right edge of popup with Right edge of badge
+    // (Calculation: Badge Left + Badge Width - Popup Width)
+    // Since popup width is fixed in CSS (260px), we can adjust accordingly or just center it.
+    // Let's align it to the left of the badge for simplicity, or specific math for RTL:
+    
+    // Simple alignment:
+    popup.style.left = (rect.left + scrollLeft) + 'px';
+}
+
+// Close summary popup when clicking outside
+document.addEventListener('click', function(event) {
+    if (!event.target.closest('.interactive-badge')) {
+        document.querySelectorAll('.order-summary-popup').forEach(p => p.remove());
+    }
+});
 // =============================================================================
 // END OF PART 5 - ACTIONS & UTILITIES
 // END OF DISTRIBUTION PLANNING MODULE
