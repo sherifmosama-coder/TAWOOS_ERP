@@ -110,7 +110,8 @@ function getUserPermissions(userEmail) {
       }
     }
     
-    return { success: true, permissions: permissions };
+    // Return as JSON String for safety
+    return { success: true, permissions: JSON.stringify(permissions) };
     
   } catch (error) {
     Logger.log('Permission loading error: ' + error.toString());
