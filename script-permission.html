@@ -1,0 +1,216 @@
+<script>
+/**
+ * PERMISSIONS MANAGER - FINAL
+ * Features: Auto-Scan, Boolean Modules, Admin Roles, Matrix UI
+ */
+
+const MASTER_PASS_HASH = "123456"; // Change this
+
+// --- 1. DOM SCANNER ---
+function scanSystemHierarchy() {
+    const hierarchy = {};
+
+    // 1. Modules (Level 0)
+    document.querySelectorAll('[data-perm-module]').forEach(modEl => {
+        const modId = modEl.getAttribute('data-perm-module');
+        if (!hierarchy[modId]) hierarchy[modId] = { id: modId, type: 'module', children: {} };
+
+        // 2. Tabs (Level 1)
+        const tabSelector = `[data-perm-tab][data-parent="${modId}"], [data-perm-module="${modId}"] [data-perm-tab]`;
+        document.querySelectorAll(tabSelector).forEach(tabEl => {
+            const tabId = tabEl.getAttribute('data-perm-tab');
+            if (!hierarchy[modId].children[tabId]) {
+                hierarchy[modId].children[tabId] = { id: `${modId}.${tabId}`, type: 'tab', children: {} };
+            }
+
+            // 3. Subtabs (Level 2)
+            const subSelector = `[data-perm-subtab][data-parent="${tabId}"]`;
+            document.querySelectorAll(subSelector).forEach(subEl => {
+                const subId = subEl.getAttribute('data-perm-subtab');
+                if (!hierarchy[modId].children[tabId].children[subId]) {
+                    hierarchy[modId].children[tabId].children[subId] = { id: `${modId}.${tabId}.${subId}`, type: 'subtab', children: {} };
+                }
+                
+                // 4. Features (Level 3)
+                const featSelector = `[data-perm-feature]`;
+                const container = document.getElementById(`subtab-${subId}`) || subEl;
+                if(container) {
+                    container.querySelectorAll(featSelector).forEach(featEl => {
+                        const featId = featEl.getAttribute('data-perm-feature');
+                         hierarchy[modId].children[tabId].children[subId].children[featId] = {
+                            id: `${modId}.${tabId}.${subId}.${featId}`, type: 'feature'
+                        };
+                    });
+                }
+            });
+        });
+    });
+    return hierarchy;
+}
+
+// --- 2. UI LOGIC ---
+
+function openPermissionsManager() {
+    if (prompt("🔐 Master Password:") !== MASTER_PASS_HASH) return alert("⛔ Access Denied");
+
+    let container = document.getElementById('perm-modal-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'perm-modal-container';
+        document.body.appendChild(container);
+    }
+    container.innerHTML = createMatrixModalHTML();
+    new bootstrap.Modal(document.getElementById('matrixModal')).show();
+    loadMatrixData();
+}
+
+function createMatrixModalHTML() {
+    return `
+    <div class="modal fade" id="matrixModal" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-fullscreen">
+            <div class="modal-content" style="direction:rtl; text-align:right;">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title"><i class="fas fa-shield-alt"></i> Permissions Matrix</h5>
+                    <div class="ms-auto">
+                         <button class="btn btn-sm btn-outline-light" onclick="syncStructure()"><i class="fas fa-sync"></i> Auto-Detect</button>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-0 d-flex">
+                    <div class="col-2 border-end bg-light p-2">
+                        <h6 class="p-2 border-bottom">Users</h6>
+                        <div id="pm-user-list" class="list-group list-group-flush"></div>
+                        <button class="btn btn-sm btn-success w-100 mt-2" onclick="promptNewUser()">Add User</button>
+                    </div>
+                    <div class="col-10 p-3" style="overflow-y:auto;">
+                        <div id="pm-loading" class="text-center p-5"><i class="fas fa-spinner fa-spin fa-2x"></i></div>
+                        <div id="pm-editor" style="display:none;">
+                            <div class="d-flex justify-content-between align-items-center mb-3 bg-white p-3 sticky-top shadow-sm" style="top:0; z-index:1000;">
+                                <div>
+                                    <h5 id="selected-user-name" class="m-0 text-primary fw-bold">...</h5>
+                                    <small id="selected-user-email" class="text-muted">...</small>
+                                </div>
+                                <button class="btn btn-primary" onclick="saveMatrixChanges()"><i class="fas fa-save"></i> Save Changes</button>
+                            </div>
+                            <table class="table table-hover table-bordered table-sm align-middle">
+                                <thead class="table-light">
+                                    <tr><th width="40%">Module / Feature</th><th width="20%">ID</th><th width="40%">Permission Level</th></tr>
+                                </thead>
+                                <tbody id="pm-matrix-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>`;
+}
+
+let matrixData = null; 
+let scannedTree = null;
+let activeUserIndex = -1;
+
+function loadMatrixData() {
+    scannedTree = scanSystemHierarchy();
+    google.script.run.withSuccessHandler(data => {
+        matrixData = data;
+        renderUserList();
+        document.getElementById('pm-loading').style.display = 'none';
+        if(matrixData.users.length > 0) selectUser(0);
+    }).getPermissionMatrixData();
+}
+
+function renderUserList() {
+    const list = document.getElementById('pm-user-list');
+    list.innerHTML = '';
+    matrixData.users.forEach((u, idx) => {
+        const item = document.createElement('button');
+        item.className = 'list-group-item list-group-item-action';
+        item.innerHTML = `<div><strong>${u.name}</strong><br><small>${u.email}</small></div>`;
+        item.onclick = () => selectUser(idx);
+        list.appendChild(item);
+    });
+}
+
+function selectUser(idx) {
+    activeUserIndex = idx;
+    const user = matrixData.users[idx];
+    document.getElementById('selected-user-name').innerText = user.name;
+    document.getElementById('selected-user-email').innerText = user.email;
+    document.getElementById('pm-editor').style.display = 'block';
+    renderMatrixTable(idx);
+}
+
+function renderMatrixTable(userIdx) {
+    const tbody = document.getElementById('pm-matrix-body');
+    tbody.innerHTML = '';
+    
+    matrixData.rows.forEach(row => {
+        const permValue = row.values[userIdx];
+        const indent = (row.id.match(/\./g) || []).length;
+        const tr = document.createElement('tr');
+        
+        // Formatting for Modules (Level 0)
+        if(indent === 0) tr.style.backgroundColor = '#f1f5f9';
+        
+        tr.innerHTML = `
+            <td style="padding-right: ${indent * 25}px; font-weight: ${indent===0?'800':'400'}">
+                ${indent===0 ? '<i class="fas fa-cube text-primary"></i>' : '<i class="fas fa-angle-left text-muted"></i>'} ${row.desc || row.id}
+            </td>
+            <td class="text-muted small font-monospace">${row.id}</td>
+            <td>${renderPermissionInput(row.id, permValue, indent)}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function renderPermissionInput(id, value, indent) {
+    // LEVEL 0 (Modules): Boolean Checkbox
+    if (indent === 0) {
+        const isChecked = String(value).toUpperCase() === 'TRUE';
+        return `
+            <div class="form-check form-switch">
+                <input class="form-check-input perm-input-bool" type="checkbox" data-row-id="${id}" ${isChecked ? 'checked' : ''}>
+                <label class="form-check-label small text-muted">${isChecked ? 'Enabled' : 'Disabled'}</label>
+            </div>`;
+    } 
+    // LEVEL 1+ (Tabs): Dropdown with Admin
+    else {
+        const sel = (val) => String(value).toLowerCase() === val ? 'selected' : '';
+        return `
+            <select class="form-select form-select-sm perm-input-select" data-row-id="${id}" style="font-weight:500;">
+                <option value="" ${sel('')} style="color:#ccc;">🚫 Access Denied</option>
+                <option value="viewer" ${sel('viewer')} style="color:#0dcaf0;">👀 Viewer</option>
+                <option value="editor" ${sel('editor')} style="color:#198754;">✏️ Editor</option>
+                <option value="admin" ${sel('admin')} style="color:#dc3545; font-weight:bold;">🛡️ Admin</option>
+            </select>
+        `;
+    }
+}
+
+function saveMatrixChanges() {
+    const changes = {};
+    document.querySelectorAll('.perm-input-bool').forEach(i => changes[i.getAttribute('data-row-id')] = i.checked ? 'TRUE' : 'FALSE');
+    document.querySelectorAll('.perm-input-select').forEach(i => changes[i.getAttribute('data-row-id')] = i.value);
+    
+    google.script.run.withSuccessHandler(res => { alert(res); loadMatrixData(); })
+        .updateUserPermissions(matrixData.users[activeUserIndex].email, changes);
+}
+
+function syncStructure() {
+    if(!confirm("Scan DOM and add missing items to Sheet?")) return;
+    const flatList = [];
+    function traverse(node) {
+        const parts = node.id.split('.');
+        flatList.push({ id: node.id, desc: parts[parts.length-1].toUpperCase(), type: node.type });
+        if(node.children) Object.values(node.children).forEach(traverse);
+    }
+    Object.values(scannedTree).forEach(traverse);
+    google.script.run.withSuccessHandler(res => { alert(res); loadMatrixData(); }).syncScannedStructure(flatList);
+}
+
+function promptNewUser() {
+    const email = prompt("Email:");
+    if(email) google.script.run.withSuccessHandler(res => { alert(res); loadMatrixData(); }).createNewUserColumn(email);
+}
+</script>
