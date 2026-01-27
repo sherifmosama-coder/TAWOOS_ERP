@@ -1,4 +1,3 @@
-
 <style>
 /* --- GLOBAL TOAST NOTIFICATIONS (v2.0) --- */
 .toast-container {
@@ -673,16 +672,27 @@ function handleLogin(event) {
                 google.script.run
                     .withSuccessHandler(function(permsResponse) {
                         if (permsResponse.success) {
-                            console.log("Permissions loaded:", permsResponse.permissions);
+                            // --- FIX: PARSE THE JSON STRING HERE ---
+                            let safePerms = [];
+                            try {
+                                safePerms = (typeof permsResponse.permissions === 'string') 
+                                    ? JSON.parse(permsResponse.permissions) 
+                                    : permsResponse.permissions;
+                            } catch (e) {
+                                console.error("Login Perms Parse Error:", e);
+                                return;
+                            }
+
+                            console.log("Permissions loaded:", safePerms);
                             
                             // A. General UI Dimming
                             if (typeof applyPermissionRules === 'function') {
-                                applyPermissionRules(permsResponse.permissions);
+                                applyPermissionRules(safePerms);
                             }
                             
                             // B. Pass Permissions to All Orders Module (For Edit/New Buttons)
                             if (typeof ao_setPermissions === 'function') {
-                                ao_setPermissions(permsResponse.permissions);
+                                ao_setPermissions(safePerms);
                             }
 
                             // C. Load Sidebar/Other Logic
@@ -726,29 +736,40 @@ function handleLogin(event) {
     google.script.run
         .withSuccessHandler(function(result) {
             if (result.success) {
-                // Store ALL permissions globally
-                userPermissions = result.permissions;
+                // --- FIX: PARSE THE JSON STRING ---
+                let parsedPerms = [];
+                try {
+                    // Try to parse if it's a string, otherwise use as is
+                    parsedPerms = (typeof result.permissions === 'string') 
+                        ? JSON.parse(result.permissions) 
+                        : result.permissions;
+                } catch (e) {
+                    console.error("Permission Parse Error:", e);
+                    return;
+                }
+                
+                // Store ALL permissions globally as an ARRAY
+                userPermissions = parsedPerms;
                 
                 // Mark as loaded
                 window.permissionsLoaded = true;
                     
-                    // Separate main tabs and subtabs
-                    window.mainTabPermissions = result.permissions.filter(p => !p.isSubtab);
-                    window.allSubtabPermissions = result.permissions.filter(p => p.isSubtab);
-                    
-                    console.log('All permissions loaded:', result.permissions);
-                    console.log('Main tabs:', window.mainTabPermissions);
-                    console.log('All subtabs:', window.allSubtabPermissions);
-                    
-                updatePermissionBadges();
+                // Separate main tabs and subtabs (Now .filter will work because it's an array)
+                window.mainTabPermissions = userPermissions.filter(p => !p.isSubtab);
+                window.allSubtabPermissions = userPermissions.filter(p => p.isSubtab);
                 
-                // Remove loading state from module cards
+                console.log('All permissions loaded:', userPermissions);
+                
+                // Update badges
+                updatePermissionBadges(userPermissions);
+                
+                // Remove loading state
                 setModuleCardsLoadingState(false);
             } else {
                 console.error('Failed to load permissions:', result.message);
                 setModuleCardsLoadingState(false);
             }
-            })
+        })
             .withFailureHandler(function(error) {
                 console.error('Permission loading error:', error);
             })
@@ -759,12 +780,19 @@ function handleLogin(event) {
 function checkPermissions(userPermissions) {
     if (!userPermissions) return;
 
+    // --- SAFETY FIX FOR CHECKPERMISSIONS ---
+    let safePerms = userPermissions;
+    if (typeof safePerms === 'string') {
+        try { safePerms = JSON.parse(safePerms); } 
+        catch (e) { return console.error("checkPermissions parse error", e); }
+    }
+
     // Helper to process permission items
     // Expects userPermissions to be an array of objects: { tabId: 'orders.distribution', permission: 'edit' }
     
     // 1. Iterate through all permission-controlled elements
     const permissionMap = {};
-    userPermissions.forEach(p => {
+    safePerms.forEach(p => {
         permissionMap[p.tabId] = p.permission;
     });
 
@@ -819,83 +847,108 @@ function checkPermissions(userPermissions) {
     }
 }
 
-function updatePermissionBadges() {
-    console.log('Updating Badges. Permissions:', userPermissions);
+/**
+ * FINAL: Update Permission Badges
+ * Expects Array: [{tabId: 'orders', permission: 'true'}, {tabId: 'orders.all-orders', permission: 'viewer'}...]
+ */
+function updatePermissionBadges(data) {
+    // 1. Safety Check
+    // If no data passed, try to use the global variable
+    let perms = data || window.userPermissions;
     
+    // SAFETY FIX: Force Parse if String
+    if (typeof perms === 'string') {
+        try { perms = JSON.parse(perms); } 
+        catch (e) { return console.error("updatePermissionBadges parse error", e); }
+    }
+    
+    if (!perms || !Array.isArray(perms)) {
+        console.warn("updatePermissionBadges: No valid array data found", perms);
+        return;
+    }
+
+    console.log("Updating Badges with:", perms);
+
+    // 2. Map Permissions (Array -> Object Map)
+    // Result: { 'orders': 'enabled', 'orders.all-orders': 'viewer' }
+    const permMap = {};
+    perms.forEach(p => {
+        if (p.tabId) {
+            // Handle "true" string for modules
+            const role = String(p.permission).toLowerCase();
+            permMap[p.tabId] = (role === 'true') ? 'enabled' : role;
+        }
+    });
+
+    // 3. Define Icons
     const icons = {
-        admin: 'fa-user-tie',
-        editor: 'fa-pen-to-square',
-        viewer: 'fa-eye'
+        'admin': 'fa-shield-alt text-danger',
+        'editor': 'fa-pen text-success',
+        'viewer': 'fa-eye text-info',
+        'enabled': 'fa-check text-primary'
     };
 
-    // --- 1. SALES MODULE ---
-    const salesBadgesContainer = document.getElementById('salesModuleBadges');
-    if (salesBadgesContainer) {
-        // Look for 'orders' permission
-        const ordersPermission = userPermissions.find(p => p.tabId === 'orders' && !p.isSubtab);
-        
-        if (ordersPermission) {
-            const permLevel = ordersPermission.permission || 'viewer';
-            const permIcon = icons[permLevel] || icons.viewer;
-            salesBadgesContainer.innerHTML = `<i class="fas ${permIcon}"></i>`;
-        } else {
-            salesBadgesContainer.innerHTML = ''; // Clear spinner if no permission
-        }
-    }
-
-    // Sales Tab Badge
-    const ordersTabBadge = document.getElementById('ordersPermissionBadge');
-    if (ordersTabBadge) {
-        const ordersPermission = userPermissions.find(p => p.tabId === 'orders' && !p.isSubtab);
-        if (ordersPermission) {
-            const permLevel = ordersPermission.permission || 'viewer';
-            const permIcon = icons[permLevel] || icons.viewer;
-            ordersTabBadge.innerHTML = `<i class="fas ${permIcon}"></i>`;
-        }
-    }
-
-    // --- 2. OPERATIONS MODULE ---
-    
-    // Home Page Card Badge (Aggregated)
-    const opsBadgesContainer = document.getElementById('operationsModuleBadges');
-    if (opsBadgesContainer) {
-        // Check if user has permission for ANY of the operations tabs
-        const opsTabs = ['purchases', 'materials', 'production'];
-        const relevantPerms = userPermissions.filter(p => opsTabs.includes(p.tabId) && !p.isSubtab);
-        
-        if (relevantPerms.length > 0) {
-            // Pick the "highest" permission to display on the home card
-            let topPerm = 'viewer';
-            if (relevantPerms.some(p => p.permission === 'admin')) topPerm = 'admin';
-            else if (relevantPerms.some(p => p.permission === 'editor')) topPerm = 'editor';
-            
-            const permIcon = icons[topPerm];
-            opsBadgesContainer.innerHTML = `<i class="fas ${permIcon}"></i>`;
-        } else {
-            opsBadgesContainer.innerHTML = ''; // Clear spinner
-        }
-    }
-
-    // Individual Tab Badges (Inside Operations Module)
-    const opTabMap = {
-        'purchases': 'purchasesPermissionBadge',
-        'materials': 'materialsPermissionBadge',
-        'production': 'productionPermissionBadge'
+    // --- 4. SALES MODULE (ID: orders) ---
+    const salesTabs = ['orders.all-orders', 'orders.distribution', 'orders.accounting', 'orders.warehouse', 'orders.return', 'orders.eta'];
+    const salesMap = {
+        'orders.all-orders': 'subtab-badge-all-orders',
+        'orders.distribution': 'subtab-badge-distribution',
+        'orders.accounting': 'subtab-badge-accounting',
+        'orders.warehouse': 'subtab-badge-warehouse',
+        'orders.return': 'subtab-badge-return',
+        'orders.eta': 'subtab-badge-eta'
     };
 
-    for (const [tabId, badgeId] of Object.entries(opTabMap)) {
-        const badgeEl = document.getElementById(badgeId);
-        if (badgeEl) {
-            const perm = userPermissions.find(p => p.tabId === tabId && !p.isSubtab);
-            if (perm) {
-                const permLevel = perm.permission || 'viewer';
-                const permIcon = icons[permLevel] || icons.viewer;
-                badgeEl.innerHTML = `<i class="fas ${permIcon}"></i>`;
+    // Sales Module Badge (Card on Home Page)
+    const salesCard = document.getElementById('salesModuleBadges');
+    if (salesCard) {
+        // Active if module enabled OR any subtab has access
+        const active = permMap['orders'] === 'enabled' || salesTabs.some(id => permMap[id]);
+        salesCard.innerHTML = active ? `<i class="fas fa-check-circle text-success"></i>` : '';
+    }
+
+    // Sales Tab Badges (Inside Sales Page)
+    Object.entries(salesMap).forEach(([id, elId]) => {
+        const el = document.getElementById(elId);
+        if (el) {
+            const role = permMap[id];
+            if (role && icons[role]) {
+                el.innerHTML = `<i class="fas ${icons[role]}"></i>`;
+                el.style.display = 'inline-block';
             } else {
-                badgeEl.innerHTML = ''; // Clear default/spinner
+                el.style.display = 'none';
             }
         }
+    });
+
+    // --- 5. OPERATIONS MODULE (ID: operations) ---
+    const opsTabs = ['operations.purchases', 'operations.materials', 'operations.production'];
+    const opsMap = {
+        'operations.purchases': 'purchasesPermissionBadge',
+        'operations.materials': 'materialsPermissionBadge',
+        'operations.production': 'productionPermissionBadge'
+    };
+
+    // Operations Module Badge (Card on Home Page)
+    const opsCard = document.getElementById('operationsModuleBadges');
+    if (opsCard) {
+        const active = permMap['operations'] === 'enabled' || opsTabs.some(id => permMap[id]);
+        opsCard.innerHTML = active ? `<i class="fas fa-check-circle text-success"></i>` : '';
     }
+
+    // Operations Tab Badges (Inside Operations Page)
+    Object.entries(opsMap).forEach(([id, elId]) => {
+        const el = document.getElementById(elId);
+        if (el) {
+            const role = permMap[id];
+            if (role && icons[role]) {
+                el.innerHTML = `<i class="fas ${icons[role]}"></i>`;
+                el.style.display = 'inline-block';
+            } else {
+                el.style.display = 'none';
+            }
+        }
+    });
 }
     
     // Show loading state on module cards
@@ -1148,6 +1201,11 @@ const retailTemplate = [
     function openOperationsModule() {
         showPage('operations');
         updateOperationsLanguage();
+        
+        // ADD THIS: Trigger the default tab (Purchases) immediately
+        if (typeof initPurchasesModule === 'function') {
+            initPurchasesModule();
+        }
     }
 
     function switchOperationsTab(tabName) {
@@ -1174,7 +1232,7 @@ const retailTemplate = [
                 console.error('initProductionModule function not found');
             }
         } else if (tabName === 'purchases') {
-            // Future: initPurchasesModule();
+                initPurchasesModule();
         } else if (tabName === 'materials') {
             // Initialize Materials Module (defined in script-materials.html)
             if (typeof initMaterialsModule === 'function') {
@@ -1552,7 +1610,13 @@ function formatLoadingDate(dateString) {
  * @param {Array} userPermissions - Array of permission objects from backend.
  */
 function applyPermissionRules(userPermissions) {
-  console.log("👮 Starting Permission Enforcement...", userPermissions);
+  // SAFETY CHECK
+  let safePerms = userPermissions;
+  if (typeof safePerms === 'string') {
+     try { safePerms = JSON.parse(safePerms); } catch (e) { return; }
+  }
+
+  console.log("👮 Starting Permission Enforcement...", safePerms);
 
   // 1. DEFINE THE MAP: Permission ID -> HTML Selector
   // This maps the IDs from your PERMISSION_SCHEMA to actual DOM elements
@@ -1579,8 +1643,8 @@ function applyPermissionRules(userPermissions) {
   // We normalize everything to lowercase to avoid mismatches
   const allowedSet = new Set();
   
-  if (userPermissions && Array.isArray(userPermissions)) {
-    userPermissions.forEach(p => {
+  if (safePerms && Array.isArray(safePerms)) {
+    safePerms.forEach(p => {
       // Check if permission is valid (true OR a valid role string)
       const isValid = p.permission === true || 
                       (typeof p.permission === 'string' && p.permission !== '' && p.permission !== 'none');
@@ -1624,8 +1688,14 @@ let aoUserRole = 'viewer'; // Default to restricted access
 function ao_setPermissions(permissions) {
     if (!permissions) return;
     
+    // SAFETY CHECK
+    let safePerms = permissions;
+    if (typeof safePerms === 'string') {
+        try { safePerms = JSON.parse(safePerms); } catch (e) { return; }
+    }
+    
     // 1. Find permission for 'orders.all-orders'
-    const permObj = permissions.find(p => p.tabId === 'orders.all-orders');
+    const permObj = safePerms.find(p => p.tabId === 'orders.all-orders');
     
     // 2. Set Role
     if (permObj) {
@@ -1640,5 +1710,4 @@ function ao_setPermissions(permissions) {
         renderReportManagerUI();
     }
 }
-
 </script>
