@@ -216,6 +216,9 @@ function showPurchTab(id, btn) {
 }
 
 function loadPurchasesData() {
+    // Get logged-in user from LocalStorage (set by app.html login)
+    const currentUserEmail = localStorage.getItem('userEmail') || '';
+
     google.script.run.withSuccessHandler(res => {
         if(res.success) {
             purchasesState = { ...purchasesState, ...res, allTransactions: res.history };
@@ -247,14 +250,18 @@ function loadPurchasesData() {
             // 3. Date & Ops
             const d = document.getElementById('p-date');
             d.valueAsDate = new Date();
-            if(res.isAdmin) d.removeAttribute('readonly');
+            // Unlock if Editor
+            if(res.canEdit) {
+                d.removeAttribute('readonly');
+                d.style.backgroundColor = '#ffffff';
+            }
 
             populateSelect('p-operation', res.operations, 'استلام');
             // populateSelectObj('p-warehouse', res.warehouses); // REMOVED to fix error
             
             renderHistory(res.history);
         }
-    }).getPurchasesInitialData();
+    }).getPurchasesInitialData(currentUserEmail); // Pass email to backend
 }
 
 function populateSelect(id, list, def) {
@@ -461,6 +468,7 @@ function savePurchase() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> حفظ...'; btn.disabled = true;
 
     const payload = {
+        userEmail: localStorage.getItem('userEmail'), // Pass for Security Check
         date: document.getElementById('p-date').value,
         operation: document.getElementById('p-operation').value,
         supplier: document.getElementById('p-supplier-global').value,
