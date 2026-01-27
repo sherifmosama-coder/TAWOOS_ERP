@@ -7,17 +7,18 @@ const PURCHASES_SPREADSHEET_ID = '15riHuotxGDPJV5Sw0GJoXqatbANj8poTWpUBRcdkbe4';
 /**
  * FETCH INITIAL DATA
  */
-function getPurchasesInitialData() {
+// Updated signature to accept email from frontend
+function getPurchasesInitialData(clientEmail) {
   try {
     const ss = SpreadsheetApp.openById(PURCHASES_SPREADSHEET_ID);
     
-    // 1. Permissions Check
-    const userEmail = Session.getActiveUser().getEmail();
-    let isAdmin = false;
-    try {
-        const permissions = getPermissions();
-        isAdmin = permissions[userEmail] === 'admin';
-    } catch(e) { isAdmin = false; }
+    // 1. Permissions Check (Custom Auth)
+    // We use the email passed from the client (localStorage)
+    const userEmail = clientEmail || ''; 
+    const accessLevel = resolveModulePermission(userEmail, 'operations', 'purchases');
+    
+    const canEdit = (accessLevel === 'editor');
+    const isAdmin = canEdit;
 
     // 2. Fetch Operations
     const indexSheet = ss.getSheetByName('Index');
@@ -54,6 +55,7 @@ function getPurchasesInitialData() {
     return { 
       success: true, 
       isAdmin: isAdmin,
+      canEdit: canEdit, // NEW FLAG
       warehouses: matData.warehouses || [],
       operations: operations,
       materialsGrouped: matStruct.groups, 
@@ -140,6 +142,14 @@ function savePurchaseTransaction(form) {
   const lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
+
+    // --- SECURITY GUARD (Custom Auth) ---
+    const userEmail = form.userEmail; // Passed from frontend payload
+    if (resolveModulePermission(userEmail, 'operations', 'purchases') !== 'editor') {
+      return { success: false, message: 'Security Alert: You do not have permission to edit Purchases.' };
+    }
+    // ------------------------------------
+
     const ss = SpreadsheetApp.openById(PURCHASES_SPREADSHEET_ID);
     let sheet = ss.getSheetByName('استلام و ارتجاع');
     
