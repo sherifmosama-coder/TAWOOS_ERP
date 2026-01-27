@@ -68,6 +68,9 @@
                         </div>
                         
                         <div class="nav-buttons">
+                            <button class="btn btn-outline-warning" onclick="openPermissionsManager()" title="Permissions Manager">
+                                <i class="fas fa-user-lock"></i>
+                            </button>
                             <button class="lang-toggle" onclick="toggleLanguage()">
                                 <i class="fas fa-language"></i> <span id="navLangText">عربي</span>
                             </button>
@@ -94,14 +97,14 @@
             </div>
 
             <div class="quick-actions">
-                <div class="action-card module-card" onclick="openSalesModule()">
+                <div class="action-card module-card" onclick="openSalesModule()" data-perm-module="orders">
                     <i class="fas fa-chart-line"></i>
                     <h4 id="salesModuleCard">Sales Module</h4>
                     <p id="salesModuleDesc">Manage orders, clients, and products</p>
                     <div class="module-badges" id="salesModuleBadges"></div>
                 </div>
 
-                <div class="action-card module-card" onclick="openOperationsModule()">
+                <div class="action-card module-card" onclick="openOperationsModule()" data-perm-module="operations">
                     <i class="fas fa-cogs"></i>
                     <h4 id="operationsModuleCard">Operations Module</h4>
                     <p id="operationsModuleDesc">Manage purchases, materials, and production</p>
@@ -128,6 +131,9 @@
                         </div>
                         
                         <div class="nav-buttons">
+                            <button class="btn btn-outline-warning" onclick="openPermissionsManager()" title="Permissions Manager">
+                                <i class="fas fa-user-lock"></i>
+                            </button>
                             <button class="lang-toggle" onclick="toggleLanguage()">
                                 <i class="fas fa-language"></i> <span id="navLangTextSales">عربي</span>
                             </button>
@@ -153,7 +159,7 @@
 
         <!-- Tabs Navigation -->
         <div class="module-tabs">
-            <button class="module-tab active" onclick="switchTab('orders')" id="ordersTabBtn">
+            <button class="module-tab active" onclick="switchTab('orders')" id="ordersTabBtn" data-perm-tab="orders" data-parent="sales">
                 <i class="fas fa-shopping-cart"></i>
                 <span id="ordersTabLabel">Orders</span>
                 <span class="permission-badge" id="ordersPermissionBadge">-</span>
@@ -165,37 +171,43 @@
         <div class="tab-content-area">
             <div id="ordersTabContent" class="tab-content active">
                 <div class="orders-subtabs">
-                    <button class="orders-subtab active" data-subtab="all-orders" onclick="switchOrdersSubtab('all-orders')">
+                    <button class="orders-subtab active" data-subtab="all-orders" onclick="switchOrdersSubtab('all-orders')"
+                            data-perm-tab="all-orders" data-parent="orders">
                         <i class="fa-solid fa-clipboard-list"></i>
                         <span data-i18n="allOrdersSubtab" id="subtab-label-all-orders">All Orders</span>
                         <span class="permission-badge" id="subtab-badge-all-orders">-</span>
                     </button>
 
-                    <button class="orders-subtab" data-subtab="distribution" onclick="switchOrdersSubtab('distribution')">
+                    <button class="orders-subtab" data-subtab="distribution" onclick="switchOrdersSubtab('distribution')"
+                            data-perm-tab="distribution" data-parent="orders">
                         <i class="fas fa-truck-loading"></i>
                         <span data-i18n="distributionSubtab" id="subtab-label-distribution">Distribution Plan</span>
                         <span class="permission-badge" id="subtab-badge-distribution">-</span>
                     </button>
 
-                    <button class="orders-subtab" data-subtab="accounting" onclick="switchOrdersSubtab('accounting')">
+                    <button class="orders-subtab" data-subtab="accounting" onclick="switchOrdersSubtab('accounting')"
+                            data-perm-tab="accounting" data-parent="orders">
                         <i class="fas fa-file-invoice"></i>
                         <span data-i18n="accountingSubtab" id="subtab-label-accounting">Accounting</span>
                         <span class="permission-badge" id="subtab-badge-accounting">-</span>
                     </button>
 
-                    <button class="orders-subtab" data-subtab="warehouse" onclick="switchOrdersSubtab('warehouse')">
+                    <button class="orders-subtab" data-subtab="warehouse" onclick="switchOrdersSubtab('warehouse')"
+                            data-perm-tab="warehouse" data-parent="orders">
                         <i class="fas fa-warehouse"></i>
                         <span data-i18n="warehouseSubtab" id="subtab-label-warehouse">Release Stock</span>
                         <span class="permission-badge" id="subtab-badge-warehouse">-</span>
                     </button>
 
-                    <button class="orders-subtab" data-subtab="return" onclick="switchOrdersSubtab('return')">
+                    <button class="orders-subtab" data-subtab="return" onclick="switchOrdersSubtab('return')"
+                            data-perm-tab="return" data-parent="orders">
                         <i class="fas fa-undo"></i>
                         <span data-i18n="returnStockSubtab" id="subtab-label-return">Return Stock</span>
                         <span class="permission-badge" id="subtab-badge-return">-</span>
                     </button>
 
-                    <button class="orders-subtab" data-subtab="eta" onclick="switchOrdersSubtab('eta')">
+                    <button class="orders-subtab" data-subtab="eta" onclick="switchOrdersSubtab('eta')"
+                            data-perm-tab="eta" data-parent="orders">
                         <i class="fas fa-file-invoice-dollar"></i>
                         <span data-i18n="etaSubtab" id="subtab-label-eta">ETA Tracking</span>
                         <span class="permission-badge" id="subtab-badge-eta">-</span>
@@ -726,6 +738,10 @@
                       </div>
                       
                       <div class="nav-buttons">
+                          <button class="btn btn-outline-warning" onclick="openPermissionsManager()" title="Permissions Manager">
+                            <i class="fas fa-user-lock"></i>
+                          </button>
+                          
                           <button class="lang-toggle" onclick="toggleLanguage()">
                               <i class="fas fa-language"></i> <span id="navLangTextOperations">عربي</span>
                           </button>
@@ -749,19 +765,22 @@
       </div>
 
       <div class="module-tabs">
-          <button class="module-tab active" onclick="switchOperationsTab('purchases')" id="purchasesTabBtn">
+          <button class="module-tab active" onclick="switchOperationsTab('purchases')" id="purchasesTabBtn"
+                  data-perm-tab="purchases" data-parent="operations">
               <i class="fas fa-shopping-cart"></i>
               <span id="purchasesTabLabel">Purchases</span>
               <span class="permission-badge" id="purchasesPermissionBadge">-</span>
           </button>
           
-          <button class="module-tab" onclick="switchOperationsTab('materials')" id="materialsTabBtn">
+          <button class="module-tab" onclick="switchOperationsTab('materials')" id="materialsTabBtn"
+                  data-perm-tab="materials" data-parent="operations">
               <i class="fas fa-boxes"></i>
               <span id="materialsTabLabel">Materials</span>
               <span class="permission-badge" id="materialsPermissionBadge">-</span>
           </button>
           
-          <button class="module-tab" onclick="switchOperationsTab('production')" id="productionTabBtn">
+          <button class="module-tab" onclick="switchOperationsTab('production')" id="productionTabBtn"
+                  data-perm-tab="production" data-parent="operations">
               <i class="fas fa-industry"></i>
               <span id="productionTabLabel">Production</span>
               <span class="permission-badge" id="productionPermissionBadge">-</span>
@@ -994,6 +1013,8 @@
     <?!= include('script-eta-reconciliation'); ?>
     <?!= include('script-production'); ?>
     <?!= include('script-materials'); ?>
+    <?!= include('script-purchases'); ?>
+    <?!= include('script-permissions'); ?>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
