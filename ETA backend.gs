@@ -92,9 +92,11 @@ function getReconciliationDashboardData() {
     const cacheSheet = ss.getSheetByName(ETA_MODULE_CONFIG.syncSheetName);
     const results = [];
     
-    if (cacheSheet && cacheSheet.getLastRow() > 1) {
-      const cacheData = cacheSheet.getRange(2, 1, cacheSheet.getLastRow() - 1, 22).getValues();
-      
+    // FIX: Use getRealLastRow on Column A (1) to ignore Array Formula blanks
+    const realLastRow = getRealLastRow(cacheSheet, 1);
+
+    if (cacheSheet && realLastRow > 1) {
+      const cacheData = cacheSheet.getRange(2, 1, realLastRow - 1, 22).getValues();
       for (let i = 0; i < cacheData.length; i++) {
         const row = cacheData[i];
         const key = String(row[0]).trim(); // Col A: Internal ID
@@ -500,5 +502,28 @@ function getEtaModulePermission(userEmail) {
     if (!userPerms.success || !userPerms.permissions) return 'viewer';
     const perm = userPerms.permissions.find(p => p.tabId === 'orders.eta');
     return perm ? perm.permission.toLowerCase() : 'none';
-  } catch (e) { return 'viewer'; }
+  } catch (e) { return 'viewer'; 
+  }
+}
+
+/**
+ * Helper to find the ACTUAL last row based on a specific column.
+ * Ignores empty strings returned by Array Formulas.
+ * @param {Sheet} sheet - The sheet object
+ * @param {Integer} columnNumber - 1-based column index (e.g., 1 for Col A)
+ */
+function getRealLastRow(sheet, columnNumber) {
+  const maxRows = sheet.getMaxRows();
+  if (maxRows === 0) return 0;
+  
+  // Fetch the entire column data
+  const data = sheet.getRange(1, columnNumber, maxRows, 1).getValues();
+  
+  // Loop backwards from the bottom
+  for (let i = data.length - 1; i >= 0; i--) {
+    if (data[i][0] !== "" && data[i][0] != null) {
+      return i + 1; // Return 1-based row index
+    }
+  }
+  return 0; // Sheet is empty
 }
