@@ -156,6 +156,14 @@ function createReturnCard(record) {
 
         <div class="return-card-body" id="return-body-${record.dismissNumber}" style="display:none;">
             
+            ${userRole === 'admin' ? `
+            <div style="display:flex; justify-content:flex-end; margin-bottom:8px; padding:0 5px;">
+                <button onclick="openAdminOrderEditModal('${record.dismissNumber}')" class="btn-mini-admin-edit" title="تعديل كميات الطلب الأصلية (استخدام إداري)">
+                    <i class="fas fa-edit"></i> تعديل أصل الطلب
+                </button>
+            </div>
+            ` : ''}
+
             <fieldset id="fs-grid-${record.dismissNumber}" class="return-fieldset" ${isLocked ? 'disabled' : ''}>
                 <div class="products-grid-wrapper">
                     <div class="products-grid-header">
@@ -206,7 +214,8 @@ function renderFooterButton(id, isCompleted, role) {
             return `<button class="btn-locked-view" disabled><i class="fas fa-eye"></i> للمشاهدة فقط</button>`;
         } else {
             // Editor or Admin can save
-            return `<button class="btn-save-return" id="btn-${id}" onclick="saveReturnCard('${id}')"><i class="fas fa-save"></i> حفظ الارتجاع</button>`;
+            let btns = `<button class="btn-save-return" id="btn-${id}" onclick="saveReturnCard('${id}')"><i class="fas fa-save"></i> حفظ الارتجاع</button>`;
+            return btns;
         }
     } else {
         // Already saved - Show Edit button
@@ -216,8 +225,15 @@ function renderFooterButton(id, isCompleted, role) {
             // Editor cannot edit after save
             return `<button class="btn-locked-view" disabled onclick="showPermissionToast()"><i class="fas fa-check-circle"></i> مكتمل</button>`;
         } else {
-            // Admin can edit saved records
-            return `<button class="btn-edit-mode" id="btn-${id}" onclick="enableEditMode('${id}')"><i class="fas fa-pencil-alt"></i> تعديل</button>`;
+            // Admin can edit saved records + Edit Original Orders
+            let btns = `<button class="btn-edit-mode" id="btn-${id}" onclick="enableEditMode('${id}')"><i class="fas fa-pencil-alt"></i> تعديل</button>`;
+            
+            // Add "Edit Original Orders" button for Admin
+            // We pass the orderIds string attached to the record
+            btns += `<button class="btn-edit-original" onclick="openAdminOrderEditModal('${id}')" style="margin-right:5px; background:#6c757d; color:white; border:none; padding:8px 15px; border-radius:5px; cursor:pointer; font-weight:bold;">
+                        <i class="fas fa-boxes"></i> تعديل الكميات الأصلية
+                     </button>`;
+            return btns;
         }
     }
 }
@@ -1001,6 +1017,12 @@ function injectReturnStyles() {
         .btn-save-return { background: #4a90e2; color: white; border: none; padding: 8px 15px; border-radius: 5px; font-weight: bold; cursor: pointer; }
         .btn-edit-mode { background: #ffc107; color: #000; border: none; padding: 8px 15px; border-radius: 5px; font-weight: bold; cursor: pointer; }
         .btn-locked-view { background: #e9ecef; color: #6c757d; border: 1px solid #dee2e6; padding: 8px 15px; border-radius: 5px; cursor: not-allowed; }
+        .btn-mini-admin-edit {
+            background: #f8f9fa; border: 1px solid #ddd; color: #6c757d;
+            font-size: 11px; padding: 3px 10px; border-radius: 12px;
+            cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 5px;
+        }
+        .btn-mini-admin-edit:hover { background: #e2e6ea; color: #333; border-color: #adb5bd; }
     `;
     document.head.appendChild(style);
 }
@@ -1639,4 +1661,235 @@ function renderFilteredReturnCards() {
     cardsContainer.appendChild(wrapper);
 }
 
+// =============================================================================
+// ADMIN EDIT ORIGINAL ORDERS (POPUP)
+// =============================================================================
+
+let currentAdminEditReturnId = null;
+
+function openAdminOrderEditModal(dismissNumber) {
+    // 1. Get the record to find Order IDs
+    const record = returnData.records.find(r => r.dismissNumber == dismissNumber);
+    if (!record || !record.orderIds) {
+        safeToast('لا توجد طلبات مرتبطة', 'error');
+        return;
+    }
+
+    currentAdminEditReturnId = dismissNumber; // Store for reload context
+
+    // 2. Create Modal HTML (if not exists)
+    let modal = document.getElementById('admin-order-edit-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'admin-order-edit-modal';
+        modal.innerHTML = `
+            <div class="admin-modal-overlay">
+                <div class="admin-modal-content">
+                    <div class="admin-modal-header">
+                        <h3><i class="fas fa-edit"></i> تعديل كميات الطلبات الأصلية</h3>
+                        <button onclick="closeAdminOrderEditModal()" class="close-btn">&times;</button>
+                    </div>
+                    <div id="admin-modal-body" class="admin-modal-body">
+                        <div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin fa-2x"></i><br>جاري التحميل...</div>
+                    </div>
+                    <div class="admin-modal-footer">
+                        <button onclick="saveAdminOrderChanges()" class="btn-save-changes"><i class="fas fa-save"></i> حفظ وتحديث</button>
+                    </div>
+                </div>
+            </div>
+            <style>
+                .admin-modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; justify-content: center; align-items: center; }
+                .admin-modal-content { background: white; width: 90%; max-width: 600px; max-height: 85vh; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 5px 15px rgba(0,0,0,0.3); font-family: 'Tajawal', sans-serif; direction: rtl; }
+                .admin-modal-header { padding: 15px; background: #343a40; color: white; display: flex; justify-content: space-between; align-items: center; }
+                .admin-modal-header h3 { margin: 0; font-size: 16px; }
+                .close-btn { background: none; border: none; color: white; font-size: 24px; cursor: pointer; }
+                .admin-modal-body { flex: 1; overflow-y: auto; padding: 15px; background: #f8f9fa; }
+                .admin-modal-footer { padding: 15px; border-top: 1px solid #ddd; text-align: left; background: white; }
+                
+                .ao-accordion-item { margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; background: white; overflow: hidden; }
+                .ao-accordion-header { padding: 10px 15px; background: #e9ecef; cursor: pointer; display: flex; justify-content: space-between; font-weight: bold; align-items: center; }
+                .ao-accordion-header:hover { background: #dee2e6; }
+                .ao-accordion-body { padding: 0; display: none; }
+                .ao-accordion-item.active .ao-accordion-body { display: block; }
+                
+                .ao-product-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+                .ao-product-table th { background: #f1f3f5; padding: 8px; border-bottom: 2px solid #ddd; text-align: right; font-weight: bold; color: #495057; }
+                .ao-product-table td { padding: 8px; border-bottom: 1px solid #eee; vertical-align: middle; }
+                .ao-input-group { display: flex; gap: 5px; align-items: center; }
+                .ao-qty-input { width: 60px; padding: 4px; border: 1px solid #ccc; border-radius: 3px; text-align: center; }
+                .ao-label-small { font-size: 10px; color: #888; }
+                
+                .btn-save-changes { background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; font-family: 'Tajawal', sans-serif; }
+                .btn-save-changes:hover { background: #218838; }
+            </style>
+        `;
+        document.body.appendChild(modal);
+    }
+    modal.style.display = 'block';
+
+    // 3. Load Data
+    console.log("Fetching details for IDs:", record.orderIds); // Debug Log
+    google.script.run
+        .withSuccessHandler(rawResponse => {
+            // PARSE JSON RESPONSE
+            let response;
+            try {
+                response = JSON.parse(rawResponse);
+            } catch (e) {
+                console.error("JSON Parse Error", e);
+                response = { success: false, message: "Invalid JSON from server" };
+            }
+            renderAdminOrderEditUI(response);
+        })
+        .withFailureHandler(err => {
+            document.getElementById('admin-modal-body').innerHTML = `<div class="alert alert-danger">${err.message}</div>`;
+        })
+        .getReturnOrderDetails(record.orderIds);
+}
+
+function closeAdminOrderEditModal() {
+    const modal = document.getElementById('admin-order-edit-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function renderAdminOrderEditUI(response) {
+    const container = document.getElementById('admin-modal-body');
+    if (!response.success) {
+        container.innerHTML = `<div class="alert alert-danger">${response.message}</div>`;
+        return;
+    }
+
+    if (response.orders.length === 0) {
+        container.innerHTML = `<div style="text-align:center; padding:20px; color:#666;">لا توجد بيانات متاحة لهذه الطلبات</div>`;
+        return;
+    }
+
+    let html = '';
+    response.orders.forEach(order => {
+        html += `
+            <div class="ao-accordion-item" id="ao-order-${order.orderId}">
+                <div class="ao-accordion-header" onclick="toggleAdminOrderAccordion(this)">
+                    <span><i class="fas fa-file-invoice"></i> طلب رقم: ${order.orderId} <span style="font-weight:normal; font-size:0.9em; margin-right:5px;">(${order.clientName})</span></span>
+                    <i class="fas fa-chevron-down"></i>
+                </div>
+                <div class="ao-accordion-body">
+                    <table class="ao-product-table">
+                        <thead>
+                            <tr>
+                                <th style="width:40%">المنتج</th>
+                                <th style="width:30%">الكمية / بونص</th>
+                                <th style="width:30%">ملاحظات</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${order.products.map(p => `
+                                <tr class="ao-product-row" data-name="${p.name}">
+                                    <td><strong>${p.name}</strong></td>
+                                    <td>
+                                        <div class="ao-input-group">
+                                            <div style="display:flex; flex-direction:column; align-items:center;">
+                                                <input type="number" class="ao-qty-input inp-qty" value="${p.qty}" min="0">
+                                                <span class="ao-label-small">كمية</span>
+                                            </div>
+                                            <div style="display:flex; flex-direction:column; align-items:center;">
+                                                <input type="number" class="ao-qty-input inp-bonus" value="${p.bonus}" min="0">
+                                                <span class="ao-label-small">بونص</span>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td style="color:#999; font-style:italic;">--</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    });
+    container.innerHTML = html;
+}
+
+function toggleAdminOrderAccordion(header) {
+    const item = header.parentElement;
+    item.classList.toggle('active');
+    const icon = header.querySelector('.fa-chevron-down');
+    if (item.classList.contains('active')) {
+        icon.style.transform = 'rotate(180deg)';
+    } else {
+        icon.style.transform = 'rotate(0deg)';
+    }
+}
+
+function saveAdminOrderChanges() {
+    const userEmail = localStorage.getItem('userEmail');
+    const updates = [];
+    
+    // Collect Data
+    const orderItems = document.querySelectorAll('.ao-accordion-item');
+    orderItems.forEach(item => {
+        const orderId = item.id.replace('ao-order-', '');
+        const rows = item.querySelectorAll('.ao-product-row');
+        const products = [];
+        
+        rows.forEach(row => {
+            const name = row.dataset.name;
+            const qty = parseFloat(row.querySelector('.inp-qty').value) || 0;
+            const bonus = parseFloat(row.querySelector('.inp-bonus').value) || 0;
+            
+            // Assuming we send all, or diffs. Sending all for simplicity & backend handling
+            products.push({ name: name, qty: qty, bonus: bonus });
+        });
+
+        if (products.length > 0) {
+            updates.push({ orderId: orderId, products: products });
+        }
+    });
+
+    if (updates.length === 0) return;
+
+    // UI Loading
+    const btn = document.querySelector('.btn-save-changes');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري الحفظ...';
+
+    // STRINGIFY INPUT
+    const updatesJson = JSON.stringify(updates);
+
+    google.script.run
+        .withSuccessHandler(rawRes => {
+            // PARSE JSON RESPONSE
+            let res;
+            try { res = JSON.parse(rawRes); } catch(e) { res = { success: false, message: "Server error" }; }
+
+            if (res.success) {
+                // 1. Close the edit modal
+                closeAdminOrderEditModal();
+                
+                // 2. Check for Warning Keywords (⚠️)
+                if (res.message && (res.message.includes('⚠️') || res.message.includes('تنبيه'))) {
+                    showCustomConfirm(
+                        'تم التحديث - إجراءات مطلوبة', 
+                        res.message, 
+                        false 
+                    );
+                } else {
+                    safeToast(res.message || 'تم تحديث الكميات بنجاح', 'success');
+                }
+
+                // 3. Reload data
+                loadReturnRecords();
+            } else {
+                safeToast('خطأ: ' + res.message, 'error');
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        })
+        .withFailureHandler(err => {
+            safeToast('خطأ في الاتصال', 'error');
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        })
+        .updateOriginalOrderQuantities(updatesJson, userEmail);
+}
 </script>
