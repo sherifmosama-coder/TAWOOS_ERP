@@ -493,6 +493,7 @@ function refreshPage() {
         
         const prodTab = document.getElementById('productionTabContent');
         const matTab = document.getElementById('materialsTabContent');
+        const purchTab = document.getElementById('purchasesTabContent');
 
         // 1. Refresh Production Module
         if (prodTab && prodTab.classList.contains('active')) {
@@ -500,12 +501,16 @@ function refreshPage() {
                 loadProductionData(); 
             }
         } 
-        // 2. Refresh Materials Module (Updates Dashboard, Transfers & Adjustments)
+        // 2. Refresh Materials Module
         else if (matTab && matTab.classList.contains('active')) {
             if (typeof loadMaterialsData === 'function') {
-                // Calling this without arguments performs a full data refresh
-                // and resets the forms/filters (since preservation is not required)
                 loadMaterialsData(); 
+            }
+        }
+        // 3. Refresh Purchases Module
+        else if (purchTab && purchTab.classList.contains('active')) {
+            if (typeof loadPurchasesData === 'function') {
+                loadPurchasesData();
             }
         }
         
