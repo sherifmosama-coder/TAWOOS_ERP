@@ -17,6 +17,41 @@ let purchasesState = {
     nextSampleId: ''
 };
 
+// --- HELPER: LOADER COMPONENT ---
+function getPurchasesLoader(text = 'جاري تحميل البيانات...') {
+    return `
+    <div class="wh-loader-container">
+        <div class="wh-anim-box">
+            <i class="fas fa-forklift wh-forklift"></i>
+            <i class="fas fa-box-open wh-box"></i>
+        </div>
+        <h6 style="color:var(--p-primary); margin-bottom:30px; font-weight:700;">${text}</h6>
+        
+        <div class="skeleton-card">
+            <div class="sk-box sk-icon"></div>
+            <div><div class="sk-box sk-line-long"></div><div class="sk-box sk-line-short"></div></div>
+            <div class="sk-box sk-amount"></div>
+            <div class="sk-box sk-amount" style="width:30px; height:30px;"></div>
+            <div class="sk-footer"></div>
+        </div>
+        <div class="skeleton-card" style="opacity:0.7">
+            <div class="sk-box sk-icon"></div>
+            <div><div class="sk-box sk-line-long"></div><div class="sk-box sk-line-short"></div></div>
+            <div class="sk-box sk-amount"></div>
+            <div class="sk-box sk-amount" style="width:30px; height:30px;"></div>
+            <div class="sk-footer"></div>
+        </div>
+        <div class="skeleton-card" style="opacity:0.4">
+            <div class="sk-box sk-icon"></div>
+            <div><div class="sk-box sk-line-long"></div><div class="sk-box sk-line-short"></div></div>
+            <div class="sk-box sk-amount"></div>
+            <div class="sk-box sk-amount" style="width:30px; height:30px;"></div>
+            <div class="sk-footer"></div>
+        </div>
+    </div>`;
+}
+
+// --- MODULE INITIALIZATION ---
 function initPurchasesModule() {
     const container = document.getElementById('purchasesTabContent');
     if (!container) return;
@@ -295,35 +330,7 @@ function initPurchasesModule() {
                 </div>
 
                 <div id="p-history-container">
-                    <div class="wh-loader-container">
-                        <div class="wh-anim-box">
-                            <i class="fas fa-forklift wh-forklift"></i>
-                            <i class="fas fa-box-open wh-box"></i>
-                        </div>
-                        <h6 style="color:var(--p-primary); margin-bottom:30px; font-weight:700;">جاري الاتصال بالمخزن...</h6>
-                        
-                        <div class="skeleton-card">
-                            <div class="sk-box sk-icon"></div>
-                            <div><div class="sk-box sk-line-long"></div><div class="sk-box sk-line-short"></div></div>
-                            <div class="sk-box sk-amount"></div>
-                            <div class="sk-box sk-amount" style="width:30px; height:30px;"></div>
-                            <div class="sk-footer"></div>
-                        </div>
-                        <div class="skeleton-card" style="opacity:0.7">
-                            <div class="sk-box sk-icon"></div>
-                            <div><div class="sk-box sk-line-long"></div><div class="sk-box sk-line-short"></div></div>
-                            <div class="sk-box sk-amount"></div>
-                            <div class="sk-box sk-amount" style="width:30px; height:30px;"></div>
-                            <div class="sk-footer"></div>
-                        </div>
-                        <div class="skeleton-card" style="opacity:0.4">
-                            <div class="sk-box sk-icon"></div>
-                            <div><div class="sk-box sk-line-long"></div><div class="sk-box sk-line-short"></div></div>
-                            <div class="sk-box sk-amount"></div>
-                            <div class="sk-box sk-amount" style="width:30px; height:30px;"></div>
-                            <div class="sk-footer"></div>
-                        </div>
-                    </div>
+                    ${getPurchasesLoader('جاري الاتصال بالمخزن...')}
                 </div>
             </div>
             
@@ -452,6 +459,15 @@ function initPurchasesModule() {
         </div>
     `;
 
+    // --- NEW: Refresh History when Modal Closes ---
+    const modalEl = document.getElementById('transactionModal');
+    if(modalEl) {
+        modalEl.addEventListener('hidden.bs.modal', function () {
+            // Reload data to show new transactions or updates
+            loadPurchasesData(); 
+        });
+    }
+
     loadPurchasesData();
 }
 
@@ -525,6 +541,12 @@ function runExplorer() {
 }
 
 function loadPurchasesData() {
+    // 1. Show Loader Immediately (Using Helper)
+    const container = document.getElementById('p-history-container');
+    if (container) {
+        container.innerHTML = getPurchasesLoader('جاري تحديث البيانات...');
+    }
+
     const currentUserEmail = localStorage.getItem('userEmail') || '';
 
     google.script.run.withSuccessHandler(res => {
