@@ -299,6 +299,23 @@ function injectAccountingStyles() {
         .chip-popup-close { cursor: pointer; color: #999; }
         .chip-list-item { font-size: 12px; padding: 4px 0; border-bottom: 1px dashed #eee; color: #333; }
 
+        /* Compact Mode for Delivery Note in Mixed View */
+        .compact-mode {
+            transform: scale(0.9);
+            opacity: 0.7;
+            background-color: #f8f9fa;
+            border: 1px dashed #ccc;
+            transform-origin: right center; /* Align to right */
+            margin-right: -10px; /* Pull closer to edge */
+        }
+        .compact-mode:hover {
+            opacity: 1;
+            transform: scale(1);
+            border-style: solid;
+            z-index: 10;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
         /* Meta Bottom */
         .acc-meta-left { display: flex; gap: 10px; align-items: center; }
         .po-mini-chip { font-size: 9px; background: #eee; padding: 2px 5px; border-radius: 3px; color: #555; }
@@ -1211,7 +1228,12 @@ function createAccountingOrderCard(order) {
     // --- 5. ACTION EDGE (Preserved) ---
     let inputsHtml = '';
     const getLabel = (key) => translations[currentLang][key] || key;
-    if (needs.deliveryNote) inputsHtml += createInvoiceInput('deliveryNote', getLabel('dnLabel'), order.deliveryNote, order.orderId, 'orange', 'note');
+
+    // NEW: Determine if "Mixed Mode" (Both Tax and DN visible) -> Make DN compact
+    const isMixedMode = (needs.tawoos || needs.pl) && needs.deliveryNote;
+    const dnStyle = isMixedMode ? 'compact-mode' : '';
+
+    if (needs.deliveryNote) inputsHtml += createInvoiceInput('deliveryNote', getLabel('dnLabel'), order.deliveryNote, order.orderId, 'orange ' + dnStyle, 'note');
     if (needs.tawoos) inputsHtml += createInvoiceInput('tawoosInvoice', getLabel('tawoosLabel'), order.tawoosInvoice, order.orderId, 'blue', 'tax');
     if (needs.pl) inputsHtml += createInvoiceInput('plInvoice', getLabel('plLabel'), order.plInvoice, order.orderId, 'purple', 'tax');
 
@@ -1536,8 +1558,16 @@ function showSingleInvoiceModal(orderId, type, serial, data, field) {
         attachmentsBar.style.display = 'none';
     }
     
+    // Update "Hide Bonus" Visibility: Only show for Delivery Notes
     if(document.getElementById('p-hide-bonus')) {
-        document.getElementById('p-hide-bonus').checked = false;
+        const bonusToggle = document.getElementById('p-hide-bonus');
+        bonusToggle.checked = false;
+        
+        // Find the parent container (header-control-group) and toggle visibility
+        const bonusContainer = bonusToggle.closest('.header-control-group');
+        if (bonusContainer) {
+            bonusContainer.style.display = (type === 'DeliveryNote') ? 'block' : 'none';
+        }
     }
     
     renderIframeContent();
@@ -2126,6 +2156,10 @@ function renderIframeContent() {
         const client = d.CLIENT_DETAILS || { name: d.CLIENT_NAME || '', branch: '', address: '', vat: '' };
         if (currentPreviewData.isCashSales) {
             client.name = currentPreviewData.lang === 'ar' ? 'بيع نقدي' : 'Cash Sales';
+            // NEW: Hide specific details for Cash Sales
+            client.branch = '';
+            client.address = '';
+            client.vat = ''; 
         }
         
         const orderRow = accountingData.orders.find(o => o.orderId == currentPreviewData.orderId) || {};
@@ -2267,9 +2301,11 @@ function renderIframeContent() {
                     const displayName = isAr ? (p.nameAr || p.name) : (p.nameEn || p.name);
                     const barcodeDisplay = p.barcodeSVG ? p.barcodeSVG : (p.barcode ? `<div style="font-size: 9px; color: #666;">${p.barcode}</div>` : '');
                     
-                    const unitPrice = parseFloat(p.unitPrice || 0);
+                    // UPDATED: Use Adjusted Price (Diluted) and Gross Total
+                    const unitPrice = p.adjustedUnitPrice !== undefined ? parseFloat(p.adjustedUnitPrice) : parseFloat(p.unitPrice || 0);
                     const totalQty = parseFloat(p.totalQty || 0);
-                    const lineSubtotal = unitPrice * parseFloat(p.qty || 0);
+                    // Use grossLineTotal directly to ensure 1000 stays 1000 (not 999.96)
+                    const lineSubtotal = p.grossLineTotal !== undefined ? parseFloat(p.grossLineTotal) : (unitPrice * parseFloat(p.qty || 0));
                     
                     subtotalBeforeDiscount += lineSubtotal;
                     subtotalAfterDiscount += parseFloat(p.finalAmount || 0);
@@ -2826,10 +2862,13 @@ function determineInvoiceNeeds(order) {
     const isTawoosNeeded = (order.hasTawoos !== undefined) ? order.hasTawoos : true;
     const isPLNeeded = (order.hasPL !== undefined) ? order.hasPL : false;
 
+    // NEW: Keep Delivery Note visible if it already exists (Transformation Case)
+    const hasExistingDN = order.deliveryNote && order.deliveryNote.toString().trim() !== '';
+
     return {
         tawoos: isTawoosNeeded,
         pl: isPLNeeded,
-        deliveryNote: false
+        deliveryNote: hasExistingDN // Show DN if it exists, even in Tax Mode
     };
 }
 
