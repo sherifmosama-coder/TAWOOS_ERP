@@ -215,6 +215,41 @@ function initPurchasesModule() {
             .rc-vat-badge.missing { background: #fee2e2; color: #ef4444; border-color: #fca5a5; }
             .rc-vat-badge.missing:hover { background: #ef4444; color: white; }
 
+            /* --- SEGMENTED CONTROL (Types) --- */
+            .p-type-group { display: flex; gap: 8px; background: #f1f5f9; padding: 5px; border-radius: 10px; width: 100%; }
+            .p-type-btn { flex: 1; border: none; background: transparent; padding: 8px; border-radius: 8px; font-weight: 700; color: #64748b; font-size: 0.9rem; transition: 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px; }
+            .p-type-btn:hover { background: rgba(255,255,255,0.5); }
+            
+            /* Active States */
+            .p-type-btn.active[data-type="استلام"] { background: #10b981; color: white; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3); }
+            .p-type-btn.active[data-type="ارتجاع"] { background: #ef4444; color: white; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3); }
+            .p-type-btn.active[data-type="تعديل تكلفة"] { background: #f59e0b; color: white; box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3); }
+            .p-type-btn.active[data-type="عينة"] { background: #0ea5e9; color: white; box-shadow: 0 2px 4px rgba(14, 165, 233, 0.3); }
+
+            /* --- CONFIRMATION SCREEN --- */
+            .p-confirm-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 10; padding: 0; display: flex; flex-direction: column; opacity: 0; pointer-events: none; transition: 0.3s; transform: translateX(20px); }
+            .p-confirm-screen.active { opacity: 1; pointer-events: auto; transform: translateX(0); }
+            
+            .confirm-header { background: #f8fafc; padding: 20px; border-bottom: 1px solid #e2e8f0; text-align: center; }
+            .confirm-body { flex: 1; overflow-y: auto; padding: 25px; }
+            .confirm-footer { padding: 20px; border-top: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; background: #f8fafc; }
+
+            .timer-bar-bg { width: 100%; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; margin-top: 15px; }
+            .timer-bar-fill { height: 100%; background: var(--p-accent); width: 100%; transition: width 1s linear; }
+
+            /* --- SUCCESS PULSE --- */
+            .success-pulse {
+                width: 80px; height: 80px; background: #dcfce7; color: #16a34a;
+                border-radius: 50%; display: flex; align-items: center; justify-content: center;
+                font-size: 2.5rem; margin: 0 auto 20px;
+                animation: pulse-green 2s infinite;
+            }
+            @keyframes pulse-green {
+                0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.4); }
+                70% { box-shadow: 0 0 0 20px rgba(22, 163, 74, 0); }
+                100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+            }
+
             /* --- WAREHOUSE LOADER & SKELETON --- */
             .wh-loader-container { text-align: center; padding: 40px 20px; animation: fadeUp 0.5s ease-out; }
             
@@ -356,14 +391,45 @@ function initPurchasesModule() {
                     </div>
 
                     <form id="purchaseForm">
+                        <div id="p-confirm-overlay" class="p-confirm-screen">
+                            <div class="confirm-header">
+                                <h4 style="color:var(--p-dark); font-weight:800;">مراجعة نهائية للحركة</h4>
+                                <div class="text-muted small">سيتم الحفظ تلقائياً بعد انتهاء العد التنازلي</div>
+                                <div class="timer-bar-bg"><div id="p-timer-fill" class="timer-bar-fill"></div></div>
+                            </div>
+                            <div class="confirm-body" id="p-confirm-content"></div>
+                            <div class="confirm-footer">
+                                <button type="button" class="btn btn-light text-muted" onclick="cancelConfirm()">
+                                    <i class="fas fa-arrow-right"></i> تراجع وتعديل
+                                </button>
+                                <button type="button" class="btn btn-primary btn-lg px-5" onclick="executeSave()">
+                                    <i class="fas fa-check-circle"></i> تأكيد وحفظ
+                                </button>
+                            </div>
+                        </div>
+
                         <div class="modal-header-fields">
+                            <div class="field-group" style="grid-column: span 2;">
+                                <label>نوع العملية</label>
+                                <div class="p-type-group">
+                                    <button type="button" class="p-type-btn active" data-type="استلام" onclick="setPurchType(this)">
+                                        <i class="fas fa-download"></i> استلام
+                                    </button>
+                                    <button type="button" class="p-type-btn" data-type="ارتجاع" onclick="setPurchType(this)">
+                                        <i class="fas fa-undo-alt"></i> ارتجاع
+                                    </button>
+                                    <button type="button" class="p-type-btn" data-type="تعديل تكلفة" onclick="setPurchType(this)">
+                                        <i class="fas fa-calculator"></i> تكلفة
+                                    </button>
+                                    <button type="button" class="p-type-btn" data-type="عينة" onclick="setPurchType(this)">
+                                        <i class="fas fa-gift"></i> عينة
+                                    </button>
+                                </div>
+                                <input type="hidden" id="p-operation" value="استلام">
+                            </div>
                             <div class="field-group">
                                 <label>التاريخ</label>
                                 <input type="date" id="p-date" class="form-control-custom" readonly>
-                            </div>
-                            <div class="field-group">
-                                <label>نوع العملية</label>
-                                <select id="p-operation" class="form-control-custom" required onchange="updateTransactionChip()"></select>
                             </div>
                             <div class="field-group">
                                 <label style="color:var(--p-accent);">المورد</label>
@@ -608,6 +674,9 @@ function loadPurchasesData() {
             
             // 4. Render New Rich Cards
             renderRichCards(res.history);
+            
+            // 5. Init Theme
+            setPurchType(document.querySelector('.p-type-btn.active'));
         }
     }).getPurchasesInitialData(currentUserEmail);
 }
@@ -667,7 +736,39 @@ function populateSelect(id, list, def) {
 
 // --- NEW LOGIC FUNCTIONS ---
 
-// 1. Chip Update 
+// 1. Type Setter & Theming
+function setPurchType(btn) {
+    // UI Active State
+    document.querySelectorAll('.p-type-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    
+    // Set Value
+    const type = btn.dataset.type;
+    document.getElementById('p-operation').value = type;
+    
+    // Apply Theme
+    const header = document.querySelector('.modal-header-custom');
+    const addBtn = document.querySelector('.btn-action[onclick="addPurchaseRow()"]');
+    
+    let color = '#1e293b'; // Default Dark
+    let accent = '#10b981'; // Default Green
+    
+    if(type === 'استلام') { color = '#1e293b'; accent = '#10b981'; } // Dark / Green
+    else if(type === 'ارتجاع') { color = '#7f1d1d'; accent = '#ef4444'; } // Dark Red / Red
+    else if(type === 'تعديل تكلفة') { color = '#78350f'; accent = '#f59e0b'; } // Dark Orange / Orange
+    else if(type === 'عينة') { color = '#0c4a6e'; accent = '#0ea5e9'; } // Dark Blue / Blue
+    
+    if(header) header.style.background = color;
+    if(addBtn) {
+        addBtn.style.borderColor = accent;
+        addBtn.style.color = color;
+        addBtn.querySelector('i').style.color = accent;
+    }
+
+    updateTransactionChip();
+}
+
+// 2. Chip Update 
 function updateTransactionChip() { 
 const op = document.getElementById('p-operation').value; 
 const chip = document.getElementById('next-id-text');
@@ -795,6 +896,8 @@ document.querySelectorAll('.item-card').forEach(c => calcRow(c.querySelector('.p
 
 function renderRichCards(data) {
     const container = document.getElementById('p-history-container');
+    if (!container) return; // Guard clause to prevent crash
+
     if(!data || data.length === 0) {
         container.innerHTML = '<div class="text-center p-5 text-muted"><i class="fas fa-box-open fa-3x mb-3"></i><br>لا توجد حركات تطابق البحث</div>';
         return;
@@ -1361,12 +1464,124 @@ function removeRow(btn) {
     updateGrandTotal();
 }
 
-function savePurchase() {
-    const btn = document.getElementById('btn-save-purchase');
-    const original = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> حفظ...'; btn.disabled = true;
+let confirmTimer = null;
 
-    // Global Flags
+function savePurchase() {
+    // 1. Validate Form
+    const supplier = document.getElementById('p-supplier-global').value;
+    const items = document.querySelectorAll('.item-card');
+    
+    if (!supplier) { alert('يرجى اختيار المورد'); return; }
+    if (items.length === 0) { alert('يرجى إضافة صنف واحد على الأقل'); return; }
+    
+    // 2. Build Summary Data
+    const op = document.getElementById('p-operation').value;
+    const date = document.getElementById('p-date').value;
+    const total = document.getElementById('p-grand-total').innerText;
+    const ship = document.getElementById('p-shipping-fee').value;
+    
+    // --- DEFINITIONS ---
+    const isVat = document.getElementById('p-global-vat').checked;
+    const isGlobalWht = document.getElementById('p-global-wht').checked;
+    
+    let tableRows = '';
+    items.forEach((card, i) => {
+        const name = card.querySelector('.p-basic').selectedOptions[0]?.text || '-';
+        const spec = card.querySelector('.p-specific').selectedOptions[0]?.text || '-';
+        const wh = card.querySelector('.p-warehouse-row').selectedOptions[0]?.text || '-'; // GET WAREHOUSE
+        const qty = card.querySelector('.p-qty-total').value;
+        const price = card.querySelector('.p-price').value;
+        const line = card.querySelector('.p-line-total').value;
+        const note = card.querySelector('.p-item-note').value;
+        
+        tableRows += `
+            <tr>
+                <td>${i+1}</td>
+                <td><strong>${name}</strong><br><small class="text-muted">${spec}</small></td>
+                <td class="text-center"><span class="badge bg-light text-dark border">${wh}</span></td>
+                <td class="text-center">${qty}</td>
+                <td class="text-center">${price}</td>
+                <td class="text-end fw-bold">${line}</td>
+            </tr>
+            ${note ? `<tr><td colspan="6" class="bg-light text-muted small fst-italic px-4"><i class="fas fa-quote-right me-1"></i> ${note}</td></tr>` : ''}
+        `;
+    });
+
+    const summaryHtml = `
+        <div class="row mb-4">
+            <div class="col-6">
+                <div class="p-3 bg-light rounded border">
+                    <small class="text-muted d-block">المورد</small>
+                    <strong class="text-dark h5">${supplier}</strong>
+                </div>
+            </div>
+            <div class="col-3">
+                <div class="p-3 bg-light rounded border">
+                    <small class="text-muted d-block">النوع</small>
+                    <strong>${op}</strong>
+                </div>
+            </div>
+            <div class="col-3">
+                <div class="p-3 bg-light rounded border">
+                    <small class="text-muted d-block">التاريخ</small>
+                    <strong>${date}</strong>
+                </div>
+            </div>
+        </div>
+        
+        <div class="table-responsive">
+            <table class="table table-bordered table-sm align-middle mb-4">
+                <thead class="table-light"><tr><th>#</th><th>الصنف</th><th>المخزن</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
+                <tbody>${tableRows}</tbody>
+            </table>
+        </div>
+        
+        <div class="d-flex justify-content-end gap-4 align-items-center flex-wrap">
+            ${ship > 0 ? `<div class="text-muted">نولون: <strong>${ship}</strong></div>` : ''}
+            ${isVat ? `<div class="text-primary"><i class="fas fa-check"></i> ضريبة (14%)</div>` : ''}
+            ${isGlobalWht ? `<div class="text-danger"><i class="fas fa-cut"></i> خصم (1%)</div>` : ''}
+            <div class="bg-dark text-white px-4 py-2 rounded h4 mb-0">
+                الإجمالي: ${total}
+            </div>
+        </div>
+    `;
+
+    // 3. Show Screen & Start Timer
+    document.getElementById('p-confirm-content').innerHTML = summaryHtml;
+    document.getElementById('p-confirm-overlay').classList.add('active');
+    
+    startConfirmTimer();
+}
+
+function startConfirmTimer() {
+    const fill = document.getElementById('p-timer-fill');
+    fill.style.transition = 'none';
+    fill.style.width = '100%';
+    
+    // Force reflow
+    void fill.offsetWidth;
+    
+    fill.style.transition = 'width 30s linear';
+    fill.style.width = '0%';
+    
+    if(confirmTimer) clearTimeout(confirmTimer);
+    confirmTimer = setTimeout(() => {
+        executeSave(); // Auto-Save
+    }, 30000);
+}
+
+function cancelConfirm() {
+    if(confirmTimer) clearTimeout(confirmTimer);
+    document.getElementById('p-confirm-overlay').classList.remove('active');
+}
+
+function executeSave() {
+    if(confirmTimer) clearTimeout(confirmTimer);
+    
+    // Original Save Logic
+    const btn = document.getElementById('btn-save-purchase'); // Only for reference if needed
+    // ... (Use the logic from previous savePurchase, extracting data again to be safe)
+    
     const isGlobalVat = document.getElementById('p-global-vat').checked;
     const isGlobalWht = document.getElementById('p-global-wht').checked;
 
@@ -1377,7 +1592,6 @@ function savePurchase() {
         supplier: document.getElementById('p-supplier-global').value,
         transportationFee: document.getElementById('p-shipping-fee').value,
         poNumber: document.getElementById('p-po').value,
-        // New Global Fields
         invoiceNumber: document.getElementById('p-inv-num').value,
         invoiceDate: document.getElementById('p-inv-date').value,
         whtNoteNumber: document.getElementById('p-wht-num').value,
@@ -1398,11 +1612,8 @@ function savePurchase() {
             const pack = parseFloat(packVal) || 1;
             const totQty = parseFloat(qMaj) * pack;
             const preTax = totQty * parseFloat(price);
-
-            // Rates
             const vatRate = isGlobalVat ? parseFloat(card.querySelector('.p-rate-vat').value) : 0;
             const whtRate = isGlobalWht ? parseFloat(card.querySelector('.p-rate-wht').value) : 0;
-
             const itemNote = card.querySelector('.p-item-note').value;
 
             payload.items.push({
@@ -1419,8 +1630,8 @@ function savePurchase() {
                 unitMinor: card.querySelector('.p-unit-minor').value,
                 totalQty: totQty,
                 price: price,
-                isTax: isGlobalVat,  // Pass global state
-                isDisc1: isGlobalWht, // Pass global state
+                isTax: isGlobalVat, 
+                isDisc1: isGlobalWht,
                 preTaxTotal: preTax,
                 taxValue: preTax * vatRate,
                 discountValue: preTax * whtRate,
@@ -1429,54 +1640,54 @@ function savePurchase() {
         }
     });
 
-    if(payload.items.length===0) { alert('أضف صنفاً واحداً'); btn.innerHTML=original; btn.disabled=false; return; }
+    // Show Loading Overlay on Confirmation Screen
+    const confirmBody = document.getElementById('p-confirm-content');
+    confirmBody.innerHTML = '<div class="text-center py-5"><i class="fas fa-circle-notch fa-spin fa-3x text-primary mb-3"></i><h3>جاري الحفظ...</h3></div>';
 
     google.script.run.withSuccessHandler(res => {
-        btn.innerHTML = original; btn.disabled = false;
-        
         if(res.success) {
-            // 1. Disable All Form Fields (Freeze State)
-            const form = document.getElementById('purchaseForm');
-            const elements = form.querySelectorAll('input, select, textarea, button');
-            elements.forEach(el => el.disabled = true);
-            
-            // STORE HTML GLOBALLY (Fixes Syntax Error)
+            // Success Screen (Enhanced)
             window.currentPrintData = res.printHtml;
-
-            // 2. Inject Success Message & Print Button into Footer
             const footer = document.querySelector('.modal-footer-custom');
-            footer.innerHTML = `
-                <div class="d-flex align-items-center justify-content-between w-100 animation-slide-up">
-                    <div class="d-flex align-items-center text-success gap-2">
-                        <i class="fas fa-check-circle fa-2x"></i>
-                        <div>
-                            <div style="font-weight:bold;">تم حفظ الحركة بنجاح</div>
-                            <div style="font-size:0.8rem; font-family:monospace;">ID: ${res.transactionId}</div>
-                        </div>
+            
+            // Hide Confirmation Overlay (Fade out)
+            document.getElementById('p-confirm-overlay').classList.remove('active');
+
+            // Inject Success into Main Modal Body
+            const formContainer = document.getElementById('purchaseForm');
+            formContainer.innerHTML = `
+                <div class="text-center py-5 animation-fade-in" style="background:#f0fdf4; border-radius:16px;">
+                    <div class="success-pulse">
+                        <i class="fas fa-check"></i>
+                    </div>
+                    <h2 style="color:#166534; font-weight:800; margin-bottom:10px;">تم حفظ الحركة بنجاح</h2>
+                    <p class="text-muted mb-4">رقم الحركة: <span style="font-family:monospace; font-weight:bold; font-size:1.2rem; color:#1e293b; background:white; padding:2px 10px; border-radius:4px; border:1px solid #cbd5e1;">${res.transactionId}</span></p>
+                    
+                    <div class="d-flex justify-content-center gap-3">
+                         <button type="button" class="btn btn-primary btn-lg shadow-sm" onclick="printReceiptDirectly()" style="font-weight:700; min-width:200px;">
+                            <i class="fas fa-print me-2"></i> طباعة المستند
+                        </button>
                     </div>
                     
-                    <div class="d-flex align-items-center gap-2">
-                        <button type="button" class="btn btn-primary shadow-sm" onclick="printReceiptDirectly()" title="طباعة فورية للمستند" style="width:40px; height:40px; padding:0; border-radius:50%; display:flex; align-items:center; justify-content:center; transition:0.2s;">
-                            <i class="fas fa-print fa-lg"></i>
-                        </button>
-
-                        <div style="height:25px; border-left:1px solid #e2e8f0; margin:0 5px;"></div>
-
+                    <hr class="my-5" style="opacity:0.1">
+                    
+                    <div class="d-flex justify-content-center gap-2">
                         <button type="button" class="btn btn-outline-secondary" onclick="resetPurchaseModal()">
-                            <i class="fas fa-plus me-1"></i> جديد
+                            <i class="fas fa-plus me-1"></i> حركة جديدة
                         </button>
-                        <button type="button" class="btn btn-light" data-bs-dismiss="modal" onclick="loadPurchasesData()">
+                        <button type="button" class="btn btn-light text-muted" data-bs-dismiss="modal" onclick="loadPurchasesData()">
                             إغلاق
                         </button>
                     </div>
                 </div>
             `;
             
-            // Refresh Background Data
+            // Refresh Background
             loadPurchasesData();
 
         } else {
             alert('❌ خطأ: ' + res.message);
+            cancelConfirm();
         }
     }).savePurchaseTransaction(payload);
 }
@@ -1506,11 +1717,21 @@ function printReceiptDirectly() {
 function resetPurchaseModal() {
     const el = document.getElementById('transactionModal');
     const modal = bootstrap.Modal.getInstance(el);
-    modal.hide();
+    if(modal) modal.hide();
     
-    // Wait for hide animation then reopen fresh
+    // Wait for hide animation
     setTimeout(() => {
-        openPurchaseModal();
+        // 1. Re-Initialize to restore original HTML structure
+        initPurchasesModule(); 
+        
+        // 2. Wait for DOM update then Open
+        setTimeout(() => {
+            if(document.getElementById('p-date')) {
+                openPurchaseModal();
+            } else {
+                setTimeout(() => openPurchaseModal(), 200); // Retry
+            }
+        }, 200);
     }, 400);
 }
 </script>
