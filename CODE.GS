@@ -2211,6 +2211,12 @@ function calculateAndPrepareInvoiceData(ORDER_ID, INVOICE_TYPE, SERIAL_NUMBER) {
        const totalQty = qty + bonus;
        let lineSubtotal = qty * basePrice; // UPDATED: Changed from totalQty to qty
 
+       // --- NEW: Calculate Adjusted Price (Dilute Price over Total Qty) ---
+       // Example: 10 Qty * 100 Price = 1000 Total.
+       // With 2 Bonus (12 Total), Adjusted Price = 1000 / 12 = 83.33
+       const grossLineTotal = lineSubtotal; 
+       const adjustedUnitPrice = totalQty > 0 ? (grossLineTotal / totalQty) : basePrice;
+
        // Apply promotional discount first (if exists)
        let promotionalDiscountAmount = 0;
        if (hasPromotionalDiscount) {
@@ -2248,6 +2254,8 @@ function calculateAndPrepareInvoiceData(ORDER_ID, INVOICE_TYPE, SERIAL_NUMBER) {
          bonus: bonus,
          totalQty: totalQty,
          unitPrice: hasPromotionalDiscount ? officialPrice : detectedPrice,
+         adjustedUnitPrice: adjustedUnitPrice,
+         grossLineTotal: grossLineTotal,
          
          hasPromotionalDiscount: hasPromotionalDiscount,
          promotionalDiscountAmount: promotionalDiscountAmount,
