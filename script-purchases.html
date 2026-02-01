@@ -529,8 +529,10 @@ function initPurchasesModule() {
     const modalEl = document.getElementById('transactionModal');
     if(modalEl) {
         modalEl.addEventListener('hidden.bs.modal', function () {
-            // Reload data to show new transactions or updates
-            loadPurchasesData(); 
+            // Only reload if NOT resetting (prevents double call & null errors)
+            if (!window.isResettingPurchaseModal) {
+                loadPurchasesData(); 
+            }
         });
     }
 
@@ -540,18 +542,27 @@ function initPurchasesModule() {
 // --- LOGIC ---
 
 function openPurchaseModal() {
+    // 0. AUTO-REPAIR: If form is missing (e.g. after Success Screen), rebuild module first
+    if (!document.getElementById('p-date')) {
+        initPurchasesModule();
+        setTimeout(openPurchaseModal, 100);
+        return;
+    }
+
     // 1. Guard: Block Viewers
     if (window.currentPurchaseRole !== 'admin' && window.currentPurchaseRole !== 'editor') {
         alert('⛔ ليس لديك صلاحية لإضافة حركات (عرض فقط)');
         return;
     }
 
-    // 2. Reset Form & Set Date
+    // 2. Reset Form
     document.getElementById('purchaseForm').reset();
+    document.getElementById('p-items-list').innerHTML = ''; // Clear old items
+    
+    // 3. Reset Date
     const d = document.getElementById('p-date');
     d.valueAsDate = new Date();
 
-    // 3. Lock Date for Non-Admins
     if (window.currentPurchaseRole === 'admin') {
         d.removeAttribute('readonly');
         d.style.backgroundColor = '#ffffff';
@@ -559,11 +570,18 @@ function openPurchaseModal() {
         d.setAttribute('readonly', true);
         d.style.backgroundColor = ''; 
     }
+    
+    // 4. Reset Transaction Type to Default (Receipt)
+    const receiptBtn = document.querySelector('.p-type-btn[data-type="استلام"]');
+    if(receiptBtn) {
+        setPurchType(receiptBtn); // This handles Theme, Chips, and Tax UI reset
+    } else {
+        // Fallback if buttons missing
+        updateTransactionChip();
+        toggleTaxGroup();
+    }
 
-    // 4. Initialize Tax UI
-    updateTransactionChip(); // Set initial ID
-    toggleTaxGroup(); // Disable/Enable based on op type
-
+    // 5. Open Modal
     const el = document.getElementById('transactionModal');
     let modal = bootstrap.Modal.getInstance(el);
     if (!modal) modal = new bootstrap.Modal(el);
@@ -609,9 +627,11 @@ function runExplorer() {
 function loadPurchasesData() {
     // 1. Show Loader Immediately (Using Helper)
     const container = document.getElementById('p-history-container');
-    if (container) {
-        container.innerHTML = getPurchasesLoader('جاري تحديث البيانات...');
-    }
+    
+    // GUARD: If container missing (tab hidden/unloaded), abort
+    if (!container) return;
+    
+    container.innerHTML = getPurchasesLoader('جاري تحديث البيانات...');
 
     const currentUserEmail = localStorage.getItem('userEmail') || '';
 
@@ -629,22 +649,24 @@ function loadPurchasesData() {
             });
 
             // Target Elements
-            const supSel = document.getElementById('p-supplier-global'); // Modal
+            const supSel = document.getElementById('p-supplier-global'); // Modal (Might be null in Success View)
             const exSup = document.getElementById('ex-supplier');       // Explorer Filter
 
             // Reset
-            supSel.innerHTML = '<option value="">اختر المورد...</option>';
-            if(exSup) exSup.innerHTML = '<option value="">الكل</option>';
+            if (supSel) supSel.innerHTML = '<option value="">اختر المورد...</option>';
+            if (exSup) exSup.innerHTML = '<option value="">الكل</option>';
 
             // Populate
             Array.from(allSuppliers).sort().forEach(s => {
                 // For Modal
-                const opt = document.createElement('option');
-                opt.value = s; opt.innerText = s;
-                supSel.appendChild(opt);
+                if (supSel) {
+                    const opt = document.createElement('option');
+                    opt.value = s; opt.innerText = s;
+                    supSel.appendChild(opt);
+                }
 
                 // For Explorer Filter
-                if(exSup) {
+                if (exSup) {
                     const optEx = document.createElement('option');
                     optEx.value = s; optEx.innerText = s;
                     exSup.appendChild(optEx);
@@ -653,30 +675,39 @@ function loadPurchasesData() {
 
             // 2. Setup Unit Datalist
             const dl = document.getElementById('list-units');
-            dl.innerHTML = '';
-            res.units.forEach(u => {
-                const opt = document.createElement('option');
-                opt.value = u;
-                dl.appendChild(opt);
-            });
+            if (dl) {
+                dl.innerHTML = '';
+                res.units.forEach(u => {
+                    const opt = document.createElement('option');
+                    opt.value = u;
+                    dl.appendChild(opt);
+                });
+            }
 
             // 3. Date & Ops
             const d = document.getElementById('p-date');
-            d.valueAsDate = new Date();
-            
-            // Unlock Date Only for Admin
-            if(res.userRole === 'admin') {
-                d.removeAttribute('readonly');
-                d.style.backgroundColor = '#ffffff';
+            if (d) {
+                d.valueAsDate = new Date();
+                
+                // Unlock Date Only for Admin
+                if(res.userRole === 'admin') {
+                    d.removeAttribute('readonly');
+                    d.style.backgroundColor = '#ffffff';
+                }
             }
 
-            populateSelect('p-operation', res.operations, 'استلام');
+            if (document.getElementById('p-operation')) {
+                populateSelect('p-operation', res.operations, 'استلام');
+            }
             
             // 4. Render New Rich Cards
             renderRichCards(res.history);
-            
-            // 5. Init Theme
-            setPurchType(document.querySelector('.p-type-btn.active'));
+
+            // 5. Init Theme (Only if buttons exist)
+            const activeBtn = document.querySelector('.p-type-btn.active');
+            if (activeBtn) {
+                setPurchType(activeBtn);
+            }
         }
     }).getPurchasesInitialData(currentUserEmail);
 }
@@ -725,6 +756,7 @@ function p_handleEsc(e) {
 
 function populateSelect(id, list, def) {
     const el = document.getElementById(id);
+    if (!el) return; // Guard clause
     el.innerHTML = '<option value="">اختر...</option>';
     list.forEach(i => {
         const opt = document.createElement('option');
@@ -1350,7 +1382,7 @@ function addPurchaseRow() {
             <div>
                 <label class="card-label">الكمية الكبرى</label>
                 <div class="card-input-group">
-                    <input type="number" class="p-qty-major" value="0" min="0" onchange="calcRow(this)" placeholder="0">
+                    <input type="number" class="p-qty-major" value="" min="0" onchange="calcRow(this)" placeholder="0">
                     <input type="text" class="p-unit-major" list="list-units" placeholder="وحدة" style="width:50px; text-align:center; border-left:1px solid #e2e8f0;">
                 </div>
             </div>
@@ -1646,14 +1678,33 @@ function executeSave() {
 
     google.script.run.withSuccessHandler(res => {
         if(res.success) {
-            // Success Screen (Enhanced)
+            // 1. Store HTML Globals
             window.currentPrintData = res.printHtml;
-            const footer = document.querySelector('.modal-footer-custom');
+            window.currentWhtHtml = res.whtHtml || null;
             
-            // Hide Confirmation Overlay (Fade out)
+            // 2. Hide Confirmation Overlay
             document.getElementById('p-confirm-overlay').classList.remove('active');
 
-            // Inject Success into Main Modal Body
+            // 3. Build Print Buttons (Dynamic)
+            let printButtonsHtml = `
+                <button type="button" class="btn btn-primary btn-lg shadow-sm" onclick="printReceiptDirectly()" style="font-weight:700; min-width:200px;">
+                    <i class="fas fa-print me-2"></i> طباعة المستند
+                </button>
+            `;
+
+            // If WHT Note exists, show two buttons side-by-side
+            if (window.currentWhtHtml) {
+                printButtonsHtml = `
+                    <button type="button" class="btn btn-primary shadow-sm" onclick="printReceiptDirectly()" style="font-weight:700; min-width:160px;">
+                        <i class="fas fa-print me-2"></i> إذن المخزن
+                    </button>
+                    <button type="button" class="btn btn-danger shadow-sm" onclick="printWhtDirectly()" style="font-weight:700; min-width:160px;">
+                        <i class="fas fa-file-contract me-2"></i> إشعار الخصم
+                    </button>
+                `;
+            }
+
+            // 4. Inject Success Screen into Modal Body
             const formContainer = document.getElementById('purchaseForm');
             formContainer.innerHTML = `
                 <div class="text-center py-5 animation-fade-in" style="background:#f0fdf4; border-radius:16px;">
@@ -1663,10 +1714,8 @@ function executeSave() {
                     <h2 style="color:#166534; font-weight:800; margin-bottom:10px;">تم حفظ الحركة بنجاح</h2>
                     <p class="text-muted mb-4">رقم الحركة: <span style="font-family:monospace; font-weight:bold; font-size:1.2rem; color:#1e293b; background:white; padding:2px 10px; border-radius:4px; border:1px solid #cbd5e1;">${res.transactionId}</span></p>
                     
-                    <div class="d-flex justify-content-center gap-3">
-                         <button type="button" class="btn btn-primary btn-lg shadow-sm" onclick="printReceiptDirectly()" style="font-weight:700; min-width:200px;">
-                            <i class="fas fa-print me-2"></i> طباعة المستند
-                        </button>
+                    <div class="d-flex justify-content-center gap-3 flex-wrap">
+                        ${printButtonsHtml}
                     </div>
                     
                     <hr class="my-5" style="opacity:0.1">
@@ -1682,7 +1731,7 @@ function executeSave() {
                 </div>
             `;
             
-            // Refresh Background
+            // 5. Refresh Background Data
             loadPurchasesData();
 
         } else {
@@ -1713,8 +1762,20 @@ function printReceiptDirectly() {
     }, 500);
 }
 
+function printWhtDirectly() {
+    if (!window.currentWhtHtml) return;
+    const win = window.open('', '', 'height=600,width=800');
+    win.document.write(window.currentWhtHtml);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); win.close(); }, 500);
+}
+
 // Helper to Reset Modal after Success
 function resetPurchaseModal() {
+    // Flag to block hidden.bs.modal listener
+    window.isResettingPurchaseModal = true;
+
     const el = document.getElementById('transactionModal');
     const modal = bootstrap.Modal.getInstance(el);
     if(modal) modal.hide();
@@ -1724,12 +1785,15 @@ function resetPurchaseModal() {
         // 1. Re-Initialize to restore original HTML structure
         initPurchasesModule(); 
         
+        // Release Flag
+        window.isResettingPurchaseModal = false;
+
         // 2. Wait for DOM update then Open
         setTimeout(() => {
             if(document.getElementById('p-date')) {
                 openPurchaseModal();
             } else {
-                setTimeout(() => openPurchaseModal(), 200); // Retry
+                setTimeout(() => openPurchaseModal(), 200);
             }
         }, 200);
     }, 400);
