@@ -253,12 +253,14 @@ function savePurchaseTransaction(form) {
 
     // B. WHT Note (Condition: Invoice Exists AND WHT > 0)
     const totalWht = form.items.reduce((sum, item) => sum + (parseFloat(item.discountValue)||0), 0);
+    // NEW: Calculate Total Before Tax
+    const totalPreTax = form.items.reduce((sum, item) => sum + (parseFloat(item.preTaxTotal)||0), 0);
+    
     if (form.invoiceNumber && totalWht > 0) {
         try {
-            // Fetch Supplier Tax Info
             const supplierInfo = getSupplierTaxInfo(form.supplier);
-            // Generate Note
-            whtData = createWhtNote(transactionId, form, totalWht, supplierInfo);
+            // Pass totalPreTax instead of rate
+            whtData = createWhtNote(transactionId, form, totalWht, supplierInfo, totalPreTax);
         } catch (err) { Logger.log('WHT Generation Failed: ' + err.toString()); }
     }
 
@@ -738,10 +740,10 @@ function getSupplierTaxInfo(supplierName) {
 }
 
 /**
- * GENERATE WHT NOTE PDF (Split A4: Supplier & Internal)
- * V3: Adjusted Layout, Subtle Labels, Resized Stamp, Offset Scissor
+ * GENERATE WHT NOTE PDF (Split A4)
+ * Updates: Show Base Value, Hide %, Raw Ref ID
  */
-function createWhtNote(transactionId, form, totalAmount, supplierInfo) {
+function createWhtNote(transactionId, form, totalAmount, supplierInfo, totalPreTax) {
   const folder = getPurchasesFolder();
   const dateStr = form.invoiceDate || form.date;
   const logoUrl = 'https://lh3.googleusercontent.com/d/1KuZm8n-1MFpWNTUIVbnHBONCVnkWZh7z';
@@ -754,20 +756,25 @@ function createWhtNote(transactionId, form, totalAmount, supplierInfo) {
 
   const amountText = tafqeetArabic(totalAmount);
   const amountFmt = Number(totalAmount).toLocaleString('en-US', {minimumFractionDigits: 2});
+  
+  // NEW: Format Base Value
+  const baseFmt = Number(totalPreTax).toLocaleString('en-US', {minimumFractionDigits: 2});
+  
   const invNum = form.invoiceNumber;
   const user = Session.getActiveUser().getEmail().split('@')[0];
   const timestamp = Utilities.formatDate(new Date(), "GMT+2", "yyyy-MM-dd HH:mm");
+  
+  // RAW REF ID (As requested)
   const noteNum = form.whtNoteNumber || transactionId;
 
   // --- HELPER: GENERATE SINGLE HALF HTML ---
   const generateHalf = (isSupplierCopy) => {
     const copyLabel = isSupplierCopy ? 'نسخة المورد' : 'نسخة داخلية';
     
-    // Footer Content Logic
     let footerContent = '';
     
     if (isSupplierCopy) {
-      // Supplier Copy: Stamp Box Only (Reduced Size ~5.8cm x 3cm), No Signatures
+      // Supplier Copy: Stamp Box
       footerContent = `
         <div class="footer-area">
             <div class="stamp-box">
@@ -832,14 +839,17 @@ function createWhtNote(transactionId, form, totalAmount, supplierInfo) {
         <div class="box-section">
             <div class="sec-header">بيانات الخصم</div>
             <div class="text-block">
-                نقر نحن / <strong>شركة الطاووس لتعبئة المواد الغذائية</strong> بأننا قمنا بخصم مبلغ وقدره أدناه، وذلك نسبة <strong>(1%)</strong> من قيمة الفاتورة رقم <strong>[ ${invNum} ]</strong> بتاريخ <strong>${dateStr}</strong>.
+                نقر نحن / <strong>شركة الطاووس لتعبئة المواد الغذائية</strong> بأننا قمنا بخصم مبلغ وقدره أدناه، من إجمالي قيمة الفاتورة (قبل الضريبة) البالغة <strong>${baseFmt}</strong> جنيه، والمرتبطة بالفاتورة رقم <strong>[ ${invNum} ]</strong> بتاريخ <strong>${dateStr}</strong>.
             </div>
             
             <div class="money-card">
-                <div class="money-row">
-                    <div class="money-amount">${amountFmt} <span class="curr">ج.م</span></div>
-                    <div class="money-words">فقط ${amountText} لا غير</div>
-                </div>
+                 <div class="money-text">
+                    فقط ${amountText} لا غير
+                 </div>
+                 
+                 <div class="money-val">
+                    <span style="font-size:1.4rem;">${amountFmt}</span> <span class="curr">ج.م</span>
+                 </div>
             </div>
         </div>
 
@@ -847,7 +857,7 @@ function createWhtNote(transactionId, form, totalAmount, supplierInfo) {
 
         <div class="bottom-strip">
             <span>User: ${user}</span>
-            <span>Ref: T-${noteNum}</span>
+            <span>Ref: ${noteNum}</span>
             <span>${timestamp}</span>
         </div>
 
@@ -874,29 +884,27 @@ function createWhtNote(transactionId, form, totalAmount, supplierInfo) {
         .page-container { width: 100%; height: 100%; display: flex; flex-direction: column; }
         
         .half-section { 
-            flex: 1; padding: 20px 30px; 
+            flex: 1; padding: 25px 35px; 
             display: flex; flex-direction: column; 
             position: relative;
-            max-height: 50%; /* Strict half split */
+            max-height: 50%; 
             box-sizing: border-box;
         }
         
-        /* SEPARATOR LINE */
+        /* SEPARATOR */
         .separator { 
             height: 0; border-top: 1px dashed #94a3b8; 
             margin: 0; position: relative; width: 100%; 
             z-index: 10;
         }
-        
-        /* SCISSOR ICON (Offset to 30%) */
         .separator::after { 
             content: '✂'; position: absolute; left: 30%; top: -12px; 
             background: white; padding: 0 8px; color: #64748b; 
             font-size: 1rem; transform: translateX(-50%); 
         }
 
-        /* HEADER GRID */
-        .header-grid { display: flex; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; }
+        /* HEADER */
+        .header-grid { display: flex; align-items: center; margin-bottom: 12px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
         .head-col { display: flex; flex-direction: column; justify-content: center; }
         .head-col.right { width: 20%; align-items: flex-start; }
         .head-col.center { width: 60%; align-items: center; text-align: center; }
@@ -907,21 +915,20 @@ function createWhtNote(transactionId, form, totalAmount, supplierInfo) {
         .sub-title { font-size: 0.75rem; font-weight: 700; color: #475569; margin-top: 2px; }
         .legal-badge { font-size: 0.65rem; background: #f1f5f9; padding: 2px 8px; border-radius: 4px; border: 1px solid #cbd5e1; margin-top: 4px; }
         
-        /* SUBTLE COPY LABEL */
         .copy-label { 
             font-size: 0.75rem; font-weight: 700; 
-            background: #f8fafc; color: #64748b; /* Subtle Grey */
+            background: #f8fafc; color: #94a3b8; 
             padding: 4px 10px; border-radius: 6px; 
             border: 1px solid #e2e8f0;
         }
 
         /* SECTIONS */
-        .box-section { margin-bottom: 12px; }
-        .sec-header { font-size: 0.8rem; font-weight: 700; color: #334155; border-bottom: 1px solid #e2e8f0; margin-bottom: 6px; }
+        .box-section { margin-bottom: 10px; }
+        .sec-header { font-size: 0.8rem; font-weight: 700; color: #334155; border-bottom: 1px solid #e2e8f0; margin-bottom: 5px; }
         
-        .info-row { background: #f8fafc; padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1; margin-bottom: 6px; }
-        .info-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-        .field-box { background: #f8fafc; padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1; }
+        .info-row { background: #f8fafc; padding: 5px 10px; border-radius: 6px; border: 1px solid #cbd5e1; margin-bottom: 5px; }
+        .info-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+        .field-box { background: #f8fafc; padding: 5px 10px; border-radius: 6px; border: 1px solid #cbd5e1; }
         
         .field-label { font-size: 0.6rem; color: #64748b; font-weight: 700; margin-bottom: 2px; }
         .field-val { font-size: 0.8rem; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -930,30 +937,47 @@ function createWhtNote(transactionId, form, totalAmount, supplierInfo) {
         .text-block { font-size: 0.8rem; line-height: 1.6; margin-bottom: 10px; }
 
         /* MONEY CARD */
-        .money-card { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 15px; }
-        .money-row { display: flex; justify-content: space-between; align-items: center; }
-        .money-amount { font-size: 1.4rem; font-weight: 800; color: #166534; }
-        .money-amount .curr { font-size: 0.8rem; font-weight: 600; }
-        .money-words { font-size: 0.85rem; font-weight: 700; color: #15803d; }
-
-        /* FOOTER AREA */
-        .footer-area { margin-top: auto; padding-top: 10px; margin-bottom: 25px; }
+        .money-card { 
+            background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; 
+            padding: 0; 
+            display: flex; align-items: stretch;
+            overflow: hidden;
+        }
         
-        /* STAMP BOX (Reduced Size ~5.8cm x 3cm) */
+        .money-text {
+            flex-grow: 1; 
+            padding: 10px 15px;
+            font-size: 0.85rem; font-weight: 700; color: #15803d;
+            display: flex; align-items: center;
+        }
+        
+        .money-val {
+            flex-shrink: 0;
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.4);
+            border-right: 2px solid #bbf7d0; 
+            font-weight: 800; color: #166534;
+            display: flex; align-items: center; gap: 5px;
+            direction: ltr; 
+        }
+        .curr { font-size: 0.8rem; font-weight: 600; }
+
+        /* FOOTER */
+        .footer-area { margin-top: auto; padding-top: 5px; margin-bottom: 20px; }
+        
         .stamp-box { 
             width: 5.8cm; height: 3cm; 
             border: 2px solid #cbd5e1; border-radius: 8px; 
             display: flex; align-items: flex-end; justify-content: center;
-            padding-bottom: 10px; background: #fdfdfd;
+            padding-bottom: 8px; background: #fdfdfd;
         }
         .stamp-label { font-size: 0.7rem; color: #94a3b8; font-weight: 700; }
 
-        /* RECIPIENT SIG */
         .recipient-sig { width: 50%; }
 
         /* BOTTOM STRIP */
         .bottom-strip { 
-            position: absolute; bottom: 5px; left: 30px; right: 30px; 
+            position: absolute; bottom: 8px; left: 30px; right: 30px; 
             border-top: 1px solid #e2e8f0; padding-top: 4px;
             display: flex; justify-content: space-between; 
             font-size: 0.6rem; color: #94a3b8; font-family: monospace;
@@ -963,9 +987,13 @@ function createWhtNote(transactionId, form, totalAmount, supplierInfo) {
     </head>
     <body>
       <div class="page-container">
-        ${generateHalf(true)}
+        <div style="flex:1; display:flex; flex-direction:column; padding-bottom:15px;">
+            ${generateHalf(true)}
+        </div>
         <div class="separator"></div>
-        ${generateHalf(false)}
+        <div style="flex:1; display:flex; flex-direction:column; padding-top:15px;">
+            ${generateHalf(false)}
+        </div>
       </div>
     </body>
     </html>
