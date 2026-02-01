@@ -242,13 +242,24 @@ function savePurchaseTransaction(form) {
     }
     const transactionId = `${prefix}${String(maxSeq + 1).padStart(3, '0')}`;
 
-    // --- 2. GENERATE PDF NOTE ---
+    // --- 2. GENERATE DOCS (Receipt & WHT) ---
     let pdfData = { url: '', html: '' };
+    let whtData = { url: '', html: '' };
+    
+    // A. Receipt Note
     try {
       pdfData = createPurchaseNote(transactionId, form);
-    } catch (err) {
-      Logger.log('PDF Generation Failed: ' + err.toString());
-      // Continue saving even if PDF fails, but log it
+    } catch (err) { Logger.log('PDF Generation Failed: ' + err.toString()); }
+
+    // B. WHT Note (Condition: Invoice Exists AND WHT > 0)
+    const totalWht = form.items.reduce((sum, item) => sum + (parseFloat(item.discountValue)||0), 0);
+    if (form.invoiceNumber && totalWht > 0) {
+        try {
+            // Fetch Supplier Tax Info
+            const supplierInfo = getSupplierTaxInfo(form.supplier);
+            // Generate Note
+            whtData = createWhtNote(transactionId, form, totalWht, supplierInfo);
+        } catch (err) { Logger.log('WHT Generation Failed: ' + err.toString()); }
     }
 
     // --- 3. PREPARE DATA ---
@@ -298,7 +309,7 @@ function savePurchaseTransaction(form) {
             form.invoiceDate || '',             // AB
             form.whtNoteNumber || '',           // AC
             '',                                 // AD (Invoice Link - User can add later)
-            '',                                 // AE (WHT Link - User can add later)
+            whtData.url,                        // AE (Auto-Generated WHT Link)
             pdfData.url                         // AF (Auto-Generated Note Link)
         ];
         rowsToAdd.push(row);
@@ -324,13 +335,14 @@ function savePurchaseTransaction(form) {
         sheet.getRange(lastRow + 1, 1, rowsToAdd.length, rowsToAdd[0].length).setValues(rowsToAdd);
     }
 
-    // Return PDF URL and HTML for direct printing
     return { 
         success: true, 
         message: 'تم الحفظ بنجاح', 
         transactionId: transactionId, 
         pdfUrl: pdfData.url,
-        printHtml: pdfData.html
+        printHtml: pdfData.html,
+        whtUrl: whtData.url,
+        whtHtml: whtData.html
     };
 
   } catch (e) {
@@ -697,4 +709,321 @@ function createPurchaseNote(transactionId, form) {
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   
   return { url: file.getUrl(), html: htmlContent };
+}
+
+/**
+ * GET SUPPLIER TAX INFO
+ * Reads 'Materials 2026 - الموردين.csv' logic from Sheet
+ */
+function getSupplierTaxInfo(supplierName) {
+  const ss = SpreadsheetApp.openById(MATERIALS_SS_ID);
+  const sheet = ss.getSheetByName('الموردين');
+  if(!sheet) return null;
+  
+  const data = sheet.getDataRange().getValues();
+  // Col A(0)=Name, B(1)=Official, C(2)=Card, D(3)=File, E(4)=Authority
+  
+  const row = data.find(r => r[0] === supplierName);
+  if(row) {
+    return {
+      name: row[0],
+      // Use Column B (index 1) for official name as requested
+      officialName: row[1] && row[1].trim() !== '' ? row[1] : row[0], 
+      taxCard: row[2] || '',
+      taxFile: row[3] || '',
+      authority: row[4] || ''
+    };
+  }
+  return { name: supplierName, officialName: supplierName, taxCard: '', taxFile: '', authority: '' };
+}
+
+/**
+ * GENERATE WHT NOTE PDF (Split A4: Supplier & Internal)
+ * V3: Adjusted Layout, Subtle Labels, Resized Stamp, Offset Scissor
+ */
+function createWhtNote(transactionId, form, totalAmount, supplierInfo) {
+  const folder = getPurchasesFolder();
+  const dateStr = form.invoiceDate || form.date;
+  const logoUrl = 'https://lh3.googleusercontent.com/d/1KuZm8n-1MFpWNTUIVbnHBONCVnkWZh7z';
+  let logoBase64 = '';
+  try {
+    const imageBlob = UrlFetchApp.fetch(logoUrl).getBlob();
+    const b64 = Utilities.base64Encode(imageBlob.getBytes());
+    logoBase64 = `data:${imageBlob.getContentType()};base64,${b64}`;
+  } catch (e) { logoBase64 = ''; }
+
+  const amountText = tafqeetArabic(totalAmount);
+  const amountFmt = Number(totalAmount).toLocaleString('en-US', {minimumFractionDigits: 2});
+  const invNum = form.invoiceNumber;
+  const user = Session.getActiveUser().getEmail().split('@')[0];
+  const timestamp = Utilities.formatDate(new Date(), "GMT+2", "yyyy-MM-dd HH:mm");
+  const noteNum = form.whtNoteNumber || transactionId;
+
+  // --- HELPER: GENERATE SINGLE HALF HTML ---
+  const generateHalf = (isSupplierCopy) => {
+    const copyLabel = isSupplierCopy ? 'نسخة المورد' : 'نسخة داخلية';
+    
+    // Footer Content Logic
+    let footerContent = '';
+    
+    if (isSupplierCopy) {
+      // Supplier Copy: Stamp Box Only (Reduced Size ~5.8cm x 3cm), No Signatures
+      footerContent = `
+        <div class="footer-area">
+            <div class="stamp-box">
+                <span class="stamp-label">ختم الإدارة المالية</span>
+            </div>
+        </div>
+      `;
+    } else {
+      // Internal Copy: Recipient Signature
+      footerContent = `
+        <div class="footer-area" style="display:flex; align-items:flex-end; justify-content:flex-start;">
+            <div class="recipient-sig">
+                <div style="font-weight:bold; margin-bottom:15px;">توقيع المستلم (المورد):</div>
+                <div style="border-bottom:1px dotted #000; width:100%;"></div>
+                <div style="display:flex; justify-content:space-between; margin-top:5px; font-size:0.7rem;">
+                    <span>الاسم: ....................</span>
+                    <span>التاريخ: ..../..../........</span>
+                </div>
+            </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="half-section">
+        <div class="header-grid">
+            <div class="head-col right">
+                <img src="${logoBase64}" class="logo">
+            </div>
+            <div class="head-col center">
+                <div class="main-title">إشعار خصم</div>
+                <div class="sub-title">تحت حساب ضريبة الأرباح التجارية والصناعية</div>
+                <div class="legal-badge">قانون 91 لسنة 2005</div>
+            </div>
+            <div class="head-col left">
+                <div class="copy-label">${copyLabel}</div>
+            </div>
+        </div>
+
+        <div class="box-section">
+            <div class="sec-header">بيانات المورد (الممول)</div>
+            <div class="info-row">
+                <div class="field-label">الاسم الرسمي</div>
+                <div class="field-val">${supplierInfo.officialName}</div>
+            </div>
+            <div class="info-grid-3">
+                <div class="field-box">
+                    <div class="field-label">رقم التسجيل الضريبي</div>
+                    <div class="field-val mono">${supplierInfo.taxCard || '___-___-___'}</div>
+                </div>
+                <div class="field-box">
+                    <div class="field-label">رقم الملف الضريبي</div>
+                    <div class="field-val mono">${supplierInfo.taxFile || '___/___/___/___/___'}</div>
+                </div>
+                <div class="field-box">
+                    <div class="field-label">المأمورية</div>
+                    <div class="field-val">${supplierInfo.authority || '________________'}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="box-section">
+            <div class="sec-header">بيانات الخصم</div>
+            <div class="text-block">
+                نقر نحن / <strong>شركة الطاووس لتعبئة المواد الغذائية</strong> بأننا قمنا بخصم مبلغ وقدره أدناه، وذلك نسبة <strong>(1%)</strong> من قيمة الفاتورة رقم <strong>[ ${invNum} ]</strong> بتاريخ <strong>${dateStr}</strong>.
+            </div>
+            
+            <div class="money-card">
+                <div class="money-row">
+                    <div class="money-amount">${amountFmt} <span class="curr">ج.م</span></div>
+                    <div class="money-words">فقط ${amountText} لا غير</div>
+                </div>
+            </div>
+        </div>
+
+        ${footerContent}
+
+        <div class="bottom-strip">
+            <span>User: ${user}</span>
+            <span>Ref: T-${noteNum}</span>
+            <span>${timestamp}</span>
+        </div>
+
+      </div>
+    `;
+  };
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        @page { size: A4; margin: 0; }
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+        
+        body { 
+            font-family: 'Cairo', sans-serif; margin: 0; padding: 0; 
+            color: #0f172a; background: white; 
+            width: 210mm; height: 297mm; overflow: hidden;
+            -webkit-print-color-adjust: exact; box-sizing: border-box;
+        }
+        
+        .page-container { width: 100%; height: 100%; display: flex; flex-direction: column; }
+        
+        .half-section { 
+            flex: 1; padding: 20px 30px; 
+            display: flex; flex-direction: column; 
+            position: relative;
+            max-height: 50%; /* Strict half split */
+            box-sizing: border-box;
+        }
+        
+        /* SEPARATOR LINE */
+        .separator { 
+            height: 0; border-top: 1px dashed #94a3b8; 
+            margin: 0; position: relative; width: 100%; 
+            z-index: 10;
+        }
+        
+        /* SCISSOR ICON (Offset to 30%) */
+        .separator::after { 
+            content: '✂'; position: absolute; left: 30%; top: -12px; 
+            background: white; padding: 0 8px; color: #64748b; 
+            font-size: 1rem; transform: translateX(-50%); 
+        }
+
+        /* HEADER GRID */
+        .header-grid { display: flex; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; }
+        .head-col { display: flex; flex-direction: column; justify-content: center; }
+        .head-col.right { width: 20%; align-items: flex-start; }
+        .head-col.center { width: 60%; align-items: center; text-align: center; }
+        .head-col.left { width: 20%; align-items: flex-end; }
+
+        .logo { width: 55px; height: 55px; border-radius: 6px; filter: grayscale(100%); }
+        .main-title { font-size: 1.4rem; font-weight: 800; line-height: 1.2; color: #0f172a; }
+        .sub-title { font-size: 0.75rem; font-weight: 700; color: #475569; margin-top: 2px; }
+        .legal-badge { font-size: 0.65rem; background: #f1f5f9; padding: 2px 8px; border-radius: 4px; border: 1px solid #cbd5e1; margin-top: 4px; }
+        
+        /* SUBTLE COPY LABEL */
+        .copy-label { 
+            font-size: 0.75rem; font-weight: 700; 
+            background: #f8fafc; color: #64748b; /* Subtle Grey */
+            padding: 4px 10px; border-radius: 6px; 
+            border: 1px solid #e2e8f0;
+        }
+
+        /* SECTIONS */
+        .box-section { margin-bottom: 12px; }
+        .sec-header { font-size: 0.8rem; font-weight: 700; color: #334155; border-bottom: 1px solid #e2e8f0; margin-bottom: 6px; }
+        
+        .info-row { background: #f8fafc; padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1; margin-bottom: 6px; }
+        .info-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+        .field-box { background: #f8fafc; padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1; }
+        
+        .field-label { font-size: 0.6rem; color: #64748b; font-weight: 700; margin-bottom: 2px; }
+        .field-val { font-size: 0.8rem; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .mono { font-family: monospace; letter-spacing: 0.5px; }
+
+        .text-block { font-size: 0.8rem; line-height: 1.6; margin-bottom: 10px; }
+
+        /* MONEY CARD */
+        .money-card { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 15px; }
+        .money-row { display: flex; justify-content: space-between; align-items: center; }
+        .money-amount { font-size: 1.4rem; font-weight: 800; color: #166534; }
+        .money-amount .curr { font-size: 0.8rem; font-weight: 600; }
+        .money-words { font-size: 0.85rem; font-weight: 700; color: #15803d; }
+
+        /* FOOTER AREA */
+        .footer-area { margin-top: auto; padding-top: 10px; margin-bottom: 25px; }
+        
+        /* STAMP BOX (Reduced Size ~5.8cm x 3cm) */
+        .stamp-box { 
+            width: 5.8cm; height: 3cm; 
+            border: 2px solid #cbd5e1; border-radius: 8px; 
+            display: flex; align-items: flex-end; justify-content: center;
+            padding-bottom: 10px; background: #fdfdfd;
+        }
+        .stamp-label { font-size: 0.7rem; color: #94a3b8; font-weight: 700; }
+
+        /* RECIPIENT SIG */
+        .recipient-sig { width: 50%; }
+
+        /* BOTTOM STRIP */
+        .bottom-strip { 
+            position: absolute; bottom: 5px; left: 30px; right: 30px; 
+            border-top: 1px solid #e2e8f0; padding-top: 4px;
+            display: flex; justify-content: space-between; 
+            font-size: 0.6rem; color: #94a3b8; font-family: monospace;
+        }
+
+      </style>
+    </head>
+    <body>
+      <div class="page-container">
+        ${generateHalf(true)}
+        <div class="separator"></div>
+        ${generateHalf(false)}
+      </div>
+    </body>
+    </html>
+  `;
+
+  const blob = Utilities.newBlob(htmlContent, MimeType.HTML, `${transactionId}_WHT.html`).getAs(MimeType.PDF);
+  blob.setName(`${transactionId}_WHT.pdf`);
+  const file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  
+  return { url: file.getUrl(), html: htmlContent };
+}
+
+/**
+ * BASIC ARABIC TAFQEET (Numbers to Words)
+ */
+function tafqeetArabic(num) {
+  if (!num) return 'صفر';
+  const units = ["", "واحد", "اثنان", "ثلاثة", "أربعة", "خمسة", "ستة", "سبعة", "ثمانية", "تسعة"];
+  const tens  = ["", "عشرة", "عشرون", "ثلاثون", "أربعون", "خمسون", "ستون", "سبعون", "ثمانون", "تسعون"];
+  const teens = ["عشر", "أحد عشر", "اثنا عشر", "ثلاثة عشر", "أربعة عشر", "خمسة عشر", "ستة عشر", "سبعة عشر", "ثمانية عشر", "تسعة عشر"];
+  
+  const main = Math.floor(num);
+  const piastres = Math.round((num - main) * 100);
+  
+  let text = "";
+  
+  // Logic for Thousands (Simplified for < 100,000 for brevity, can be expanded)
+  if(main >= 1000) {
+      const k = Math.floor(main / 1000);
+      text += k === 1 ? "ألف" : k === 2 ? "ألفان" : (units[k] || k) + " آلاف";
+      text += " و ";
+  }
+  
+  const rem = main % 1000;
+  if(rem >= 100) {
+      const h = Math.floor(rem / 100);
+      text += h === 1 ? "مائة" : h === 2 ? "مائتان" : units[h].replace('ة','') + "مائة";
+      if(rem % 100 > 0) text += " و";
+  }
+  
+  const low = rem % 100;
+  if(low > 0) {
+     if(low < 10) text += units[low];
+     else if(low < 20) text += teens[low - 10];
+     else {
+         const u = low % 10;
+         const t = Math.floor(low / 10);
+         if(u > 0) text += units[u] + " و";
+         text += tens[t];
+     }
+  }
+  
+  text += " جنيه";
+  
+  if(piastres > 0) {
+      text += " و " + piastres + " قرش";
+  }
+  
+  return text;
 }
