@@ -1429,7 +1429,11 @@ function onBasicChange(el) {
         vars.forEach(v => {
             const opt = document.createElement('option');
             opt.value = v.id; 
-            opt.innerText = v.specificName;
+            // Flatten for Display: Replace newlines with separator
+            opt.innerText = v.specificName.replace(/\n/g, ' | ');
+            // Store Raw Name: For saving later
+            opt.dataset.rawname = v.specificName;
+            
             opt.dataset.pack = v.pack;
             opt.dataset.sunit = v.smallUnit;
             opt.dataset.lunit = v.largeUnit;
@@ -1439,6 +1443,12 @@ function onBasicChange(el) {
             specSel.appendChild(opt);
         });
         specSel.disabled = false;
+
+        // AUTOMATION: If only 1 item exists, auto-select it
+        if (vars.length === 1) {
+            specSel.selectedIndex = 1; // Index 0 is "Choose...", Index 1 is the item
+            onSpecificChange(specSel); // Trigger population of units/prices
+        }
     }
 }
 
@@ -1652,7 +1662,8 @@ function executeSave() {
                 note: itemNote, 
                 refId: spec.value,
                 basicName: group.name,
-                specificName: spec.selectedOptions[0].text,
+                // Use Raw Name if available (preserves newlines), otherwise fallback to text
+                specificName: spec.selectedOptions[0].dataset.rawname || spec.selectedOptions[0].text,
                 specialSign: spec.selectedOptions[0].dataset.sign,
                 warehouseId: wh.value,
                 warehouseName: wh.selectedOptions[0].text,
