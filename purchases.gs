@@ -47,11 +47,15 @@ let maxSa = 0; // Sample
 if (historySheet && historySheet.getLastRow() >= 2) {
   // Expand fetch range to Column AF (Index 32)
   const data = historySheet.getRange(2, 1, historySheet.getLastRow() - 1, 32).getValues();
+  
+  // FIX: Get Spreadsheet Timezone to prevent date shifting
+  const tz = ss.getSpreadsheetTimeZone();
 
   // History for Frontend (Rich Object)
   history = data.map(r => ({
     id: r[1] || r[0], // Col A or B
-    date: r[2] instanceof Date ? r[2].toISOString().slice(0,10) : r[2], // Col C
+    // FIX: Use Utilities.formatDate with Spreadsheet Timezone
+    date: r[2] instanceof Date ? Utilities.formatDate(r[2], tz, "yyyy-MM-dd") : r[2], // Col C
     op: r[3],           // Col D
     po: r[4],           // Col E
     item: r[5],         // Col F (Basic)
@@ -64,9 +68,10 @@ if (historySheet && historySheet.getLastRow() >= 2) {
     total: Number(r[21]) || 0,  // Col V (Line Total)
     note: r[23],        // Col X (Item Note)
     user: r[24],        // Col Y (User Email)
-    ts: r[25] instanceof Date ? r[25].toISOString() : r[25], // Col Z (Timestamp)
+    ts: r[25] instanceof Date ? r[25].toISOString() : r[25], // Col Z (Timestamp - Keep ISO for JS parsing)
     invNum: r[26],      // Col AA
-    invDate: r[27] instanceof Date ? r[27].toISOString().slice(0,10) : r[27], // Col AB
+    // FIX: Apply Timezone fix to Invoice Date as well
+    invDate: r[27] instanceof Date ? Utilities.formatDate(r[27], tz, "yyyy-MM-dd") : r[27], // Col AB
     whtNum: r[28],      // Col AC
     linkInv: r[29],     // Col AD (Supplier Invoice)
     linkWht: r[30],     // Col AE (WHT Note)
