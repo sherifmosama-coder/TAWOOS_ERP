@@ -164,7 +164,40 @@ function initPurchasesModule() {
             }
             .purch-popup-close:hover { background: #ef4444; transform: rotate(90deg); }
 
-            .purch-popup-body { padding: 25px; max-height: 70vh; overflow-y: auto; color: var(--p-primary); font-size: 0.95rem; line-height: 1.6; }
+            /* --- FLOATING POPOVER (Replaces Modal Popup) --- */
+            .floating-popover {
+                position: fixed; 
+                background: white;
+                border: 1px solid #cbd5e1;
+                box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+                border-radius: 12px;
+                z-index: 1050; /* Above Bootstrap Modals */
+                width: 800px; /* Widened significantly for Data Tables */
+                max-width: 96vw;
+                max-height: 85vh;
+                display: none;
+                flex-direction: column;
+                animation: fadeScale 0.15s ease-out;
+            }
+            @keyframes fadeScale { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+            
+            .fp-header { 
+                background: var(--p-dark); color: white; 
+                padding: 12px 15px; 
+                display: flex; justify-content: space-between; align-items: center; 
+                border-radius: 11px 11px 0 0;
+                cursor: grab; /* Indicating it could be draggable, though we use fixed pos */
+            }
+            .fp-title { font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 8px; }
+            .fp-close { background: transparent; border: none; color: rgba(255,255,255,0.7); cursor: pointer; transition: 0.2s; }
+            .fp-close:hover { color: white; transform: scale(1.1); }
+            
+            .fp-body { 
+                padding: 15px; 
+                overflow-y: auto; 
+                color: var(--p-primary); 
+                font-size: 0.9rem;
+            }
         
             /* --- NEW: EXPLORER & RICH CARDS --- */
             .explorer-bar { background: white; border-radius: 12px; padding: 15px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border: 1px solid var(--p-border); display: none; animation: slideDown 0.3s ease-out; }
@@ -513,15 +546,12 @@ function initPurchasesModule() {
 
         <datalist id="list-units"></datalist>
 
-        <div id="purch-custom-popup-overlay">
-            <div class="purch-popup-content">
-                <div class="purch-popup-header">
-                    <div class="purch-popup-title" id="purch-popup-title-text"></div>
-                    <button class="purch-popup-close" onclick="p_closePopup()"><i class="fas fa-times"></i></button>
-                </div>
-                <div class="purch-popup-body" id="purch-popup-body-content">
-                    </div>
+        <div id="p-floating-popover" class="floating-popover">
+            <div class="fp-header">
+                <div class="fp-title" id="fp-title-text"></div>
+                <button class="fp-close" onclick="p_hidePopover()"><i class="fas fa-times"></i></button>
             </div>
+            <div class="fp-body" id="fp-body-content"></div>
         </div>
     `;
 
@@ -712,46 +742,77 @@ function loadPurchasesData() {
     }).getPurchasesInitialData(currentUserEmail);
 }
 
-// --- POPUP LOGIC ---
-function p_openPopup(title, htmlContent) {
-    const overlay = document.getElementById('purch-custom-popup-overlay');
-    const titleEl = document.getElementById('purch-popup-title-text');
-    const bodyEl = document.getElementById('purch-popup-body-content');
-    
-    if(!overlay) return;
+// --- FLOATING POPOVER LOGIC ---
+function p_showPopover(e, title, htmlContent) {
+    // 1. Stop propagation to prevent immediate closing
+    if(e) e.stopPropagation();
 
+    const pop = document.getElementById('p-floating-popover');
+    const titleEl = document.getElementById('fp-title-text');
+    const bodyEl = document.getElementById('fp-body-content');
+    
+    if(!pop) return;
+
+    // 2. Set Content
     titleEl.innerHTML = title;
     bodyEl.innerHTML = htmlContent;
     
-    overlay.style.display = 'flex';
-    // Small delay to allow display:flex to apply before adding active class for animation
-    requestAnimationFrame(() => {
-        overlay.classList.add('active');
-    });
+    // 3. Show first to calculate dimensions
+    pop.style.display = 'flex';
+    
+    // 4. Calculate Position (Smart Positioning)
+    const clickX = e ? e.clientX : window.innerWidth / 2;
+    const clickY = e ? e.clientY : window.innerHeight / 2;
+    
+    const screenW = window.innerWidth;
+    const screenH = window.innerHeight;
+    const popW = pop.offsetWidth;
+    const popH = pop.offsetHeight;
+    
+    // Default: To the bottom-right of cursor
+    let left = clickX + 12; 
+    let top = clickY + 12;
+    
+    // Flip Horizontal: If overflows right, move to left of cursor
+    if (left + popW > screenW - 20) {
+        left = clickX - popW - 12;
+    }
+    
+    // Flip Vertical: If overflows bottom, move above cursor
+    if (top + popH > screenH - 20) {
+        top = clickY - popH - 12;
+    }
+    
+    // Hard Boundaries (Top/Left)
+    if(left < 10) left = 10;
+    if(top < 10) top = 10;
+    
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
 
-    // Event Listeners for closing
-    document.addEventListener('keydown', p_handleEsc);
-    overlay.onclick = (e) => {
-        if(e.target === overlay) p_closePopup();
-    };
+    // 5. Add Outside Click Listener (Delayed)
+    setTimeout(() => {
+        document.addEventListener('click', p_closePopoverOutside);
+        document.addEventListener('keydown', p_handleEsc);
+    }, 50);
 }
 
-function p_closePopup() {
-    const overlay = document.getElementById('purch-custom-popup-overlay');
-    if(!overlay) return;
-
-    overlay.classList.remove('active');
-    setTimeout(() => {
-        overlay.style.display = 'none';
-        document.getElementById('purch-popup-body-content').innerHTML = '';
-    }, 300); // Match transition duration
-
+function p_hidePopover() {
+    const pop = document.getElementById('p-floating-popover');
+    if(pop) pop.style.display = 'none';
+    document.removeEventListener('click', p_closePopoverOutside);
     document.removeEventListener('keydown', p_handleEsc);
-    overlay.onclick = null;
+}
+
+function p_closePopoverOutside(e) {
+    const pop = document.getElementById('p-floating-popover');
+    if (pop && !pop.contains(e.target)) {
+        p_hidePopover();
+    }
 }
 
 function p_handleEsc(e) {
-    if(e.key === 'Escape') p_closePopup();
+    if(e.key === 'Escape') p_hidePopover();
 }
 
 function populateSelect(id, list, def) {
@@ -946,7 +1007,12 @@ function renderRichCards(data) {
     });
 
     let html = '';
-    const uniqueIds = Object.keys(grouped).slice(0, 50); // Limit to 50 Cards
+    // Sort IDs by Date Descending (Recent First), then by ID Descending
+    const uniqueIds = Object.keys(grouped).sort((a, b) => {
+        const dateA = new Date(grouped[a].date);
+        const dateB = new Date(grouped[b].date);
+        return dateB - dateA || String(b).localeCompare(String(a));
+    }).slice(0, 50); // Limit to 50 Cards
 
     uniqueIds.forEach(id => {
         const r = grouped[id];
@@ -970,7 +1036,7 @@ function renderRichCards(data) {
                 .reduce((sum, row) => sum + (parseFloat(row.qty) || 0), 0);
 
              itemChips += `
-                <div class="rc-chip" title="عرض تفاصيل ${itm}" onclick="showPurchDetails('${r.id}', '${safeItem}')" style="font-weight:bold; color:var(--p-dark);">
+                <div class="rc-chip" title="عرض تفاصيل ${itm}" onclick="showPurchDetails(event, '${r.id}', '${safeItem}')" style="font-weight:bold; color:var(--p-dark);">
                     <i class="fas fa-box-open"></i> ${itm} <span class="ms-1 text-muted" style="font-family:monospace; font-size:0.85em;">[${itemTotalQty}]</span>
                 </div>`;
         });
@@ -995,7 +1061,7 @@ function renderRichCards(data) {
         const hasNotes = txRows.some(x => x.note && x.note.trim() !== '');
         if(hasNotes) {
             noteChip = `
-                <div class="rc-chip" title="عرض الملاحظات" onclick="showPurchNotes('${r.id}')" style="background:#fff7ed; color:#ea580c; border:none; padding:0 6px;">
+                <div class="rc-chip" title="عرض الملاحظات" onclick="showPurchNotes(event,'${r.id}')" style="background:#fff7ed; color:#ea580c; border:none; padding:0 6px;">
                     <i class="fas fa-sticky-note"></i>
                 </div>`;
         }
@@ -1004,7 +1070,7 @@ function renderRichCards(data) {
 
         // Header: Supplier Name + Supplier Chip
         const supplierChip = `
-            <div class="rc-chip" title="ملف المورد" onclick="showPurchSupplier('${r.supplier}')" style="border-color:var(--p-dark); color:var(--p-dark);">
+            <div class="rc-chip" title="ملف المورد" onclick="showPurchSupplier(event,'${r.supplier}')" style="border-color:var(--p-dark); color:var(--p-dark);">
                 <i class="fas fa-user-tag"></i>
             </div>`;
 
@@ -1026,14 +1092,14 @@ function renderRichCards(data) {
             const totalUnits = txRows.filter(x => x.warehouse === wh).reduce((sum, x) => sum + (parseFloat(x.qty)||0), 0);
             
             whChips += `
-                <div class="rc-chip" title="محتوى المخزن: ${wh}" onclick="showPurchWarehouse('${r.id}', '${wh}')" style="border:none; background:${color}; color:white; font-size:0.7rem;">
+                <div class="rc-chip" title="محتوى المخزن: ${wh}" onclick="showPurchWarehouse(event,'${r.id}', '${wh}')" style="border:none; background:${color}; color:white; font-size:0.7rem;">
                     <i class="fas fa-warehouse"></i> ${wh}
                 </div>`;
         });
 
         html += `
             <div class="rich-card">
-                <div class="rc-icon-box ${bgClass}" onclick="showPurchDetails('${r.id}')">
+                <div class="rc-icon-box ${bgClass}" onclick="showPurchDetails(event,'${r.id}')">
                     <i class="fas ${icon} rc-box-icon"></i>
                     <span class="rc-box-id">${r.id}</span>
                 </div>
@@ -1052,7 +1118,7 @@ function renderRichCards(data) {
                     ${(() => {
                         // Badge Logic: Show Invoice Number if exists, else 'Missing' if VAT exists
                         if (r.invNum) {
-                            return `<span class="rc-vat-badge" onclick="showPurchInvoice('${r.invNum}', '${r.invDate}', '${r.whtNum}', '${r.linkInv || ''}', '${r.linkWht || ''}')" title="بيانات الفاتورة"><i class="fas fa-file-invoice me-1"></i> ${r.invNum}</span>`;
+                            return `<span class="rc-vat-badge" onclick="showPurchInvoice(event,'${r.invNum}', '${r.invDate}', '${r.whtNum}', '${r.linkInv || ''}', '${r.linkWht || ''}')" title="بيانات الفاتورة"><i class="fas fa-file-invoice me-1"></i> ${r.invNum}</span>`;
                         } else if (r.vatVal > 0) {
                             return `<span class="rc-vat-badge missing" onclick="alert('تنبيه: فاتورة ضريبية مفقودة لهذا الاستلام!')" title="فاتورة مفقودة"><i class="fas fa-exclamation-circle me-1"></i> Missing</span>`;
                         }
@@ -1074,7 +1140,7 @@ function renderRichCards(data) {
                     ).join('')}
                 </div>
 
-                <div class="rc-footer" onclick="showPurchAudit('${r.id}', '${r.user}', '${r.ts}')">
+                <div class="rc-footer" onclick="showPurchAudit(event,'${r.id}', '${r.user}', '${r.ts}')">
                     <div><i class="fas fa-user-circle me-1"></i> ${r.user || 'Unknown'}</div>
                     <div>${r.ts ? r.ts.replace('T', ' ').slice(0, 16) : '-'} <i class="fas fa-history ms-1"></i></div>
                 </div>
@@ -1086,7 +1152,7 @@ function renderRichCards(data) {
 
 // --- POPUP ACTION HANDLERS ---
 
-function showPurchNotes(id) {
+function showPurchNotes(e, id) {
     const rows = purchasesState.allTransactions.filter(x => x.id == id && x.note && x.note.trim() !== '');
     if(rows.length === 0) return;
 
@@ -1108,10 +1174,10 @@ function showPurchNotes(id) {
     });
     html += '</div>';
 
-    p_openPopup(`#${id} ملاحظات الحركة`, html);
+    p_showPopover(e, `#${id} ملاحظات الحركة`, html);
 }
 
-function showPurchWarehouse(id, whName) {
+function showPurchWarehouse(e, id, whName) {
     const rows = purchasesState.allTransactions.filter(x => x.id == id && x.warehouse === whName);
     if(rows.length === 0) return;
 
@@ -1138,10 +1204,10 @@ function showPurchWarehouse(id, whName) {
             <tbody>${rowsHtml}</tbody>
         </table>
     `;
-    p_openPopup(`#${id} جرد المخزن`, html);
+    p_showPopover(e, `#${id} جرد المخزن`, html);
 }
 
-function showPurchDetails(id, itemFilter = null) {
+function showPurchDetails(e, id, itemFilter = null) {
     // Filter all raw rows for this ID
     let rows = purchasesState.allTransactions.filter(x => x.id == id);
     if(rows.length === 0) return;
@@ -1201,10 +1267,10 @@ function showPurchDetails(id, itemFilter = null) {
     `;
     
     const popupTitle = itemFilter ? `#${id} - ${itemFilter}` : `#${id} تفاصيل الحركة`;
-    p_openPopup(popupTitle, html);
+    p_showPopover(e, popupTitle, html);
 }
 
-function showPurchSupplier(name) {
+function showPurchSupplier(e, name) {
     const rows = purchasesState.allTransactions.filter(x => x.supplier === name);
     const totalSpend = rows.reduce((sum, x) => sum + (parseFloat(x.total)||0), 0);
     const lastDate = rows.length > 0 ? new Date(rows[0].date).toLocaleDateString('en-GB') : '-';
@@ -1236,10 +1302,10 @@ function showPurchSupplier(name) {
             </div>
         </div>
     `;
-    p_openPopup('ملف المورد', html);
+    p_showPopover(e, 'ملف المورد', html);
 }
 
-function showPurchInvoice(num, date, wht, linkInv, linkWht) {
+function showPurchInvoice(e, num, date, wht, linkInv, linkWht) {
     let buttons = '';
     
     // Invoice Button (Blue)
@@ -1279,10 +1345,10 @@ function showPurchInvoice(num, date, wht, linkInv, linkWht) {
         </div>
         ${footer}
     `;
-    p_openPopup('بيانات الفاتورة الضريبية', html);
+    p_showPopover(e, 'بيانات الفاتورة الضريبية', html);
 }
 
-function showPurchAudit(id, user, ts) {
+function showPurchAudit(e, id, user, ts) {
     // 1. Show Basic Info immediately
     let html = `
         <div style="padding:10px; text-align:center; background:#f8fafc; border-radius:8px; margin-bottom:15px;">
@@ -1299,7 +1365,7 @@ function showPurchAudit(id, user, ts) {
             <i class="fas fa-circle-notch fa-spin text-muted"></i> جاري فحص الخلايا...
         </div>
     `;
-    p_openPopup(`#${id} بيانات التسجيل`, html);
+    p_showPopover(e, `#${id} بيانات التسجيل`, html);
 
     // 2. Fetch Notes from Backend
     google.script.run.withSuccessHandler(logs => {
