@@ -481,17 +481,50 @@ function getProductionHTMLStructure() {
                 </div>
             </div>
 
+            <style>
+                .mat-category-row { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 25px; margin-bottom: 25px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02); }
+                .mat-category-title { font-size: 1.1rem; font-weight: 800; color: #1e293b; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; border-bottom: 2px dashed #f1f5f9; padding-bottom: 12px; }
+                .var-cards-container { display: flex; gap: 18px; flex-wrap: wrap; padding-bottom: 15px; }
+                .var-card { flex: 1; min-width: 220px; max-width: 280px; border: 2px solid #e2e8f0; border-radius: 14px; padding: 20px 15px; cursor: pointer; position: relative; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); background: #f8fafc; display: flex; flex-direction: column; justify-content: space-between; gap: 12px; z-index: 1; }
+                .var-card:hover { border-color: #cbd5e1; transform: translateY(-3px); box-shadow: 0 8px 15px -3px rgba(0,0,0,0.08); }
+                .var-card.selected { border-color: #2563eb; background: #eff6ff; box-shadow: 0 10px 20px -5px rgba(37, 99, 235, 0.2); }
+                .var-card-title { font-weight: 800; font-size: 0.95rem; color: #334155; line-height: 1.5; padding-left: 35px; }
+                .var-card-stat { font-size: 0.85rem; color: #64748b; display: flex; justify-content: space-between; align-items: center; background: #ffffff; padding: 8px 12px; border-radius: 8px; border: 1px solid #f1f5f9; }
+                .var-card-stat strong { color: #0f172a; font-size: 1rem; }
+                .wh-info-btn { position: absolute; top: 15px; left: 15px; background: #ffffff; color: #475569; border: 1px solid #cbd5e1; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; cursor: pointer; transition: 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+                .wh-info-btn:hover { background: #e2e8f0; color: #0f172a; transform: scale(1.1); }
+                .wh-popover { position: absolute; top: -10px; left: 55px; background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(8px); color: white; padding: 18px; border-radius: 12px; width: max-content; min-width: 200px; z-index: 9999; display: none; box-shadow: 0 15px 30px -5px rgba(0,0,0,0.5); border: 1px solid #334155; }
+                .wh-popover::after { content: ''; position: absolute; top: 20px; left: -8px; border-width: 8px 8px 8px 0; border-style: solid; border-color: transparent rgba(15, 23, 42, 0.98) transparent transparent; }
+            </style>
             <div id="modal-assign-mats" class="ultra-modal-backdrop">
-                <div class="ultra-modal">
-                    <div class="ultra-modal-header">
-                        <h4 class="ultra-modal-title"><div class="icon-box" style="width:30px;height:30px;font-size:0.9rem;background:#dcfce7;color:#16a34a;"><i class="fas fa-tasks"></i></div> استكمال وتخصيص الخامات</h4>
-                        <button class="ultra-modal-close" onclick="closeProdModal('modal-assign-mats')"><i class="fas fa-times"></i></button>
-                    </div>
-                    <div class="ultra-modal-body" id="assign-mats-body">
+                <div class="ultra-modal" style="width: 850px; max-width: 95%;">
+                    <div class="ultra-modal-header" style="flex-direction: column; align-items: stretch; padding: 25px; background: #ffffff; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; z-index: 50; border-radius: 20px 20px 0 0;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                            <h4 class="ultra-modal-title"><div class="icon-box" style="width:36px;height:36px;font-size:1.1rem;background:#dcfce7;color:#16a34a;"><i class="fas fa-tasks"></i></div> تخصيص واعتماد الخامات</h4>
+                            <button class="ultra-modal-close" onclick="closeProdModal('modal-assign-mats')"><i class="fas fa-times"></i></button>
                         </div>
-                    <div class="ultra-modal-footer">
+                        <div id="assign-mats-sticky-info" style="display: flex; gap: 20px; background: #f8fafc; padding: 20px; border-radius: 14px; border: 1px solid #e2e8f0;">
+                            </div>
+                    </div>
+                    <div class="ultra-modal-body" id="assign-mats-body" style="background: #f1f5f9; padding: 30px;">
+                        </div>
+                    <div class="ultra-modal-footer" style="padding: 20px 25px; background: #ffffff; border-top: 1px solid #e2e8f0;">
                         <button class="btn-modern btn-action-glass" onclick="closeProdModal('modal-assign-mats')">إلغاء</button>
-                        <button class="btn-modern btn-action-success" onclick="submitMaterialAssignment()" id="btn-submit-assign" style="color:#fff;"><i class="fas fa-check-double"></i> اعتماد الخامات</button>
+                        <button class="btn-modern btn-action-success" onclick="submitMaterialAssignment()" id="btn-submit-assign" style="color:#fff; padding: 12px 35px; font-size: 1rem;"><i class="fas fa-check-double"></i> حفظ خامات التشغيل (WH_02)</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="modal-assign-alert" class="ultra-modal-backdrop" style="z-index: 10005;">
+                <div class="ultra-modal" style="width: 500px; max-width: 90%;">
+                    <div class="ultra-modal-header" style="background: #fef2f2; border-bottom: 1px solid #fee2e2;">
+                        <h4 class="ultra-modal-title" style="color: #b91c1c;"><i class="fas fa-exclamation-triangle"></i> تنبيه هام</h4>
+                        <button class="ultra-modal-close" onclick="closeProdModal('modal-assign-alert')" style="background: #fee2e2; color: #b91c1c;"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="ultra-modal-body" style="padding: 25px; font-size: 1rem; color: #334155; line-height: 1.6;" id="assign-alert-message">
+                        </div>
+                    <div class="ultra-modal-footer" style="background: #fef2f2; border-top: none;">
+                        <button class="btn-modern btn-action-glass" onclick="closeProdModal('modal-assign-alert')" style="background: #ffffff; color: #475569; border: 1px solid #cbd5e1;">حسناً، فهمت</button>
                     </div>
                 </div>
             </div>
@@ -1026,120 +1059,258 @@ function submitPlanEdit() {
         .updateProductionPlanBasic(planId, updates);
 }
 
+// Global Click Listener to close popovers
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.wh-info-btn') && !e.target.closest('.wh-popover')) {
+        document.querySelectorAll('.wh-popover').forEach(p => p.style.display = 'none');
+        // Reset the z-index of all cards when clicking outside
+        document.querySelectorAll('.var-card').forEach(c => c.style.zIndex = '1'); 
+    }
+});
+
+function toggleProdWhPopover(e, id) {
+    if (e && typeof e.stopPropagation === 'function') {
+        e.stopPropagation();
+    }
+    
+    // First, push all cards back to the default layer
+    document.querySelectorAll('.var-card').forEach(c => c.style.zIndex = '1');
+    
+    const pop = document.getElementById(`popover-${id}`);
+    document.querySelectorAll('.wh-popover').forEach(p => { if(p !== pop) p.style.display = 'none'; });
+    
+    if (pop.style.display === 'block') {
+        pop.style.display = 'none';
+    } else {
+        pop.style.display = 'block';
+        // Pull THIS specific card to the absolute front so its popover overlaps everything below it
+        const parentCard = document.getElementById(`card-${id}`);
+        if (parentCard) parentCard.style.zIndex = '999';
+    }
+}
+function selectVariation(matIdx, refId, uniqueId) {
+    document.querySelectorAll(`.var-card[data-matidx="${matIdx}"]`).forEach(el => el.classList.remove('selected'));
+    document.getElementById(`card-${uniqueId}`).classList.add('selected');
+    document.getElementById(`radio-${uniqueId}`).checked = true;
+}
+
 // 2. ASSIGN MATERIALS LOGIC
 function openProdAssignModal(planId) {
+    // Reset staged transfers state for the new session
+    productionState.stagedTransfers = {};
+
     const plan = productionState.currentPlans.find(p => String(p.id) === String(planId));
     if (!plan) return;
     
     productionState.activeAssignPlanId = planId;
     const body = document.getElementById('assign-mats-body');
-    body.innerHTML = '<div style="text-align:center; padding: 30px;"><i class="fas fa-circle-notch fa-spin fa-2x text-primary"></i><br><br>جاري جلب الخامات والمخزون...</div>';
+    body.innerHTML = '<div style="text-align:center; padding: 50px;"><i class="fas fa-circle-notch fa-spin fa-3x text-primary" style="margin-bottom:20px;"></i><br><h5>جاري تحليل الخامات وربط الأرصدة...</h5></div>';
     document.getElementById('modal-assign-mats').classList.add('active');
 
-    // Fetch Material Structure from Inventory Engine
+    // Fetch Recipe requirements first, then Inventory Structure
     google.script.run
-        .withSuccessHandler(resString => {
-            const res = JSON.parse(resString);
-            if (res.success) {
-                renderAssignMaterialsForm(plan, res.materialsGrouped, res.warehouses);
-            } else {
-                body.innerHTML = `<div class="empty-state text-danger">خطأ في جلب بيانات المخازن: ${res.message}</div>`;
-            }
+        .withSuccessHandler(recipeRes => {
+            google.script.run
+                .withSuccessHandler(resString => {
+                    const res = JSON.parse(resString);
+                    if (res.success) {
+                        renderAssignMaterialsForm(plan, res.materialsGrouped, recipeRes.reqs || {});
+                    } else {
+                        body.innerHTML = `<div class="empty-state text-danger">خطأ في جلب بيانات المخازن: ${res.message}</div>`;
+                    }
+                })
+                .getMaterialsInitialData();
         })
-        .getMaterialsInitialData();
+        .getRecipeRequirements(plan.recipeId);
 }
 
-function renderAssignMaterialsForm(plan, groups, warehouses) {
+function renderAssignMaterialsForm(plan, groups, reqs) {
+    // 1. Populate Sticky Header Info
+    const headerInfo = document.getElementById('assign-mats-sticky-info');
+    headerInfo.innerHTML = `
+        <div style="flex: 1.5;">
+            <div style="font-size:0.8rem; color:#64748b; margin-bottom: 4px;">المنتج المخطط</div>
+            <div style="font-weight:800; color:#0f172a; font-size:1.15rem;">${plan.product}</div>
+        </div>
+        <div style="flex: 1; border-right: 1px solid #cbd5e1; padding-right: 20px;">
+            <div style="font-size:0.8rem; color:#64748b; margin-bottom: 4px;">الكمية المستهدفة</div>
+            <div style="font-weight:800; color:#2563eb; font-size:1.15rem;"><i class="fas fa-cubes"></i> ${plan.quantity}</div>
+        </div>
+        <div style="flex: 1; border-right: 1px solid #cbd5e1; padding-right: 20px;">
+            <div style="font-size:0.8rem; color:#64748b; margin-bottom: 4px;">حالة الأولوية</div>
+            <div style="font-weight:800; color:#d97706; font-size:1.15rem;"><i class="fas fa-flag"></i> ${plan.priority}</div>
+        </div>
+    `;
+
     const body = document.getElementById('assign-mats-body');
-    let html = `<p style="color:#64748b; font-size:0.9rem; margin-bottom: 20px;">خطة رقم: <strong>${plan.id}</strong> | المنتج: <strong>${plan.product}</strong></p>`;
-    
+    let html = '';
+
+    // 2. Generate Horizontal Rows for each required generic material
     plan.materials.forEach((mat, idx) => {
-        // Build Select Options for this generic material
-        let varOpts = '<option value="">اختر النوع المحدد...</option>';
         const group = groups.find(g => g.name === mat.name);
-        if (group && group.variations) {
-            group.variations.forEach(v => { varOpts += `<option value="${v.id}">${v.label}</option>`; });
-        } else {
-            // Fallback if not grouped properly
-            varOpts += `<option value="manual_entry">إدخال يدوي</option>`;
-        }
-
-        let whOpts = '<option value="">اختر المخزن...</option>';
-        warehouses.forEach(w => { whOpts += `<option value="${w.id}">${w.name}</option>`; });
-
-        // Using plan.id in the HTML ID to guarantee uniqueness across dynamic renders
-        const uniqueSuffix = `${plan.id}-${idx}`;
+        const qtyPerUnit = reqs[mat.name] || 0;
+        const totalRequired = (parseFloat(plan.quantity) * parseFloat(qtyPerUnit)).toFixed(2);
 
         html += `
-            <div class="assign-mat-item">
-                <div class="assign-mat-header">
-                    <span><i class="fas fa-box" style="color:#94a3b8; margin-left:5px;"></i> ${mat.name}</span>
+            <div class="mat-category-row">
+                <div class="mat-category-title">
+                    <i class="fas fa-box-open" style="color:var(--prod-primary);"></i> ${mat.name}
+                    <span style="font-size:0.9rem; color:#64748b; font-weight:normal; margin-right:auto; background:#f1f5f9; padding:4px 12px; border-radius:20px;">الكمية الكلية المطلوبة للتشغيل: <strong style="color:#0f172a;">${totalRequired}</strong></span>
                 </div>
-                <div class="modern-form-grid" style="grid-template-columns: 1fr 1fr; gap:15px;">
-                    <div class="input-group-modern">
-                        <label>التوصيف الدقيق (Ref ID)</label>
-                        <select class="modern-input assign-var-select" data-matname="${mat.name}" id="assign-var-${uniqueSuffix}" onchange="fetchAssignLayers('${uniqueSuffix}')">
-                            ${varOpts}
-                        </select>
-                    </div>
-                    <div class="input-group-modern">
-                        <label>المخزن</label>
-                        <select class="modern-input assign-wh-select" id="assign-wh-${uniqueSuffix}" onchange="fetchAssignLayers('${uniqueSuffix}')">
-                            ${whOpts}
-                        </select>
-                    </div>
-                </div>
-                <div class="input-group-modern" style="margin-top: 15px;">
-                    <label>باتش الصرف (FIFO Layer)</label>
-                    <select class="modern-input assign-layer-select" id="assign-layer-${uniqueSuffix}" disabled>
-                        <option value="">اختر الصنف والمخزن أولاً</option>
-                    </select>
-                </div>
-            </div>
         `;
+
+        if (!group || !group.variations || group.variations.length === 0) {
+            html += `<div style="padding: 15px; color: #94a3b8; font-size: 0.95rem; text-align:center;"><i class="fas fa-info-circle"></i> لا توجد أصناف محددة مسجلة لهذا الخام. يمكنك المتابعة.</div></div>`;
+            return; 
+        }
+
+        const isSingle = group.variations.length === 1;
+        html += `<div class="var-cards-container">`;
+
+        // 3. Generate Toggle Cards
+        group.variations.forEach(v => {
+            const uniqueId = `${plan.id}-${idx}-${v.id}`;
+            html += `
+                <div class="var-card ${isSingle ? 'selected' : ''}" data-matidx="${idx}" id="card-${uniqueId}" onclick="selectVariation('${idx}', '${v.id}', '${uniqueId}')">
+                    <input type="radio" name="mat-${idx}" value="${v.id}" id="radio-${uniqueId}" style="display:none;" ${isSingle ? 'checked' : ''}>
+                    
+                    <button class="wh-info-btn" onclick="toggleProdWhPopover(event, '${uniqueId}')" title="توزيع المخازن">
+                        <i class="fas fa-warehouse"></i>
+                    </button>
+                    
+                    <div class="wh-popover" id="popover-${uniqueId}">
+                        <div style="font-size:0.8rem; color:#94a3b8; margin-bottom:10px; border-bottom:1px solid #475569; padding-bottom:5px;">توزيع الأرصدة المتوفرة</div>
+                        <div id="popover-content-${uniqueId}"><i class="fas fa-circle-notch fa-spin"></i> جاري التحميل...</div>
+                    </div>
+
+                    <div class="var-card-title">${v.label}</div>
+                    
+                    <div class="var-card-stat" id="stock-${uniqueId}">
+                        <span>الرصيد الكلي:</span>
+                        <strong><i class="fas fa-circle-notch fa-spin text-primary"></i></strong>
+                    </div>
+                </div>
+            `;
+            
+            // Fire async fetch for stock (delay slightly to prevent overwhelming the server)
+            setTimeout(() => fetchVariationStock(v.id, uniqueId, parseFloat(totalRequired)), 50 * idx);
+        });
+
+        html += `</div></div>`;
     });
+
     body.innerHTML = html;
 }
 
-function fetchAssignLayers(uniqueSuffix) {
-    const varSel = document.getElementById(`assign-var-${uniqueSuffix}`).value;
-    const whSel = document.getElementById(`assign-wh-${uniqueSuffix}`).value;
-    const layerSel = document.getElementById(`assign-layer-${uniqueSuffix}`);
-    
-    if (!varSel || !whSel) {
-        layerSel.innerHTML = '<option value="">اختر الصنف والمخزن أولاً</option>';
-        layerSel.disabled = true;
-        return;
-    }
-
-    layerSel.innerHTML = '<option>جاري البحث عن رصيد...</option>';
-    layerSel.disabled = true;
-
+function fetchVariationStock(refId, uniqueId, totalRequired) {
     google.script.run
-        .withSuccessHandler(jsonString => {
-            layerSel.innerHTML = '';
+        .withSuccessHandler(res => {
             try {
-                const layers = JSON.parse(jsonString);
-                if (!layers || layers.length === 0) {
-                    layerSel.innerHTML = '<option value="">لا يوجد رصيد متاح في هذا المخزن</option>';
-                    layerSel.style.borderColor = '#ef4444';
-                } else {
-                    layers.forEach(l => {
-                        const dateStr = new Date(l.date).toLocaleDateString('en-GB');
-                        const opt = new Option(`[${dateStr}] متاح: ${l.qty} @ تكلفة: ${l.cost.toFixed(2)}`, l.id);
-                        layerSel.add(opt);
-                    });
-                    layerSel.disabled = false;
-                    layerSel.style.borderColor = '#e2e8f0';
+                let totalWh02 = 0;
+                let grandTotal = 0;
+                let distHtml = '';
+                
+                const card = document.getElementById(`card-${uniqueId}`);
+                if (card) {
+                    card.dataset.req = totalRequired;
                 }
-            } catch(e) { layerSel.innerHTML = '<option value="">خطأ في البيانات</option>'; }
+                
+                if (res && res.success) {
+                    totalWh02 = res.totalWh02 || 0;
+                    if (card) card.dataset.wh02 = totalWh02;
+                    
+                    if (res.whMap && Object.keys(res.whMap).length > 0) {
+                        for (const [whArabicName, qty] of Object.entries(res.whMap)) {
+                            grandTotal += parseFloat(qty);
+                            const originalWhId = res.whIdMap[whArabicName]; 
+                            
+                            // Do not show transfer input for the destination itself (WH_02)
+                            if (originalWhId === 'WH_02') {
+                                distHtml += `<div style="display:flex; justify-content:space-between; gap:30px; margin-bottom:12px; font-size:0.95rem; color:#10b981;"><span>${whArabicName}:</span> <strong>${qty}</strong></div>`;
+                            } else {
+                                distHtml += `
+                                <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px; font-size:0.95rem; border-bottom:1px solid #334155; padding-bottom:10px;">
+                                    <div style="display:flex; justify-content:space-between;">
+                                        <span>${whArabicName}:</span> <strong>${qty}</strong>
+                                    </div>
+                                    <div style="display:flex; gap:8px; align-items:center;">
+                                        <i class="fas fa-exchange-alt" style="color:#94a3b8; font-size:0.8rem;"></i>
+                                        <input type="number" min="0" max="${qty}" placeholder="كمية النقل للتشغيل..." class="modern-input" style="padding:4px 8px; font-size:0.85rem; background:#1e293b; color:#fff; border:1px solid #475569;" oninput="updateStagedTransfer('${uniqueId}', '${refId}', '${originalWhId}', this.value, ${qty})">
+                                    </div>
+                                </div>`;
+                            }
+                        }
+                    } else {
+                        distHtml = '<div style="color:#fca5a5; font-size:0.85rem;">لا يوجد رصيد مسجل في أي مخزن</div>';
+                    }
+                } else {
+                    distHtml = `<div style="color:#fca5a5; font-size:0.85rem;">خطأ: ${res ? res.message : 'غير معروف'}</div>`;
+                }
+
+                // Set Popover content
+                const popContent = document.getElementById(`popover-content-${uniqueId}`);
+                if (popContent) popContent.innerHTML = distHtml;
+
+                // Set initial stock display on card
+                const stockDiv = document.getElementById(`stock-${uniqueId}`);
+                if (stockDiv) {
+                    stockDiv.innerHTML = `<span>الرصيد الكلي:</span> <strong style="font-size: 1.1rem; color: #0f172a;">${grandTotal} <span id="warn-${uniqueId}"></span></strong>`;
+                }
+
+                // Evaluate warnings based on required vs WH_02 stock
+                evaluateCardWarning(uniqueId);
+
+            } catch(e) { console.error('Error rendering stock:', e); }
         })
-        .getOpenLayers(varSel, whSel);
+        .getProductionMaterialStock(refId); 
+}
+
+function updateStagedTransfer(uniqueId, refId, sourceWhId, transferQty, maxQty) {
+    if (!productionState.stagedTransfers[uniqueId]) {
+        productionState.stagedTransfers[uniqueId] = {};
+    }
+    
+    let val = parseFloat(transferQty);
+    if (isNaN(val) || val < 0) val = 0;
+    if (val > maxQty) val = maxQty; // Cap at max available
+    
+    productionState.stagedTransfers[uniqueId][sourceWhId] = {
+        refId: refId,
+        qty: val
+    };
+    
+    // Live update the warning icons on the card
+    evaluateCardWarning(uniqueId);
+}
+
+function evaluateCardWarning(uniqueId) {
+    const card = document.getElementById(`card-${uniqueId}`);
+    if (!card) return;
+    
+    const wh02 = parseFloat(card.dataset.wh02 || 0);
+    const req = parseFloat(card.dataset.req || 0);
+    
+    let transferSum = 0;
+    const staged = productionState.stagedTransfers[uniqueId] || {};
+    for(let wh in staged) {
+        transferSum += parseFloat(staged[wh].qty || 0);
+    }
+    
+    const effectiveStock = wh02 + transferSum;
+    const warnSpan = document.getElementById(`warn-${uniqueId}`);
+    
+    if (warnSpan) {
+        if (effectiveStock < req) {
+            warnSpan.innerHTML = `<i class="fas fa-exclamation-triangle" style="color:#ef4444; margin-right:5px;" title="عجز في التشغيل! متاح: ${effectiveStock} من أصل ${req}"></i>`;
+        } else {
+            warnSpan.innerHTML = `<i class="fas fa-check-circle" style="color:#10b981; margin-right:5px;" title="رصيد التشغيل جاهز ومكفي"></i>`;
+        }
+    }
 }
 
 function submitMaterialAssignment() {
     const btn = document.getElementById('btn-submit-assign');
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري الاعتماد...';
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري التحقق...';
     btn.disabled = true;
 
     const planId = productionState.activeAssignPlanId;
@@ -1147,51 +1318,90 @@ function submitMaterialAssignment() {
     if (!plan) return;
 
     const assignments = [];
+    const finalTransfers = [];
     let hasError = false;
+    let errorMessages = [];
 
+    // Evaluate all materials sequentially
     plan.materials.forEach((mat, idx) => {
-        const uniqueSuffix = `${plan.id}-${idx}`;
-        const varElem = document.getElementById(`assign-var-${uniqueSuffix}`);
-        const whElem = document.getElementById(`assign-wh-${uniqueSuffix}`);
-        const layerElem = document.getElementById(`assign-layer-${uniqueSuffix}`);
+        
+        // IGNORE MATERIALS WITH NO SPECIFIC VARIATIONS REGISTERED
+        const anyRadioExists = document.querySelector(`input[name="mat-${idx}"]`);
+        if (!anyRadioExists) return;
 
-        if (varElem && whElem && layerElem) {
-            const matName = varElem.dataset.matname;
-            const refId = varElem.value;
-            const whId = whElem.value;
-            const layerId = layerElem.value;
-
-            if (refId && whId && layerId) {
-                assignments.push({
-                    name: matName,
-                    assignedData: { refId: refId, whId: whId, layerId: layerId }
-                });
-            } else {
-                hasError = true;
+        const selectedRadio = document.querySelector(`input[name="mat-${idx}"]:checked`);
+        if (selectedRadio) {
+            const uniqueId = selectedRadio.id.replace('radio-', '');
+            const refId = selectedRadio.value;
+            
+            assignments.push({
+                name: mat.name,
+                assignedData: { refId: refId, whId: 'WH_02' }
+            });
+            
+            // Validate Stock Fulfillment for WH_02
+            const card = document.getElementById(`card-${uniqueId}`);
+            if (card) {
+                const wh02 = parseFloat(card.dataset.wh02 || 0);
+                const req = parseFloat(card.dataset.req || 0);
+                
+                let transferSum = 0;
+                const staged = productionState.stagedTransfers[uniqueId] || {};
+                for (let wh in staged) {
+                    const tQty = parseFloat(staged[wh].qty || 0);
+                    if (tQty > 0) {
+                        transferSum += tQty;
+                        finalTransfers.push({
+                            refId: staged[wh].refId,
+                            sourceWhId: wh,
+                            qty: tQty
+                        });
+                    }
+                }
+                
+                if (wh02 + transferSum < req) {
+                    hasError = true;
+                    errorMessages.push(`<strong>${mat.name}:</strong> متاح بالتشغيل (${wh02}) + نقل (${transferSum}) / المطلوب (${req})`);
+                }
             }
+        } else {
+            hasError = true;
+            errorMessages.push(`<strong>${mat.name}:</strong> لم يتم اختيار الصنف الدقيق.`);
         }
     });
 
     if (hasError) {
-        alert('تنبيه: لم يتم تخصيص جميع الخامات بالكامل. يرجى التأكد من توفر الأرصدة واختيارها.');
-        btn.innerHTML = '<i class="fas fa-check-double"></i> اعتماد الخامات';
+        // Populate and Show Custom Alert Modal
+        const alertMsgDiv = document.getElementById('assign-alert-message');
+        if(alertMsgDiv) {
+            alertMsgDiv.innerHTML = '<p style="margin-bottom:15px; font-weight:bold; color:#b91c1c;">لا يمكن الاعتماد لوجود نواقص في الخامات التالية:</p>' + 
+                                    '<ul style="list-style-type:none; padding:0; margin:0; color:#ef4444;">' + 
+                                    errorMessages.map(m => `<li style="margin-bottom:8px; background:#fef2f2; padding:8px 12px; border-radius:6px; border:1px solid #fee2e2;">${m}</li>`).join('') + 
+                                    '</ul>' + 
+                                    '<p style="margin-top:15px; font-size:0.9rem; color:#64748b;"><i class="fas fa-info-circle"></i> يمكنك معالجة العجز عن طريق نقل أرصدة من المخازن الأخرى (عبر النقر على أيقونة المخزن داخل الصنف).</p>';
+        }
+        document.getElementById('modal-assign-alert').classList.add('active');
+
+        btn.innerHTML = '<i class="fas fa-check-double"></i> حفظ خامات التشغيل (WH_02)';
         btn.disabled = false;
         return;
     }
 
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري النقل والحفظ...';
+
     google.script.run
         .withSuccessHandler(res => {
-            btn.innerHTML = '<i class="fas fa-check-double"></i> اعتماد الخامات';
+            btn.innerHTML = '<i class="fas fa-check-double"></i> حفظ خامات التشغيل (WH_02)';
             btn.disabled = false;
             if (res.success) {
-                showToast('تم تخصيص واعتماد الخامات بنجاح', 'success');
+                showToast('تم تخصيص الخامات واعتماد خطة الإنتاج بنجاح', 'success');
                 closeProdModal('modal-assign-mats');
                 loadProductionData();
             } else {
-                alert('خطأ: ' + res.message);
+                alert('خطأ أثناء النقل والحفظ: ' + res.message);
             }
         })
-        .assignPlanMaterials(productionState.activeAssignPlanId, assignments);
+        .executeProductionTransfersAndAssign(planId, assignments, finalTransfers);
 }
 
 // 3. AUDIT HISTORY LOGIC
