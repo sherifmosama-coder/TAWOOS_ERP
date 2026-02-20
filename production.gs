@@ -255,3 +255,190 @@ function getProductionPlansRaw(sheet, startDate, endDate) {
   // Sort by ID Descending (Newest first)
   return plans.reverse();
 }
+
+/**
+ * UPDATE PLAN DETAILS & ADD NOTE
+ */
+function updateProductionPlanBasic(planId, updates) {
+  try {
+    const lock = LockService.getScriptLock();
+    lock.waitLock(5000);
+    const ss = SpreadsheetApp.openById(PRODUCTION_SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('خطط الانتاج');
+    const data = sheet.getDataRange().getValues();
+    let rowIndex = -1;
+
+    for (let i = 2; i < data.length; i++) {
+      if (data[i][0] == planId) {
+        rowIndex = i + 1;
+        break;
+      }
+    }
+    if (rowIndex === -1) throw new Error("Plan not found");
+
+    const user = Session.getActiveUser().getEmail() || 'User';
+    const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+
+    // Check if the product or recipe fundamentally changed (requires resetting assigned materials)
+    const oldProduct = String(data[rowIndex - 1][2] || "");
+    const oldRecipe = String(data[rowIndex - 1][7] || "");
+    let recipeChanged = false;
+    
+    if (updates.product && updates.recipeId) {
+       if (oldProduct !== String(updates.product) || oldRecipe !== String(updates.recipeId)) {
+           recipeChanged = true;
+       }
+    }
+
+    // Map fields to columns (1-based index)
+    const colMap = {
+      date: 2,
+      product: 3,
+      quantity: 4,
+      constraint: 5,
+      priority: 6,
+      notes: 7,
+      recipeId: 8
+    };
+
+    // 1. Update basic columns and write notes
+    for (const [key, newVal] of Object.entries(updates)) {
+      if (colMap[key]) {
+        const colIdx = colMap[key];
+        const cell = sheet.getRange(rowIndex, colIdx);
+        const oldVal = cell.getValue();
+
+        // Format old value correctly BEFORE comparison to avoid false positives (especially for Dates)
+        const oldStr = oldVal instanceof Date ? Utilities.formatDate(oldVal, Session.getScriptTimeZone(), "yyyy-MM-dd") : String(oldVal || "");
+        const newStr = String(newVal || "");
+
+        if (oldStr !== newStr) {
+          const newNoteLine = `[${timestamp}] تم التعديل من '${oldStr}' إلى '${newStr}' بواسطة ${user}`;
+          const existingNote = cell.getNote();
+          cell.setNote(existingNote ? existingNote + "\n" + newNoteLine : newNoteLine);
+          cell.setValue(newVal);
+        }
+      }
+    }
+
+    // 2. Clear old materials and write new ones ONLY IF Recipe/Product changed
+    if (recipeChanged && updates.materials && Array.isArray(updates.materials)) {
+       const lastCol = sheet.getLastColumn();
+       
+       // Clear old materials data starting from column I (9) to the end
+       if (lastCol >= 9) {
+           sheet.getRange(rowIndex, 9, 1, lastCol - 8).clearContent().clearNote();
+       }
+       
+       // Prepare new generic material list (wipes assignments)
+       const matUpdates = [];
+       updates.materials.forEach(mat => {
+           matUpdates.push(mat.name);
+           matUpdates.push(''); // Empty variation/assignment placeholder
+       });
+       
+       if (matUpdates.length > 0) {
+           sheet.getRange(rowIndex, 9, 1, matUpdates.length).setValues([matUpdates]);
+       }
+
+       // Add audit note to the Recipe ID cell explaining the material reset
+       const recipeCell = sheet.getRange(rowIndex, 8);
+       const existingNote = recipeCell.getNote();
+       const newNoteLine = `[${timestamp}] تم مسح الخامات المخصصة وإعادة ضبطها بناءً على تحديث الوصفة بواسطة ${user}`;
+       recipeCell.setNote(existingNote ? existingNote + "\n" + newNoteLine : newNoteLine);
+    }
+
+    lock.releaseLock();
+    return { success: true, message: 'تم التحديث بنجاح' };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * ASSIGN SPECIFIC MATERIALS (STAGE 2)
+ */
+function assignPlanMaterials(planId, assignments) {
+  try {
+    const lock = LockService.getScriptLock();
+    lock.waitLock(5000);
+    const ss = SpreadsheetApp.openById(PRODUCTION_SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('خطط الانتاج');
+    const data = sheet.getDataRange().getValues();
+    let rowIndex = -1;
+
+    for (let i = 2; i < data.length; i++) {
+      if (data[i][0] == planId) {
+        rowIndex = i + 1;
+        break;
+      }
+    }
+    if (rowIndex === -1) throw new Error("Plan not found");
+
+    const user = Session.getActiveUser().getEmail() || 'User';
+    const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+
+    const headersRow = data[rowIndex - 1]; 
+    
+    for (let i = 8; i < headersRow.length; i += 2) {
+      const matName = headersRow[i];
+      if (matName) {
+        const assignedInfo = assignments.find(a => a.name === matName);
+        if (assignedInfo && assignedInfo.assignedData) {
+          const cell = sheet.getRange(rowIndex, i + 2); 
+          const oldVal = cell.getValue();
+          const newVal = JSON.stringify(assignedInfo.assignedData);
+
+          if (String(oldVal) !== String(newVal)) {
+            const newNoteLine = `[${timestamp}] تم تخصيص الخامات بواسطة ${user}`;
+            const existingNote = cell.getNote();
+            cell.setNote(existingNote ? existingNote + "\n" + newNoteLine : newNoteLine);
+            cell.setValue(newVal);
+          }
+        }
+      }
+    }
+    lock.releaseLock();
+    return { success: true, message: 'تم تخصيص الخامات بنجاح' };
+  } catch(e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * FETCH EDIT HISTORY (CELL NOTES)
+ */
+function getPlanEditHistory(planId) {
+   try {
+    const ss = SpreadsheetApp.openById(PRODUCTION_SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('خطط الانتاج');
+    const data = sheet.getDataRange().getValues();
+    let rowIndex = -1;
+
+    for (let i = 2; i < data.length; i++) {
+      if (data[i][0] == planId) {
+        rowIndex = i + 1;
+        break;
+      }
+    }
+    if (rowIndex === -1) throw new Error("Plan not found");
+
+    const notes = sheet.getRange(rowIndex, 1, 1, sheet.getLastColumn()).getNotes()[0];
+    const headers = sheet.getRange(2, 1, 1, sheet.getLastColumn()).getValues()[0];
+    
+    const historyLogs = [];
+    
+    for (let i = 0; i < notes.length; i++) {
+      if (notes[i]) {
+        historyLogs.push({
+          column: headers[i] || `العمود ${i+1}`,
+          log: notes[i]
+        });
+      }
+    }
+
+    return { success: true, history: historyLogs };
+   } catch (e) {
+     return { success: false, message: e.toString() };
+   }
+}
