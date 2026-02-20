@@ -442,3 +442,117 @@ function getPlanEditHistory(planId) {
      return { success: false, message: e.toString() };
    }
 }
+
+/**
+ * FETCH RECIPE REQUIREMENTS (QTY PER UNIT)
+ */
+function getRecipeRequirements(recipeId) {
+  try {
+    const ss = SpreadsheetApp.openById(PRODUCTION_SPREADSHEET_ID);
+    const sheet = ss.getSheetByName('RECIPE');
+    const lastRow = sheet.getLastRow();
+    const lastCol = sheet.getLastColumn();
+    if (lastRow < 5) throw new Error("No recipes found");
+    
+    const headers = sheet.getRange(4, 8, 1, lastCol - 7).getValues()[0];
+    const data = sheet.getRange(5, 1, lastRow - 4, lastCol).getValues();
+
+    for (let i = 0; i < data.length; i++) {
+      if (data[i][1] == recipeId) {
+        const reqs = {};
+        for (let m = 0; m < headers.length; m++) {
+          const qty = parseFloat(data[i][m + 7]);
+          if (qty > 0) reqs[headers[m]] = qty;
+        }
+        return { success: true, reqs: reqs };
+      }
+    }
+    return { success: false, message: 'Recipe not found' };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * FETCH LIVE STOCK FOR A MATERIAL (With Arabic Names Mapping)
+ */
+function getProductionMaterialStock(refId) {
+  try {
+    const materialsSS = SpreadsheetApp.openById('1V6RihfeEAlt78-eRgeO3b3xDL_tBCr2BppUIL_T5anw'); 
+    const stockSheet = materialsSS.getSheetByName('Current_Stock');
+    const whSheet = materialsSS.getSheetByName('Warehouses');
+    
+    // 1. Map Warehouse IDs to Arabic Names
+    const whData = whSheet.getRange(2, 1, whSheet.getLastRow() - 1, 3).getValues();
+    const whNames = {};
+    whData.forEach(row => {
+       if (row[0]) whNames[row[0]] = row[2];
+    });
+
+    // 2. Aggregate Stock
+    const data = stockSheet.getDataRange().getValues();
+    let totalWh02 = 0;
+    const whMap = {};
+    const whIdMap = {};
+    
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]) === String(refId)) {
+        const wh = String(data[i][1]);
+        const qty = Number(data[i][2]) || 0;
+        
+        if (qty > 0) { // Only count actual positive stock
+            const arabicName = whNames[wh] || wh;
+            if (!whMap[arabicName]) {
+                whMap[arabicName] = 0;
+                whIdMap[arabicName] = wh; // Keep original ID for transfer backend calls
+            }
+            whMap[arabicName] += qty;
+            
+            if (wh === 'WH_02') {
+                totalWh02 += qty;
+            }
+        }
+      }
+    }
+    
+    return { success: true, totalWh02: totalWh02, whMap: whMap, whIdMap: whIdMap };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * PROCESS TRANSFERS & ASSIGN MATERIALS
+ * Executes FIFO transfers to WH_02 first, then saves the production plan.
+ */
+function executeProductionTransfersAndAssign(planId, assignments, transfers) {
+  try {
+    const lock = LockService.getScriptLock();
+    lock.waitLock(15000); 
+
+    // 1. Execute Transfers using Inventory Engine Logic
+    if (transfers && transfers.length > 0) {
+        const materialsSS = SpreadsheetApp.openById('1V6RihfeEAlt78-eRgeO3b3xDL_tBCr2BppUIL_T5anw');
+        for (let i = 0; i < transfers.length; i++) {
+            const t = transfers[i];
+            if (t.qty > 0) {
+                // Call handleTransfer directly from materials.gs namespace
+                handleTransfer(materialsSS, {
+                    refId: t.refId,
+                    whId: t.sourceWhId,
+                    relatedWhId: 'WH_02',
+                    qty: t.qty
+                });
+            }
+        }
+    }
+    
+    lock.releaseLock(); 
+
+    // 2. Save material assignments to Production Plan
+    return assignPlanMaterials(planId, assignments);
+
+  } catch(e) {
+    return { success: false, message: 'فشلت العملية أثناء نقل الأرصدة: ' + e.toString() };
+  }
+}
